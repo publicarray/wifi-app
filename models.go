@@ -19,6 +19,35 @@ type AccessPoint struct {
 	LastSeen      time.Time `json:"lastSeen"`      // Last time this AP was seen
 	Capabilities  []string  `json:"capabilities"`  // AP capabilities (HT, VHT, HE, etc.)
 	BeaconInt     int       `json:"beaconInt"`     // Beacon interval in TU
+	// Advanced capabilities
+	BSSTransition bool   `json:"bsstransition"` // BSS Transition Management support (802.11v)
+	UAPSD         bool   `json:"uapsd"`         // Unsolicited Automatic Power Save Delivery
+	FastRoaming   bool   `json:"fastroaming"`   // Fast BSS Transition (802.11r)
+	DTIM          int    `json:"dtim"`          // DTIM (Delivery Traffic Indication Message) interval
+	PMF           string `json:"pmf"`           // Protected Management Frames (Required, Optional, Disabled)
+	// Additional advanced metrics
+	WPS                 bool    `json:"wps"`                 // WPS (WiFi Protected Setup) status
+	BSSLoadStations     int     `json:"bssLoadStations"`     // Number of connected stations
+	BSSLoadUtilization  int     `json:"bssLoadUtilization"`  // Channel utilization percentage (0-255)
+	MaxTheoreticalSpeed int     `json:"maxTheoreticalSpeed"` // Max theoretical throughput in Mbps
+	TWTSupport          bool    `json:"twtSupport"`          // Target Wake Time support (WiFi 6)
+	NeighborReport      bool    `json:"neighborReport"`      // 802.11k Neighbor Report support
+	MIMOStreams         int     `json:"mimoStreams"`         // Number of MIMO spatial streams (1-4)
+	RealWorldSpeed      int     `json:"realWorldSpeed"`      // Expected real-world throughput in Mbps (~60-70% of theoretical)
+	EstimatedRange      float64 `json:"estimatedRange"`      // Estimated range in meters based on TX power and signal
+	SNR                 int     `json:"snr"`                 // Signal-to-noise ratio
+	// Security details
+	SecurityCiphers []string `json:"securityCiphers"` // Encryption ciphers (CCMP, GCMP, TKIP, etc.)
+	AuthMethods     []string `json:"authMethods"`     // Authentication methods (PSK, SAE, EAP, etc.)
+	// WiFi 6/7 features
+	BSSColor   int  `json:"bssColor"`   // BSS Color ID (WiFi 6)
+	OBSSPD     bool `json:"obssPD"`     // OBSS PD (Spatial reuse) support
+	QAMSupport int  `json:"qamSupport"` // Max QAM modulation (256, 1024, 4096)
+	MUMIMO     bool `json:"mumimo"`     // MU-MIMO support
+	// Network management
+	QoSSupport  bool   `json:"qosSupport"`  // WMM/QoS support
+	CountryCode string `json:"countryCode"` // Regulatory country code (US, EU, etc.)
+	APName      string `json:"apName"`      // AP name/description if advertised
 }
 
 // Network represents a WiFi network (SSID) that may have multiple access points

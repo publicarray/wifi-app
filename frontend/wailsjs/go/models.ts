@@ -17,6 +17,30 @@ export namespace main {
 	    lastSeen: any;
 	    capabilities: string[];
 	    beaconInt: number;
+	    bsstransition: boolean;
+	    uapsd: boolean;
+	    fastroaming: boolean;
+	    dtim: number;
+	    pmf: string;
+	    wps: boolean;
+	    bssLoadStations: number;
+	    bssLoadUtilization: number;
+	    maxTheoreticalSpeed: number;
+	    twtSupport: boolean;
+	    neighborReport: boolean;
+	    mimoStreams: number;
+	    realWorldSpeed: number;
+	    estimatedRange: number;
+	    snr: number;
+	    securityCiphers: string[];
+	    authMethods: string[];
+	    bssColor: number;
+	    obssPD: boolean;
+	    qamSupport: number;
+	    mumimo: boolean;
+	    qosSupport: boolean;
+	    countryCode: string;
+	    apName: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new AccessPoint(source);
@@ -39,6 +63,30 @@ export namespace main {
 	        this.lastSeen = this.convertValues(source["lastSeen"], null);
 	        this.capabilities = source["capabilities"];
 	        this.beaconInt = source["beaconInt"];
+	        this.bsstransition = source["bsstransition"];
+	        this.uapsd = source["uapsd"];
+	        this.fastroaming = source["fastroaming"];
+	        this.dtim = source["dtim"];
+	        this.pmf = source["pmf"];
+	        this.wps = source["wps"];
+	        this.bssLoadStations = source["bssLoadStations"];
+	        this.bssLoadUtilization = source["bssLoadUtilization"];
+	        this.maxTheoreticalSpeed = source["maxTheoreticalSpeed"];
+	        this.twtSupport = source["twtSupport"];
+	        this.neighborReport = source["neighborReport"];
+	        this.mimoStreams = source["mimoStreams"];
+	        this.realWorldSpeed = source["realWorldSpeed"];
+	        this.estimatedRange = source["estimatedRange"];
+	        this.snr = source["snr"];
+	        this.securityCiphers = source["securityCiphers"];
+	        this.authMethods = source["authMethods"];
+	        this.bssColor = source["bssColor"];
+	        this.obssPD = source["obssPD"];
+	        this.qamSupport = source["qamSupport"];
+	        this.mumimo = source["mumimo"];
+	        this.qosSupport = source["qosSupport"];
+	        this.countryCode = source["countryCode"];
+	        this.apName = source["apName"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {

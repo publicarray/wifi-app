@@ -115,6 +115,11 @@
     return 'security-good'
   }
 
+  function getQamClass(qam) {
+    if (!qam) return ''
+    return `qam-${qam}`
+  }
+
   // Get unique channels for filter dropdown
   $: availableChannels = [...new Set(networks.map(n => n.channel))].sort((a, b) => a - b)
   
@@ -262,6 +267,151 @@
                         <div class="ap-metric">
                           <span class="metric-label">Vendor:</span>
                           <span>{ap.vendor}</span>
+                        </div>
+                      </div>
+                      <div class="ap-capabilities">
+                        <div class="capability-title">Advanced Capabilities</div>
+                        <div class="capability-grid">
+                          <div class="capability-item">
+                            <span class="capability-label">BSS Transition (802.11v):</span>
+                            <span class="capability-value">{ap.bsstransition ? '✓ Supported' : '✗ Not supported'}</span>
+                          </div>
+                          <div class="capability-item">
+                            <span class="capability-label">UAPSD:</span>
+                            <span class="capability-value">{ap.uapsd ? '✓ Enabled' : '✗ Disabled'}</span>
+                          </div>
+                          <div class="capability-item">
+                            <span class="capability-label">Fast Roaming (802.11r):</span>
+                            <span class="capability-value">{ap.fastroaming ? '✓ Supported' : '✗ Not supported'}</span>
+                          </div>
+                          <div class="capability-item">
+                            <span class="capability-label">DTIM:</span>
+                            <span class="capability-value">{ap.dtim}</span>
+                          </div>
+                          <div class="capability-item">
+                            <span class="capability-label">PMF:</span>
+                            <span class="capability-value pmf-{ap.pmf.toLowerCase()}">{ap.pmf}</span>
+                          </div>
+                        </div>
+                        <div class="capability-title perf-section" style="margin-top: 12px;">Performance & Signal</div>
+                        <div class="capability-grid">
+                          <div class="capability-item">
+                            <span class="capability-label">Real-world Speed:</span>
+                            <span class="capability-value">{ap.realWorldSpeed ? `${ap.realWorldSpeed} Mbps` : 'N/A'}</span>
+                          </div>
+                          <div class="capability-item">
+                            <span class="capability-label">Estimated Range:</span>
+                            <span class="capability-value">{ap.estimatedRange ? `${Math.round(ap.estimatedRange)}m` : 'N/A'}</span>
+                          </div>
+                          <div class="capability-item">
+                            <span class="capability-label">SNR:</span>
+                            <span class="capability-value">{ap.snr && ap.snr > 0 ? `${ap.snr} dB` : 'N/A'}</span>
+                          </div>
+                        </div>
+                        <div class="capability-title security-section" style="margin-top: 12px;">Security Details</div>
+                        <div class="capability-grid full-width">
+                          <div class="capability-item">
+                            <span class="capability-label">Ciphers:</span>
+                            <span class="capability-value">{ap.securityCiphers && ap.securityCiphers.length > 0 ? ap.securityCiphers.join(', ') : 'N/A'}</span>
+                          </div>
+                          <div class="capability-item">
+                            <span class="capability-label">Auth Methods:</span>
+                            <span class="capability-value">{ap.authMethods && ap.authMethods.length > 0 ? ap.authMethods.join(', ') : 'N/A'}</span>
+                          </div>
+                        </div>
+                        <div class="capability-title wifi6-section" style="margin-top: 12px;">WiFi 6/7 Features</div>
+                        <div class="capability-grid">
+                          <div class="capability-item">
+                            <span class="capability-label">BSS Color:</span>
+                            <span class="capability-value">{ap.bssColor || 'N/A'}</span>
+                          </div>
+                          <div class="capability-item">
+                            <span class="capability-label">OBSS PD:</span>
+                            <span class="capability-value">{ap.obssPD ? '✓ Supported' : '✗ Not supported'}</span>
+                          </div>
+                          <div class="capability-item">
+                            <span class="capability-label">Max QAM:</span>
+                            <span class="capability-value {getQamClass(ap.qamSupport)}">{ap.qamSupport ? `${ap.qamSupport}-QAM` : 'N/A'}</span>
+                          </div>
+                          <div class="capability-item">
+                            <span class="capability-label">MU-MIMO:</span>
+                            <span class="capability-value">{ap.mumimo ? '✓ Supported' : '✗ Not supported'}</span>
+                          </div>
+                        </div>
+                        <div class="capability-title mgmt-section" style="margin-top: 12px;">Network Management</div>
+                        <div class="capability-grid">
+                          <div class="capability-item">
+                            <span class="capability-label">QoS/WMM:</span>
+                            <span class="capability-value">{ap.qosSupport ? '✓ Supported' : '✗ Not supported'}</span>
+                          </div>
+                          <div class="capability-item">
+                            <span class="capability-label">Country:</span>
+                            <span class="capability-value">{ap.countryCode || 'N/A'}</span>
+                          </div>
+                          <div class="capability-item">
+                            <span class="capability-label">AP Name:</span>
+                            <span class="capability-value">{ap.apName || 'N/A'}</span>
+                          </div>
+                        </div>
+                        <div class="capability-title perf-section" style="margin-top: 12px;">Performance & Signal</div>
+                        <div class="capability-grid">
+                          <div class="capability-item">
+                            <span class="capability-label">Real-world Speed:</span>
+                            <span class="capability-value">{ap.realWorldSpeed ? `${ap.realWorldSpeed} Mbps` : 'N/A'}</span>
+                          </div>
+                          <div class="capability-item">
+                            <span class="capability-label">Estimated Range:</span>
+                            <span class="capability-value">{ap.estimatedRange ? `${Math.round(ap.estimatedRange)}m` : 'N/A'}</span>
+                          </div>
+                          <div class="capability-item">
+                            <span class="capability-label">SNR:</span>
+                            <span class="capability-value">{ap.snr && ap.snr > 0 ? `${ap.snr} dB` : 'N/A'}</span>
+                          </div>
+                        </div>
+                        <div class="capability-title security-section" style="margin-top: 12px;">Security Details</div>
+                        <div class="capability-grid full-width">
+                          <div class="capability-item">
+                            <span class="capability-label">Ciphers:</span>
+                            <span class="capability-value">{ap.securityCiphers && ap.securityCiphers.length > 0 ? ap.securityCiphers.join(', ') : 'N/A'}</span>
+                          </div>
+                          <div class="capability-item">
+                            <span class="capability-label">Auth Methods:</span>
+                            <span class="capability-value">{ap.authMethods && ap.authMethods.length > 0 ? ap.authMethods.join(', ') : 'N/A'}</span>
+                          </div>
+                        </div>
+                        <div class="capability-title wifi6-section" style="margin-top: 12px;">WiFi 6/7 Features</div>
+                        <div class="capability-grid">
+                          <div class="capability-item">
+                            <span class="capability-label">BSS Color:</span>
+                            <span class="capability-value">{ap.bssColor || 'N/A'}</span>
+                          </div>
+                          <div class="capability-item">
+                            <span class="capability-label">OBSS PD:</span>
+                            <span class="capability-value">{ap.obssPD ? '✓ Supported' : '✗ Not supported'}</span>
+                          </div>
+                          <div class="capability-item">
+                            <span class="capability-label">Max QAM:</span>
+                            <span class="capability-value {getQamClass(ap.qamSupport)}">{ap.qamSupport ? `${ap.qamSupport}-QAM` : 'N/A'}</span>
+                          </div>
+                          <div class="capability-item">
+                            <span class="capability-label">MU-MIMO:</span>
+                            <span class="capability-value">{ap.mumimo ? '✓ Supported' : '✗ Not supported'}</span>
+                          </div>
+                        </div>
+                        <div class="capability-title mgmt-section" style="margin-top: 12px;">Network Management</div>
+                        <div class="capability-grid">
+                          <div class="capability-item">
+                            <span class="capability-label">QoS/WMM:</span>
+                            <span class="capability-value">{ap.qosSupport ? '✓ Supported' : '✗ Not supported'}</span>
+                          </div>
+                          <div class="capability-item">
+                            <span class="capability-label">Country:</span>
+                            <span class="capability-value">{ap.countryCode || 'N/A'}</span>
+                          </div>
+                          <div class="capability-item">
+                            <span class="capability-label">AP Name:</span>
+                            <span class="capability-value">{ap.apName || 'N/A'}</span>
+                          </div>
                         </div>
                       </div>
                     </div>
@@ -564,6 +714,88 @@
 
   .metric-label {
     color: #888;
+  }
+
+  .ap-capabilities {
+    margin-top: 12px;
+    padding-top: 12px;
+    border-top: 1px solid #333;
+  }
+
+  .capability-title {
+    font-size: 12px;
+    font-weight: 600;
+    color: #aaa;
+    margin-bottom: 8px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+
+  .capability-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 6px;
+  }
+
+  .capability-item {
+    display: flex;
+    justify-content: space-between;
+    font-size: 11px;
+    align-items: center;
+  }
+
+  .capability-label {
+    color: #888;
+  }
+
+  .capability-value {
+    font-weight: 500;
+  }
+
+  .pmf-required {
+    color: #4caf50;
+  }
+
+  .pmf-optional {
+    color: #ff9800;
+  }
+
+  .pmf-disabled {
+    color: #888;
+  }
+
+  .capability-title.perf-section {
+    color: #0066cc;
+  }
+
+  .capability-title.security-section {
+    color: #ff9800;
+  }
+
+  .capability-title.wifi6-section {
+    color: #9c27b0;
+  }
+
+  .capability-title.mgmt-section {
+    color: #795548;
+  }
+
+  .capability-grid.full-width {
+    grid-template-columns: 1fr;
+  }
+
+  .qam-256 {
+    color: #aaa;
+  }
+
+  .qam-1024 {
+    color: #0066cc;
+    font-weight: 600;
+  }
+
+  .qam-4096 {
+    color: #4caf50;
+    font-weight: 600;
   }
 
   .issues-row {
