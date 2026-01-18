@@ -2,7 +2,9 @@ package main
 
 import (
 	"fmt"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -14,7 +16,17 @@ type windowsScanner struct {
 }
 
 func newWindowsScanner() IWiFiScanner {
-	ouiLookup := NewOUILookup("")
+	cacheDir, err := os.UserCacheDir()
+	if err != nil {
+		cacheDir = os.TempDir()
+	}
+	cacheFile := filepath.Join(cacheDir, "wifi-app", "oui.txt")
+
+	if err := os.MkdirAll(filepath.Dir(cacheFile), 0755); err != nil {
+		cacheFile = filepath.Join(os.TempDir(), "oui.txt")
+	}
+
+	ouiLookup := NewOUILookup(cacheFile)
 	ouiLookup.LoadOUIDatabase()
 
 	return &windowsScanner{

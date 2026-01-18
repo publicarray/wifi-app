@@ -47,7 +47,9 @@ func NewWiFiService() *WiFiService {
 	}
 	cacheFile := filepath.Join(cacheDir, "wifi-app", "oui.txt")
 
-	os.MkdirAll(filepath.Dir(cacheFile), 0755)
+	if err := os.MkdirAll(filepath.Dir(cacheFile), 0755); err != nil {
+		cacheFile = filepath.Join(os.TempDir(), "oui.txt")
+	}
 
 	return &WiFiService{
 		scanner:        NewWiFiScanner(cacheFile),

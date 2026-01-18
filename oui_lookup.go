@@ -37,9 +37,16 @@ func (o *OUILookup) LoadOUIDatabase() error {
 
 	if stat, err := os.Stat(o.cacheFile); err == nil {
 		if stat.Size() == 0 {
-			useFallback = true
-		} else if time.Since(stat.ModTime()) > cacheMaxAge {
 			if err := o.downloadOUIDatabase(o.cacheFile); err != nil {
+				useFallback = true
+			} else {
+				_ = o.loadFromFile(o.cacheFile)
+			}
+		} else if time.Since(stat.ModTime()) > cacheMaxAge {
+			if err := o.downloadOUIDatabase(o.cacheFile); err == nil {
+				_ = o.loadFromFile(o.cacheFile)
+			}
+			if err := o.loadFromFile(o.cacheFile); err != nil {
 				useFallback = true
 			}
 		} else {
@@ -50,6 +57,8 @@ func (o *OUILookup) LoadOUIDatabase() error {
 	} else {
 		if err := o.downloadOUIDatabase(o.cacheFile); err != nil {
 			useFallback = true
+		} else {
+			_ = o.loadFromFile(o.cacheFile)
 		}
 	}
 
@@ -61,9 +70,9 @@ func (o *OUILookup) LoadOUIDatabase() error {
 	return nil
 }
 
-// downloadOUIDatabase downloads the IEEE OUI database
+// downloadOUIDatabase downloads the OUI database from maclookup.app
 func (o *OUILookup) downloadOUIDatabase(filepath string) error {
-	url := "http://standards-oui.ieee.org/oui/oui.txt"
+	url := "https://maclookup.app/downloads/csv-database/get-db"
 
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
@@ -73,7 +82,10 @@ func (o *OUILookup) downloadOUIDatabase(filepath string) error {
 	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36")
 	req.Header.Set("Accept", "text/plain, text/html, application/xhtml+xml, application/xml;q=0.9, */*;q=0.8")
 
-	client := &http.Client{}
+	client := &http.Client{
+		Timeout: 30 * time.Second,
+	}
+
 	resp, err := client.Do(req)
 	if err != nil {
 		return err
@@ -84,14 +96,21 @@ func (o *OUILookup) downloadOUIDatabase(filepath string) error {
 		return fmt.Errorf("HTTP %d: %s", resp.StatusCode, resp.Status)
 	}
 
-	file, err := os.Create(filepath)
+	tmpPath := filepath + ".tmp"
+	file, err := os.Create(tmpPath)
 	if err != nil {
 		return err
 	}
-	defer file.Close()
 
 	_, err = io.Copy(file, resp.Body)
-	return err
+	file.Close()
+
+	if err != nil {
+		os.Remove(tmpPath)
+		return err
+	}
+
+	return os.Rename(tmpPath, filepath)
 }
 
 // loadFromFile loads OUI data from a file
@@ -103,32 +122,24 @@ func (o *OUILookup) loadFromFile(filepath string) error {
 	defer file.Close()
 
 	reader := csv.NewReader(file)
-	reader.Comma = '\t'
-	reader.FieldsPerRecord = -1
-	reader.LazyQuotes = true
-
-	lines := make([]string, 0)
-	data, _ := io.ReadAll(file)
-	lines = strings.Split(string(data), "\n")
-
 	entriesLoaded := 0
-	for _, line := range lines {
-		line = strings.TrimSpace(line)
-		if line == "" || strings.HasPrefix(line, "#") {
-			continue
+
+	for {
+		record, err := reader.Read()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return err
 		}
 
-		// OUI format: XX-XX-XX   (hex)		Vendor Name
-		parts := strings.Fields(line)
-		if len(parts) >= 3 {
-			mac := strings.Replace(parts[0], "-", ":", -1)
-			mac = strings.ToUpper(mac)
+		// CSV format: Mac Prefix,Vendor Name,Private,Block Type,Last Updated
+		if len(record) >= 2 {
+			macPrefix := strings.TrimSpace(record[0])
+			vendorName := strings.TrimSpace(record[1])
 
-			// Find the vendor name (after "(hex)")
-			hexIndex := strings.Index(line, "(hex)")
-			if hexIndex > 0 && len(line) > hexIndex+5 {
-				vendor := strings.TrimSpace(line[hexIndex+5:])
-				o.ouiMap[mac] = vendor
+			if macPrefix != "" && vendorName != "" {
+				o.ouiMap[macPrefix] = vendorName
 				entriesLoaded++
 			}
 		}
