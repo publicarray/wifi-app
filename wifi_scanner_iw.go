@@ -629,7 +629,9 @@ func parseBitrateInfo(bitrateInfo string) (wifiStandard, channelWidth, mimoConfi
 	channelWidth = "20"
 	mimoConfig = "1x1"
 
-	if strings.Contains(bitrateInfo, "EHT") {
+	if strings.Contains(bitrateInfo, "UHR") {
+		wifiStandard = "WiFi 8 (802.11bn)"
+	} else if strings.Contains(bitrateInfo, "EHT") {
 		wifiStandard = "WiFi 7 (802.11be)"
 	} else if strings.Contains(bitrateInfo, "HE") {
 		wifiStandard = "WiFi 6 (802.11ax)"
