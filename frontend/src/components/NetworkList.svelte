@@ -334,31 +334,51 @@
                                                         >Signal:</span
                                                     >
                                                     <span
-                                                        class={getSignalClass(
-                                                            ap.signal,
-                                                        )}>{ap.signal} dBm</span
+                                                        class="metric-value-with-tooltip"
                                                     >
+                                                        <span
+                                                            class={getSignalClass(
+                                                                ap.signal,
+                                                            )}>{ap.signal} dBm</span
+                                                        >
+                                                        <span class="capability-tooltip"><strong>Signal Strength</strong><br/>Signal strength in dBm (decibel-milliwatts)<br/>Closer to 0 = stronger signal<br/><br/><span class="technical-label">Technical Details:</span><span class="technical-bullet">Standard metric for WiFi signal quality</span><span class="technical-bullet">Typical range: -30 to -90 dBm</span><span class="technical-bullet">&lt; -50 dBm: Excellent (near AP)</span><span class="technical-bullet">-50 to -60 dBm: Good (reliable)</span><span class="technical-bullet">-60 to -70 dBm: Fair (workable)</span><span class="technical-bullet">&gt; -70 dBm: Poor (unstable)</span><span class="technical-bullet">5 dBm difference ≈ 2x power</span><span class="technical-bullet">RSSI (Received Signal Strength Indication)</span><span class="technical-bullet">For reliable connection: &lt; -65 dBm recommended</span></span>
+                                                    </span>
                                                 </div>
                                                 <div class="ap-metric">
                                                     <span class="metric-label"
                                                         >Channel:</span
                                                     >
                                                     <span
-                                                        >{ap.channel} ({ap.channelWidth}MHz)</span
+                                                        class="metric-value-with-tooltip"
                                                     >
+                                                        <span
+                                                            >{ap.channel} ({ap.channelWidth}MHz)</span
+                                                        >
+                                                        <span class="capability-tooltip"><strong>WiFi Channel</strong><br/>WiFi radio channel number and width<br/><br/><span class="technical-label">Technical Details:</span><span class="technical-bullet">2.4GHz band: Channels 1-14 (1,6,11 non-overlapping)</span><span class="technical-bullet">5GHz band: Channels 36-165 (typically 36/40/44/48 for indoor)</span><span class="technical-bullet">Channel width affects max speed and range</span><span class="technical-bullet">Non-overlapping channels reduce interference</span><span class="technical-bullet">Auto-channel selection picks least congested</span><span class="technical-bullet">Check channel overlap before deployment</span><span class="technical-bullet">Different countries have different allowed channels</span></span>
+                                                    </span>
                                                 </div>
                                                 <div class="ap-metric">
                                                     <span class="metric-label"
                                                         >TX Power:</span
                                                     >
-                                                    <span>{ap.txPower} dBm</span
+                                                    <span
+                                                        class="metric-value-with-tooltip"
                                                     >
+                                                        <span>{ap.txPower} dBm</span
+                                                        >
+                                                        <span class="capability-tooltip"><strong>Transmit Power</strong><br/>Transmit power level in dBm<br/><br/><span class="technical-label">Technical Details:</span><span class="technical-bullet">Maximum power AP can transmit</span><span class="technical-bullet">Typical range: 15-30 dBm (home), 30 dBm (enterprise)</span><span class="technical-bullet">2x power ≈ 2x range (approximate)</span><span class="technical-bullet">Legal limits vary by country/regulatory domain</span><span class="technical-bullet">2.4GHz: 100mW max in most regions</span><span class="technical-bullet">5GHz: 200-1000mW depending on DFS</span><span class="technical-bullet">Higher power = better range but more interference</span><span class="technical-bullet">TX power + client TX power = link budget</span><span class="technical-bullet">EIRP = TX power + antenna gain</span></span>
+                                                    </span>
                                                 </div>
                                                 <div class="ap-metric">
                                                     <span class="metric-label"
                                                         >Vendor:</span
                                                     >
-                                                    <span>{ap.vendor}</span>
+                                                    <span
+                                                        class="metric-value-with-tooltip"
+                                                    >
+                                                        <span>{ap.vendor}</span>
+                                                        <span class="capability-tooltip"><strong>Vendor/Manufacturer</strong><br/>Manufacturer of the WiFi access point<br/><br/><span class="technical-label">Technical Details:</span><span class="technical-bullet">Identified via OUI (Organizationally Unique Identifier)</span><span class="technical-bullet">First 3 bytes of MAC address = vendor ID</span><span class="technical-bullet">OUI database maintained by IEEE</span><span class="technical-bullet">Common vendors: Cisco, Ubiquiti, Aruba, Ruckus</span><span class="technical-bullet">Unknown vendor = OUI not in database or reserved</span><span class="technical-bullet">Vendor indicates hardware quality and feature set</span><span class="technical-bullet">Different vendors have different default configurations</span><span class="technical-bullet">Can help predict compatibility and features</span></span>
+                                                    </span>
                                                 </div>
                                             </div>
                                             <div class="ap-capabilities">
@@ -1319,6 +1339,15 @@
     }
 
     .capability-label:hover .capability-tooltip {
+        opacity: 1;
+    }
+
+    .metric-value-with-tooltip {
+        position: relative;
+        cursor: help;
+    }
+
+    .metric-value-with-tooltip:hover .capability-tooltip {
         opacity: 1;
     }
 
