@@ -1,3 +1,5 @@
+//go:build linux && !mdlayher && !nl80211
+
 package main
 
 import (

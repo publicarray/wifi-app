@@ -1,3 +1,5 @@
+//go:build linux
+
 package main
 
 import (
@@ -20,7 +22,7 @@ const (
 
 // WiFiService manages WiFi scanning and data aggregation
 type WiFiService struct {
-	scanner          *WiFiScanner
+	scanner          WiFiBackend
 	ctx              context.Context
 	mu               sync.RWMutex
 	scanning         bool
