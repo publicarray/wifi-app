@@ -3,6 +3,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"math"
 	"strings"
@@ -54,38 +55,41 @@ func (s *WiFiScannerMDLayher) ScanNetworks(iface string) ([]AccessPoint, error) 
 	if err != nil {
 		return nil, fmt.Errorf("failed to get interfaces: %w", err)
 	}
-
-	var targetIface *wifi.Interface
+	var targetInterface *wifi.Interface
 	for _, i := range interfaces {
 		if i.Name == iface {
-			targetIface = i
+			targetInterface = i
 			break
 		}
 	}
-
-	if targetIface == nil {
+	if targetInterface == nil {
 		return nil, fmt.Errorf("interface %s not found", iface)
 	}
 
-	bssList, err := s.client.AccessPoints(targetIface)
+	// active scanning wifi networks
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	err = s.client.Scan(ctx, targetInterface)
+	if err != nil {
+		return nil, fmt.Errorf("failed to initiate scan: %w", err)
+	}
+
+	bssList, err := s.client.AccessPoints(targetInterface)
 	if err != nil {
 		return nil, fmt.Errorf("failed to scan BSS: %w", err)
 	}
-
 	if bssList == nil || len(bssList) == 0 {
 		return []AccessPoint{}, nil
 	}
-
-	var aps []AccessPoint
+	var accessPoints []AccessPoint
 	for _, bss := range bssList {
 		ap := s.convertBSSToAccessPoint(bss)
 		if len(ap) > 0 {
-			aps = append(aps, ap[0])
+			accessPoints = append(accessPoints, ap[0])
 		}
 	}
-
 	noiseFloor := 0
-	surveys, err := s.client.SurveyInfo(targetIface)
+	surveys, err := s.client.SurveyInfo(targetInterface)
 	if err == nil && len(surveys) > 0 {
 		for _, survey := range surveys {
 			if survey.Noise != 0 {
@@ -94,47 +98,42 @@ func (s *WiFiScannerMDLayher) ScanNetworks(iface string) ([]AccessPoint, error) 
 			}
 		}
 	}
-
-	for i := range aps {
-		if aps[i].Security == "" {
-			aps[i].Security = "Open"
+	for i := range accessPoints {
+		if accessPoints[i].Security == "" {
+			accessPoints[i].Security = "Open"
 		}
-		if aps[i].ChannelWidth == 0 {
-			aps[i].ChannelWidth = 20
+		if accessPoints[i].ChannelWidth == 0 {
+			accessPoints[i].ChannelWidth = 20
 		}
-		if aps[i].DTIM == 0 {
-			aps[i].DTIM = 100
+		if accessPoints[i].DTIM == 0 {
+			accessPoints[i].DTIM = 100
 		}
-		if aps[i].PMF == "" {
-			aps[i].PMF = "Disabled"
+		if accessPoints[i].PMF == "" {
+			accessPoints[i].PMF = "Disabled"
 		}
-		if aps[i].MIMOStreams == 0 {
-			aps[i].MIMOStreams = 1
+		if accessPoints[i].MIMOStreams == 0 {
+			accessPoints[i].MIMOStreams = 1
 		}
-		if aps[i].BSSLoadStations == 0 && aps[i].BSSLoadUtilization == -1 {
-			aps[i].BSSLoadStations = -1
-			aps[i].BSSLoadUtilization = -1
+		if accessPoints[i].BSSLoadStations == 0 && accessPoints[i].BSSLoadUtilization == -1 {
+			accessPoints[i].BSSLoadStations = -1
+			accessPoints[i].BSSLoadUtilization = -1
 		}
-
 		if noiseFloor != 0 {
-			aps[i].Noise = noiseFloor
-			aps[i].SNR = aps[i].Signal - noiseFloor
+			accessPoints[i].Noise = noiseFloor
+			accessPoints[i].SNR = accessPoints[i].Signal - noiseFloor
 		}
-
-		aps[i].MaxTheoreticalSpeed = calculateMaxTheoreticalSpeed(&aps[i])
-		aps[i].RealWorldSpeed = calculateRealWorldSpeed(aps[i].MaxTheoreticalSpeed)
-
+		accessPoints[i].MaxTheoreticalSpeed = calculateMaxTheoreticalSpeed(&accessPoints[i])
+		accessPoints[i].RealWorldSpeed = calculateRealWorldSpeed(accessPoints[i].MaxTheoreticalSpeed)
 		hasHE := false
-		for _, cap := range aps[i].Capabilities {
+		for _, cap := range accessPoints[i].Capabilities {
 			if cap == "HE" {
 				hasHE = true
 				break
 			}
 		}
-		aps[i].EstimatedRange = calculateEstimatedRange(aps[i].TxPower, aps[i].Band, hasHE)
+		accessPoints[i].EstimatedRange = calculateEstimatedRange(accessPoints[i].TxPower, accessPoints[i].Band, hasHE)
 	}
-
-	return aps, nil
+	return accessPoints, nil
 }
 
 func (s *WiFiScannerMDLayher) convertBSSToAccessPoint(bss *wifi.BSS) []AccessPoint {
@@ -599,24 +598,28 @@ func parseTPCReport(data []byte, ap *AccessPoint) {
 }
 
 func parseExtendedCapabilities(data []byte, ap *AccessPoint) {
-	if len(data) < 1 {
+	if len(data) < 8 {
 		return
 	}
 
-	if len(data) > 0 && (data[0]&0x40) != 0 {
+	if (data[0] & 0x40) != 0 {
 		ap.UAPSD = true
 	}
 
-	if len(data) >= 2 && (data[1]&0x04) != 0 {
+	if (data[1] & 0x01) != 0 {
+		ap.BSSTransition = true
+	}
+
+	if (data[1] & 0x04) != 0 {
 		ap.NeighborReport = true
 	}
 
-	if len(data) >= 8 {
-		if (data[7] & 0x80) != 0 {
-			ap.PMF = "Required"
-		} else if (data[7] & 0x40) != 0 {
-			ap.PMF = "Optional"
-		}
+	if (data[7] & 0x80) != 0 {
+		ap.PMF = "Required"
+	} else if (data[7] & 0x40) != 0 {
+		ap.PMF = "Optional"
+	} else {
+		ap.PMF = "Disabled"
 	}
 }
 
