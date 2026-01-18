@@ -175,6 +175,10 @@ func (s *WiFiScannerMDLayher) convertBSSToAccessPoint(bss *wifi.BSS) []AccessPoi
 
 	if bss.RSN.IsInitialized() {
 		s.parseSecurityFromRSN(bss.RSN, &ap)
+	} else {
+		if ap.Security == "" {
+			ap.Security = "Open"
+		}
 	}
 
 	s.parseCapabilitiesIEs(bss.InformationElements, &ap)
@@ -211,6 +215,13 @@ func (s *WiFiScannerMDLayher) parseSecurityFromRSN(rsn wifi.RSNInfo, ap *AccessP
 			akm == wifi.RSNAkm8021X || akm == wifi.RSNAkmFT8021X ||
 			akm == wifi.RSNAkm8021XSHA256 {
 			hasWPA2 = true
+		}
+
+		if akm == wifi.RSNAkmFTSAE || akm == wifi.RSNAkmFTPSK ||
+			akm == wifi.RSNAkmFT8021X || akm == wifi.RSNAkmFT8021XSHA384 ||
+			akm == wifi.RSNAkmFTFILSSHA256 || akm == wifi.RSNAkmFTFILSSHA384 ||
+			akm == wifi.RSNAkmFTPSKSHA384 {
+			ap.FastRoaming = true
 		}
 	}
 
@@ -438,6 +449,8 @@ func (s *WiFiScannerMDLayher) parseCapabilitiesIEs(ies []wifi.IE, ap *AccessPoin
 			parseTPCReport(ie.Data, ap)
 		case 7:
 			parseCountryIE(ie.Data, ap)
+		case 127:
+			parseExtendedCapabilities(ie.Data, ap)
 		case 221:
 			parseVendorSpecificIE(ie.Data, ap)
 		}
@@ -585,6 +598,20 @@ func parseTPCReport(data []byte, ap *AccessPoint) {
 	ap.TxPower = int(int8(data[8]))
 }
 
+func parseExtendedCapabilities(data []byte, ap *AccessPoint) {
+	if len(data) < 1 {
+		return
+	}
+
+	if data[0]&0x40 != 0 {
+		ap.UAPSD = true
+	}
+
+	if len(data) >= 2 && data[1]&0x04 != 0 {
+		ap.NeighborReport = true
+	}
+}
+
 func parseCountryIE(data []byte, ap *AccessPoint) {
 	if len(data) < 3 {
 		return
@@ -608,6 +635,12 @@ func parseVendorSpecificIE(data []byte, ap *AccessPoint) {
 	if ouiString == wpaOUI {
 		if len(data) >= 4 && data[3] == 0x04 {
 			ap.WPS = true
+		} else if len(data) >= 4 && data[3] == 0x02 {
+			ap.QoSSupport = true
+		} else if len(data) >= 4 && data[3] == 0x01 {
+			if ap.Security == "" {
+				ap.Security = "WPA"
+			}
 		}
 	} else if ouiString == msOUI {
 		if len(data) >= 5 {
