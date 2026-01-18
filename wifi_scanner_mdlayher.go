@@ -603,12 +603,20 @@ func parseExtendedCapabilities(data []byte, ap *AccessPoint) {
 		return
 	}
 
-	if data[0]&0x40 != 0 {
+	if len(data) > 0 && (data[0]&0x40) != 0 {
 		ap.UAPSD = true
 	}
 
-	if len(data) >= 2 && data[1]&0x04 != 0 {
+	if len(data) >= 2 && (data[1]&0x04) != 0 {
 		ap.NeighborReport = true
+	}
+
+	if len(data) >= 8 {
+		if (data[7] & 0x80) != 0 {
+			ap.PMF = "Required"
+		} else if (data[7] & 0x40) != 0 {
+			ap.PMF = "Optional"
+		}
 	}
 }
 
@@ -645,7 +653,7 @@ func parseVendorSpecificIE(data []byte, ap *AccessPoint) {
 	} else if ouiString == msOUI {
 		if len(data) >= 5 {
 			ieType := data[4]
-			if ieType == 0x4A {
+			if ieType == 0x4A && len(data) >= 6 {
 				ap.BSSColor = int(data[5])
 			} else if ieType == 0x13 {
 				ap.APName = string(data[5:])
