@@ -3,6 +3,8 @@ package main
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"sync"
@@ -39,8 +41,16 @@ type WiFiService struct {
 
 // NewWiFiService creates a new WiFi service
 func NewWiFiService() *WiFiService {
+	cacheDir, err := os.UserCacheDir()
+	if err != nil {
+		cacheDir = os.TempDir()
+	}
+	cacheFile := filepath.Join(cacheDir, "wifi-app", "oui.txt")
+
+	os.MkdirAll(filepath.Dir(cacheFile), 0755)
+
 	return &WiFiService{
-		scanner:        NewWiFiScanner(),
+		scanner:        NewWiFiScanner(cacheFile),
 		networks:       []Network{},
 		channelInfo:    []ChannelInfo{},
 		signalHistory:  []SignalDataPoint{},

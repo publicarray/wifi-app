@@ -2,25 +2,28 @@ package main
 
 import (
 	"encoding/csv"
+	"fmt"
 	"io"
 	"net/http"
 	"os"
-	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 )
 
 // OUILookup handles MAC address vendor lookups
 type OUILookup struct {
-	ouiMap map[string]string
-	mu     sync.RWMutex
-	loaded bool
+	ouiMap    map[string]string
+	mu        sync.RWMutex
+	loaded    bool
+	cacheFile string
 }
 
 // NewOUILookup creates a new OUI lookup service
-func NewOUILookup() *OUILookup {
+func NewOUILookup(cacheFile string) *OUILookup {
 	return &OUILookup{
-		ouiMap: make(map[string]string),
+		ouiMap:    make(map[string]string),
+		cacheFile: cacheFile,
 	}
 }
 
@@ -29,26 +32,28 @@ func (o *OUILookup) LoadOUIDatabase() error {
 	o.mu.Lock()
 	defer o.mu.Unlock()
 
-	// Try to load from local cache first
-	cacheFile := filepath.Join(os.TempDir(), "oui.txt")
-	
-	// Check if cache exists and is not empty
-	if stat, err := os.Stat(cacheFile); err == nil && stat.Size() > 0 {
-		if err := o.loadFromFile(cacheFile); err == nil {
-			o.loaded = true
-			return nil
+	cacheMaxAge := 30 * 24 * time.Hour
+	useFallback := false
+
+	if stat, err := os.Stat(o.cacheFile); err == nil {
+		if stat.Size() == 0 {
+			useFallback = true
+		} else if time.Since(stat.ModTime()) > cacheMaxAge {
+			if err := o.downloadOUIDatabase(o.cacheFile); err != nil {
+				useFallback = true
+			}
+		} else {
+			if err := o.loadFromFile(o.cacheFile); err != nil {
+				useFallback = true
+			}
+		}
+	} else {
+		if err := o.downloadOUIDatabase(o.cacheFile); err != nil {
+			useFallback = true
 		}
 	}
 
-	// Download if cache doesn't exist or failed to load
-	if err := o.downloadOUIDatabase(cacheFile); err != nil {
-		// If download fails, use embedded minimal database
-		o.loadMinimalDatabase()
-		o.loaded = true
-		return nil
-	}
-
-	if err := o.loadFromFile(cacheFile); err != nil {
+	if useFallback {
 		o.loadMinimalDatabase()
 	}
 
@@ -58,14 +63,26 @@ func (o *OUILookup) LoadOUIDatabase() error {
 
 // downloadOUIDatabase downloads the IEEE OUI database
 func (o *OUILookup) downloadOUIDatabase(filepath string) error {
-	// IEEE OUI database URL
 	url := "http://standards-oui.ieee.org/oui/oui.txt"
-	
-	resp, err := http.Get(url)
+
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return err
+	}
+
+	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36")
+	req.Header.Set("Accept", "text/plain, text/html, application/xhtml+xml, application/xml;q=0.9, */*;q=0.8")
+
+	client := &http.Client{}
+	resp, err := client.Do(req)
 	if err != nil {
 		return err
 	}
 	defer resp.Body.Close()
+
+	if resp.StatusCode != 200 {
+		return fmt.Errorf("HTTP %d: %s", resp.StatusCode, resp.Status)
+	}
 
 	file, err := os.Create(filepath)
 	if err != nil {
@@ -94,6 +111,7 @@ func (o *OUILookup) loadFromFile(filepath string) error {
 	data, _ := io.ReadAll(file)
 	lines = strings.Split(string(data), "\n")
 
+	entriesLoaded := 0
 	for _, line := range lines {
 		line = strings.TrimSpace(line)
 		if line == "" || strings.HasPrefix(line, "#") {
@@ -105,14 +123,20 @@ func (o *OUILookup) loadFromFile(filepath string) error {
 		if len(parts) >= 3 {
 			mac := strings.Replace(parts[0], "-", ":", -1)
 			mac = strings.ToUpper(mac)
-			
+
 			// Find the vendor name (after "(hex)")
 			hexIndex := strings.Index(line, "(hex)")
 			if hexIndex > 0 && len(line) > hexIndex+5 {
 				vendor := strings.TrimSpace(line[hexIndex+5:])
 				o.ouiMap[mac] = vendor
+				entriesLoaded++
 			}
 		}
+	}
+
+	// Return error if no valid OUI entries were loaded (e.g., HTML error page)
+	if entriesLoaded == 0 {
+		return fmt.Errorf("no valid OUI entries found in file")
 	}
 
 	return nil
@@ -135,7 +159,7 @@ func (o *OUILookup) loadMinimalDatabase() {
 		"F0:9F:C2": "Ubiquiti Networks",
 		"FC:EC:DA": "Ubiquiti Networks",
 		"1E:6A:1B": "Ubiquiti Networks",
-		
+
 		// Cisco/Linksys
 		"00:00:0C": "Cisco Systems",
 		"00:01:42": "Cisco Systems",
@@ -158,7 +182,7 @@ func (o *OUILookup) loadMinimalDatabase() {
 		"00:03:E4": "Cisco Systems",
 		"00:03:FD": "Cisco Systems",
 		"00:03:FE": "Cisco Systems",
-		
+
 		// TP-Link
 		"00:27:19": "TP-Link",
 		"10:FE:ED": "TP-Link",
@@ -173,7 +197,7 @@ func (o *OUILookup) loadMinimalDatabase() {
 		"C0:4A:00": "TP-Link",
 		"E8:94:F6": "TP-Link",
 		"EC:08:6B": "TP-Link",
-		
+
 		// Netgear
 		"00:09:5B": "Netgear",
 		"00:0F:B5": "Netgear",
@@ -190,7 +214,7 @@ func (o *OUILookup) loadMinimalDatabase() {
 		"A0:21:B7": "Netgear",
 		"C0:3F:0E": "Netgear",
 		"E0:46:9A": "Netgear",
-		
+
 		// Aruba Networks
 		"00:0B:86": "Aruba Networks",
 		"00:1A:1E": "Aruba Networks",
@@ -201,7 +225,7 @@ func (o *OUILookup) loadMinimalDatabase() {
 		"70:3A:0E": "Aruba Networks",
 		"94:B4:0F": "Aruba Networks",
 		"D8:C7:C8": "Aruba Networks",
-		
+
 		// Ruckus Wireless
 		"00:24:A8": "Ruckus Wireless",
 		"24:C9:A1": "Ruckus Wireless",
@@ -209,20 +233,20 @@ func (o *OUILookup) loadMinimalDatabase() {
 		"58:93:96": "Ruckus Wireless",
 		"88:DC:96": "Ruckus Wireless",
 		"C4:10:8A": "Ruckus Wireless",
-		
+
 		// Meraki (Cisco)
 		"00:18:0A": "Cisco Meraki",
 		"88:15:44": "Cisco Meraki",
 		"E0:55:3D": "Cisco Meraki",
 		"E0:CB:BC": "Cisco Meraki",
-		
+
 		// MikroTik
 		"00:0C:42": "MikroTik",
 		"4C:5E:0C": "MikroTik",
 		"6C:3B:6B": "MikroTik",
 		"D4:CA:6D": "MikroTik",
 		"E6:8D:8C": "MikroTik",
-		
+
 		// Apple
 		"00:03:93": "Apple",
 		"00:0A:27": "Apple",
@@ -274,7 +298,7 @@ func (o *OUILookup) LookupVendor(macAddress string) string {
 	// Extract OUI (first 3 octets)
 	macAddress = strings.ToUpper(macAddress)
 	macAddress = strings.ReplaceAll(macAddress, "-", ":")
-	
+
 	parts := strings.Split(macAddress, ":")
 	if len(parts) < 3 {
 		return "Unknown"

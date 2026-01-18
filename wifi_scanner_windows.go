@@ -14,8 +14,8 @@ type windowsScanner struct {
 }
 
 func newWindowsScanner() IWiFiScanner {
-	ouiLookup := NewOUILookup()
-	go ouiLookup.LoadOUIDatabase()
+	ouiLookup := NewOUILookup("")
+	ouiLookup.LoadOUIDatabase()
 
 	return &windowsScanner{
 		ouiLookup: ouiLookup,

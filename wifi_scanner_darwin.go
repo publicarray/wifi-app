@@ -14,8 +14,8 @@ type darwinScanner struct {
 }
 
 func newDarwinScanner() IWiFiScanner {
-	ouiLookup := NewOUILookup()
-	go ouiLookup.LoadOUIDatabase()
+	ouiLookup := NewOUILookup("")
+	ouiLookup.LoadOUIDatabase()
 
 	return &darwinScanner{
 		ouiLookup: ouiLookup,

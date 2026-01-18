@@ -17,9 +17,9 @@ type WiFiScanner struct {
 }
 
 // NewWiFiScanner creates a new WiFi scanner instance
-func NewWiFiScanner() *WiFiScanner {
-	ouiLookup := NewOUILookup()
-	go ouiLookup.LoadOUIDatabase()
+func NewWiFiScanner(cacheFile string) *WiFiScanner {
+	ouiLookup := NewOUILookup(cacheFile)
+	ouiLookup.LoadOUIDatabase()
 
 	return &WiFiScanner{
 		ouiLookup: ouiLookup,
