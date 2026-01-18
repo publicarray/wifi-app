@@ -8,6 +8,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 )
 
 type darwinScanner struct {
@@ -15,7 +16,7 @@ type darwinScanner struct {
 	ouiLookup        *OUILookup
 }
 
-func newDarwinScanner() IWiFiScanner {
+func newDarwinScanner() WiFiBackend {
 	cacheDir, err := os.UserCacheDir()
 	if err != nil {
 		cacheDir = os.TempDir()
@@ -50,15 +51,6 @@ func (s *darwinScanner) parseAirportScanOutput(output string) ([]AccessPoint, er
 	var currentAP *AccessPoint
 
 	agrCtlRSSIRegex := regexp.MustCompile(`agrCtlRSSI:\s+(-?\d+)`)
-	agrExtRSSIRegex := regexp.MustCompile(`agrExtRSSI:\s+(-?\d+)`)
-	agrCtlNoiseRegex := regexp.MustCompile(`agrCtlNoise:\s+(-?\d+)`)
-	agrExtNoiseRegex := regexp.MustCompile(`agrExtNoise:\s+(-?\d+)`)
-
-	stateRegex := regexp.MustCompile(`state:\s+(\S+)`)
-	lastTxRateRegex := regexp.MustCompile(`lastTxRate:\s+(\d+)`)
-	maxRateRegex := regexp.MustCompile(`maxRate:\s+(\d+)`)
-	lastAssocStatusRegex := regexp.MustCompile(`lastAssocStatus:\s+(\d+)`)
-	macRegex := regexp.MustCompile(`\s+([0-9a-f:]{2}:[0-9a-f:]{2}:[0-9a-f:]{2}:[0-9a-f:]{2}:[0-9a-f:]{2}:[0-9a-f:]{2})`)
 
 	for _, line := range lines {
 		if matches := agrCtlRSSIRegex.FindStringSubmatch(line); matches != nil {
@@ -177,60 +169,158 @@ func (s *darwinScanner) GetConnectionInfo(iface string) (ConnectionInfo, error) 
 	return connInfo, nil
 }
 
-func (s *darwinScanner) GetStationStats(iface string) (StationStats, error) {
+func (s *darwinScanner) GetStationStats(iface string) (map[string]string, error) {
 	cmd := exec.Command("/System/Library/PrivateFrameworks/Apple80211.framework/Versions/Current/Resources/airport", "-I")
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		return StationStats{}, fmt.Errorf("failed to get station stats: %w", err)
+		return map[string]string{"connected": "false"}, fmt.Errorf("failed to get station stats: %w", err)
 	}
 
 	lines := strings.Split(string(output), "\n")
 
+	stateRegex := regexp.MustCompile(`\s+state:\s+(\S+)`)
+	bssidRegex := regexp.MustCompile(`\s+BSSID:\s+([0-9a-f:]+)`)
 	rxBitrateRegex := regexp.MustCompile(`\s+lastRxRate:\s+(\d+)`)
 	txBitrateRegex := regexp.MustCompile(`\s+lastTxRate:\s+(\d+)`)
 	rssiRegex := regexp.MustCompile(`\s+agrCtlRSSI:\s+(-?\d+)`)
 	agrCtlRSSIRegex := regexp.MustCompile(`\s+agrCtlRSSI:\s+(-?\d+)`)
-	agrExtRSSIRegex := regexp.MustCompile(`\s+agrExtRSSI:\s+(-?\d+)`)
 	noiseRegex := regexp.MustCompile(`\s+agrCtlNoise:\s+(-?\d+)`)
 
-	stats := StationStats{Connected: true}
+	stats := make(map[string]string)
+	connected := false
 
 	for _, line := range lines {
-		if matches := rxBitrateRegex.FindStringSubmatch(line); matches != nil {
-			if rate, err := strconv.ParseFloat(matches[1], 64); err == nil {
-				stats.RxBitrate = rate
+		if matches := stateRegex.FindStringSubmatch(line); matches != nil {
+			if matches[1] == "running" {
+				connected = true
 			}
+		}
+		if matches := bssidRegex.FindStringSubmatch(line); matches != nil {
+			stats["bssid"] = matches[1]
+		}
+		if matches := rxBitrateRegex.FindStringSubmatch(line); matches != nil {
+			stats["rx_bitrate"] = matches[1]
 		}
 		if matches := txBitrateRegex.FindStringSubmatch(line); matches != nil {
-			if rate, err := strconv.ParseFloat(matches[1], 64); err == nil {
-				stats.TxBitrate = rate
-			}
+			stats["tx_bitrate"] = matches[1]
 		}
 		if matches := rssiRegex.FindStringSubmatch(line); matches != nil {
-			if rssi, err := strconv.Atoi(matches[1]); err == nil {
-				stats.Signal = rssi
-			}
+			stats["signal"] = matches[1]
 		}
 		if matches := agrCtlRSSIRegex.FindStringSubmatch(line); matches != nil {
-			if rssi, err := strconv.Atoi(matches[1]); err == nil {
-				stats.SignalAvg = rssi
-			}
+			stats["signal_avg"] = matches[1]
 		}
 		if matches := noiseRegex.FindStringSubmatch(line); matches != nil {
-			if noise, err := strconv.Atoi(matches[1]); err == nil && stats.Signal != 0 {
-				stats.Noise = noise
-				stats.SNR = stats.Signal - noise
+			stats["noise"] = matches[1]
+			if signal, exists := stats["signal"]; exists {
+				if noise, err := strconv.Atoi(matches[1]); err == nil {
+					if signalVal, err := strconv.Atoi(signal); err == nil {
+						stats["snr"] = fmt.Sprintf("%d", signalVal-noise)
+					}
+				}
 			}
 		}
 	}
 
-	stats.WiFiStandard = "802.11ac/n"
-	stats.ChannelWidth = 20
-	stats.MIMOConfig = "1x1"
+	if !connected {
+		stats["connected"] = "false"
+		return stats, nil
+	}
+
+	stats["connected"] = "true"
+
+	stats["rx_bytes"] = "0"
+	stats["tx_bytes"] = "0"
+	stats["rx_packets"] = "0"
+	stats["tx_packets"] = "0"
+	stats["tx_retries"] = "0"
+	stats["tx_failed"] = "0"
+	stats["connected_time"] = "0"
+	stats["last_ack_signal"] = "0"
 
 	return stats, nil
 }
 
+func (s *darwinScanner) GetLinkInfo(iface string) (map[string]string, error) {
+	cmd := exec.Command("/System/Library/PrivateFrameworks/Apple80211.framework/Versions/Current/Resources/airport", "-I")
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return map[string]string{"connected": "false"}, fmt.Errorf("failed to get link info: %w", err)
+	}
+
+	lines := strings.Split(string(output), "\n")
+
+	stateRegex := regexp.MustCompile(`\s+state:\s+(\S+)`)
+	bssidRegex := regexp.MustCompile(`\s+BSSID:\s+([0-9a-f:]+)`)
+	rssiRegex := regexp.MustCompile(`\s+agrCtlRSSI:\s+(-?\d+)`)
+	agrCtlRSSIRegex := regexp.MustCompile(`\s+agrCtlRSSI:\s+(-?\d+)`)
+	rxMcsRegex := regexp.MustCompile(`\s+lastRxRate:\s+(\d+)`)
+	txMcsRegex := regexp.MustCompile(`\s+lastTxRate:\s+(\d+)`)
+
+	info := make(map[string]string)
+	connected := false
+
+	for _, line := range lines {
+		if matches := stateRegex.FindStringSubmatch(line); matches != nil {
+			if matches[1] == "running" {
+				connected = true
+			}
+		}
+		if matches := bssidRegex.FindStringSubmatch(line); matches != nil {
+			info["bssid"] = matches[1]
+		}
+		if matches := rssiRegex.FindStringSubmatch(line); matches != nil {
+			if rssi, err := strconv.Atoi(matches[1]); err == nil {
+				info["signal"] = fmt.Sprintf("%d", rssi)
+				info["signal_avg"] = fmt.Sprintf("%d", rssi)
+			}
+		}
+		if matches := agrCtlRSSIRegex.FindStringSubmatch(line); matches != nil {
+			if rssi, err := strconv.Atoi(matches[1]); err == nil {
+				info["signal"] = fmt.Sprintf("%d", rssi)
+				info["signal_avg"] = fmt.Sprintf("%d", rssi)
+			}
+		}
+		if matches := rxMcsRegex.FindStringSubmatch(line); matches != nil {
+			if rate, err := strconv.ParseFloat(matches[1], 64); err == nil {
+				info["rx_bitrate"] = fmt.Sprintf("%.1f", rate)
+			}
+		}
+		if matches := txMcsRegex.FindStringSubmatch(line); matches != nil {
+			if rate, err := strconv.ParseFloat(matches[1], 64); err == nil {
+				info["tx_bitrate"] = fmt.Sprintf("%.1f", rate)
+			}
+		}
+	}
+
+	if !connected {
+		info["connected"] = "false"
+		return info, nil
+	}
+
+	info["connected"] = "true"
+
+	info["rx_bytes"] = "0"
+	info["tx_bytes"] = "0"
+	info["rx_packets"] = "0"
+	info["tx_packets"] = "0"
+	info["tx_retries"] = "0"
+	info["tx_failed"] = "0"
+	info["connected_time"] = "0"
+
+	return info, nil
+}
+
 func (s *darwinScanner) Close() error {
 	return nil
+}
+
+func signalToQuality(signal int) int {
+	if signal >= -30 {
+		return 100
+	}
+	if signal <= -100 {
+		return 0
+	}
+	return int((float64(signal+100) / 70.0) * 100)
 }
