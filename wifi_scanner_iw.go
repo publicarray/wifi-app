@@ -1,4 +1,4 @@
-//go:build linux && !mdlayher && !nl80211
+//go:build linux && iw
 
 package main
 
