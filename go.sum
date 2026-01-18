@@ -42,8 +42,6 @@ github.com/mdlayher/netlink v1.8.0 h1:e7XNIYJKD7hUct3Px04RuIGJbBxy1/c4nX7D5Yyvvl
 github.com/mdlayher/netlink v1.8.0/go.mod h1:UhgKXUlDQhzb09DrCl2GuRNEglHmhYoWAHid9HK3594=
 github.com/mdlayher/socket v0.5.1 h1:VZaqt6RkGkt2OE9l3GcC6nZkqD3xKeQLyfleW/uBcos=
 github.com/mdlayher/socket v0.5.1/go.mod h1:TjPLHI1UgwEv5J1B5q0zTZq12A/6H7nKmtTanQE37IQ=
-github.com/mdlayher/wifi v0.7.2 h1:5yBq4nTm2HIYarKpJHrHU8q2BuxlX/BEfPa8kVKeOYU=
-github.com/mdlayher/wifi v0.7.2/go.mod h1:zJM6S0QpUxpUgf915rgAQHE4/e1YzRRkhK3M26NPakI=
 github.com/pkg/browser v0.0.0-20240102092130-5ac0b6a4141c h1:+mdjkGKdHQG3305AYmdv1U2eRNDiU2ErMBj1gwrq8eQ=
 github.com/pkg/browser v0.0.0-20240102092130-5ac0b6a4141c/go.mod h1:7rwL4CYBLnjLxUqIJNnCWiEdr3bn6IUYi15bNlnbCCU=
 github.com/pkg/errors v0.9.1 h1:FEBLx1zS214owpjy7qsBeixbURkuhQAwrK5UwLGTwt4=

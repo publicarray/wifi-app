@@ -7,6 +7,8 @@ require (
 	github.com/wailsapp/wails/v2 v2.11.0
 )
 
+replace github.com/mdlayher/wifi v0.7.2 => ./vendor-patch/github.com/mdlayher/wifi
+
 require (
 	github.com/bep/debounce v1.2.1 // indirect
 	github.com/go-ole/go-ole v1.3.0 // indirect

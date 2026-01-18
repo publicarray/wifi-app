@@ -132,3 +132,32 @@ type ScanResult struct {
 	TotalAPs      int           `json:"totalAPs"`
 	TotalNetworks int           `json:"totalNetworks"`
 }
+
+// ConnectionInfo represents basic WiFi connection information
+type ConnectionInfo struct {
+	Connected    bool    `json:"connected"`
+	SSID         string  `json:"ssid"`
+	BSSID        string  `json:"bssid"`
+	Channel      int     `json:"channel"`
+	Signal       int     `json:"signal"`
+	SignalAvg    int     `json:"signalAvg"`
+	RxBitrate    float64 `json:"rxBitrate"`
+	TxBitrate    float64 `json:"txBitrate"`
+	WiFiStandard string  `json:"wifiStandard"`
+	ChannelWidth int     `json:"channelWidth"`
+	MIMOConfig   string  `json:"mimoConfig"`
+}
+
+// StationStats represents detailed WiFi station statistics
+type StationStats struct {
+	Connected    bool    `json:"connected"`
+	Signal       int     `json:"signal"`
+	SignalAvg    int     `json:"signalAvg"`
+	Noise        int     `json:"noise"`
+	SNR          int     `json:"snr"`
+	RxBitrate    float64 `json:"rxBitrate"`
+	TxBitrate    float64 `json:"txBitrate"`
+	WiFiStandard string  `json:"wifiStandard"`
+	ChannelWidth int     `json:"channelWidth"`
+	MIMOConfig   string  `json:"mimoConfig"`
+}
