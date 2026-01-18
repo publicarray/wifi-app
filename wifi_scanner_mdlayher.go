@@ -178,182 +178,6 @@ func (s *WiFiScannerMDLayher) convertBSSToAccessPoint(bss *wifi.BSS) []AccessPoi
 	}
 
 	s.parseCapabilitiesIEs(bss.InformationElements, &ap)
-import (
-	"fmt"
-	"math"
-	"strings"
-	"time"
-
-	"github.com/mdlayher/wifi"
-)
-
-type WiFiScannerMDLayher struct {
-	client    *wifi.Client
-	ouiLookup *OUILookup
-}
-
-func NewWiFiScanner(cacheFile string) WiFiBackend {
-	ouiLookup := NewOUILookup(cacheFile)
-	ouiLookup.LoadOUIDatabase()
-
-	client, err := wifi.New()
-	if err != nil {
-		panic(fmt.Sprintf("failed to create wifi client: %v", err))
-	}
-
-	return &WiFiScannerMDLayher{
-		client:    client,
-		ouiLookup: ouiLookup,
-	}
-}
-
-func (s *WiFiScannerMDLayher) GetInterfaces() ([]string, error) {
-	interfaces, err := s.client.Interfaces()
-	if err != nil {
-		return nil, fmt.Errorf("failed to get interfaces: %w", err)
-	}
-
-	var ifaces []string
-	for _, iface := range interfaces {
-		ifaces = append(ifaces, iface.Name)
-	}
-
-	if len(ifaces) == 0 {
-		return nil, fmt.Errorf("no WiFi interfaces found")
-	}
-
-	return ifaces, nil
-}
-
-func (s *WiFiScannerMDLayher) ScanNetworks(iface string) ([]AccessPoint, error) {
-	interfaces, err := s.client.Interfaces()
-	if err != nil {
-		return nil, fmt.Errorf("failed to get interfaces: %w", err)
-	}
-
-	var targetIface *wifi.Interface
-	for _, i := range interfaces {
-		if i.Name == iface {
-			targetIface = i
-			break
-		}
-	}
-
-	if targetIface == nil {
-		return nil, fmt.Errorf("interface %s not found", iface)
-	}
-
-	bssList, err := s.client.AccessPoints(targetIface)
-	if err != nil {
-		return nil, fmt.Errorf("failed to scan BSS: %w", err)
-	}
-
-	if bssList == nil || len(bssList) == 0 {
-		return []AccessPoint{}, nil
-	}
-
-	var aps []AccessPoint
-	for _, bss := range bssList {
-		ap := s.convertBSSToAccessPoint(bss)
-		if len(ap) > 0 {
-			aps = append(aps, ap[0])
-		}
-	}
-
-	noiseFloor := 0
-	surveys, err := s.client.SurveyInfo(targetIface)
-	if err == nil && len(surveys) > 0 {
-		for _, survey := range surveys {
-			if survey.Noise != 0 {
-				noiseFloor = survey.Noise
-				break
-			}
-		}
-	}
-
-	for i := range aps {
-		if aps[i].Security == "" {
-			aps[i].Security = "Open"
-		}
-		if aps[i].ChannelWidth == 0 {
-			aps[i].ChannelWidth = 20
-		}
-		if aps[i].DTIM == 0 {
-			aps[i].DTIM = 100
-		}
-		if aps[i].PMF == "" {
-			aps[i].PMF = "Disabled"
-		}
-		if aps[i].MIMOStreams == 0 {
-			aps[i].MIMOStreams = 1
-		}
-		if aps[i].BSSLoadStations == 0 && aps[i].BSSLoadUtilization == -1 {
-			aps[i].BSSLoadStations = -1
-			aps[i].BSSLoadUtilization = -1
-		}
-
-		if noiseFloor != 0 {
-			aps[i].Noise = noiseFloor
-			aps[i].SNR = aps[i].Signal - noiseFloor
-		}
-
-		aps[i].MaxTheoreticalSpeed = calculateMaxTheoreticalSpeed(&aps[i])
-		aps[i].RealWorldSpeed = calculateRealWorldSpeed(aps[i].MaxTheoreticalSpeed)
-
-		hasHE := false
-		for _, cap := range aps[i].Capabilities {
-			if cap == "HE" {
-				hasHE = true
-				break
-			}
-		}
-		aps[i].EstimatedRange = calculateEstimatedRange(aps[i].TxPower, aps[i].Band, hasHE)
-	}
-
-	return aps, nil
-}
-
-func (s *WiFiScannerMDLayher) convertBSSToAccessPoint(bss *wifi.BSS) []AccessPoint {
-	ap := AccessPoint{
-		SSID:         bss.BSSID.String(),
-		Vendor:       s.ouiLookup.LookupVendor(bss.BSSID.String()),
-		LastSeen:     time.Now().Add(-bss.LastSeen),
-		Capabilities: []string{},
-	}
-
-	ap.SSID = bss.SSID
-
-	ap.Frequency = bss.Frequency
-	ap.Channel = frequencyToChannel(ap.Frequency)
-	ap.Signal = int(bss.Signal / 100)
-	ap.SignalQuality = signalToQuality(int(bss.Signal / 100))
-	ap.BeaconInt = int(bss.BeaconInterval.Seconds() / 0.1024)
-
-	ap.ChannelWidth = 20
-	ap.Band = "2.4GHz"
-	if ap.Frequency > 5900 {
-		ap.Band = "6GHz"
-	} else if ap.Frequency > 5000 {
-		ap.Band = "5GHz"
-	}
-
-	ap.MIMOStreams = 1
-
-	ap.BSSLoadStations = -1
-	ap.BSSLoadUtilization = -1
-
-	if bss.Load.StationCount > 0 {
-		ap.BSSLoadStations = int(bss.Load.StationCount)
-	}
-	if bss.Load.ChannelUtilization > 0 {
-		ap.BSSLoadUtilization = int(bss.Load.ChannelUtilization)
-	}
-
-	if bss.RSN.IsInitialized() {
-		s.parseSecurityFromRSN(bss.RSN, &ap)
-	}
-
-	s.parseCapabilitiesIEs(bss.InformationElements, &ap)
 
 	return []AccessPoint{ap}
 }
@@ -601,7 +425,7 @@ func parseIEs(b []byte) []wifi.IE {
 	return ies
 }
 
-func parseCapabilitiesIEs(ies []wifi.IE, ap *AccessPoint) {
+func (s *WiFiScannerMDLayher) parseCapabilitiesIEs(ies []wifi.IE, ap *AccessPoint) {
 	for _, ie := range ies {
 		switch ie.ID {
 		case 45:
@@ -731,8 +555,8 @@ func parseHECapabilities(data []byte, ap *AccessPoint) {
 		ap.BSSTransition = true
 	}
 
-	phyCap := uint32(data[4]) | uint32(data[5])<<8 | uint32(data[6])<<16 | uint32(data[7])<<24
 	if len(data) >= 8 {
+		phyCap := uint32(data[4]) | uint32(data[5])<<8 | uint32(data[6])<<16 | uint32(data[7])<<24
 		muMIMO := (phyCap & 0x00000003)
 		if muMIMO != 0 {
 			ap.MUMIMO = true
