@@ -67,16 +67,34 @@ func (s *WiFiScannerMDLayher) ScanNetworks(iface string) ([]AccessPoint, error) 
 		return nil, fmt.Errorf("interface %s not found", iface)
 	}
 
-	bss, err := s.client.BSS(targetIface)
+	bssList, err := s.client.AccessPoints(targetIface)
 	if err != nil {
 		return nil, fmt.Errorf("failed to scan BSS: %w", err)
 	}
 
-	if bss == nil {
+	if bssList == nil || len(bssList) == 0 {
 		return []AccessPoint{}, nil
 	}
 
-	aps := s.convertBSSToAccessPoint(bss)
+	var aps []AccessPoint
+	for _, bss := range bssList {
+		ap := s.convertBSSToAccessPoint(bss)
+		if len(ap) > 0 {
+			aps = append(aps, ap[0])
+		}
+	}
+
+	noiseFloor := 0
+	surveys, err := s.client.SurveyInfo(targetIface)
+	if err == nil && len(surveys) > 0 {
+		for _, survey := range surveys {
+			if survey.Noise != 0 {
+				noiseFloor = survey.Noise
+				break
+			}
+		}
+	}
+
 	for i := range aps {
 		if aps[i].Security == "" {
 			aps[i].Security = "Open"
@@ -97,12 +115,14 @@ func (s *WiFiScannerMDLayher) ScanNetworks(iface string) ([]AccessPoint, error) 
 			aps[i].BSSLoadStations = -1
 			aps[i].BSSLoadUtilization = -1
 		}
+
+		if noiseFloor != 0 {
+			aps[i].Noise = noiseFloor
+			aps[i].SNR = aps[i].Signal - noiseFloor
+		}
+
 		aps[i].MaxTheoreticalSpeed = calculateMaxTheoreticalSpeed(&aps[i])
 		aps[i].RealWorldSpeed = calculateRealWorldSpeed(aps[i].MaxTheoreticalSpeed)
-
-		if aps[i].Noise != 0 {
-			aps[i].SNR = aps[i].Signal - aps[i].Noise
-		}
 
 		hasHE := false
 		for _, cap := range aps[i].Capabilities {
@@ -120,18 +140,18 @@ func (s *WiFiScannerMDLayher) ScanNetworks(iface string) ([]AccessPoint, error) 
 func (s *WiFiScannerMDLayher) convertBSSToAccessPoint(bss *wifi.BSS) []AccessPoint {
 	ap := AccessPoint{
 		SSID:         bss.BSSID.String(),
-		Vendor:       "", // OUI lookup would go here
+		Vendor:       s.ouiLookup.LookupVendor(bss.BSSID.String()),
 		LastSeen:     time.Now().Add(-bss.LastSeen),
 		Capabilities: []string{},
-		TxPower:      0, // Initialize to 0
+		TxPower:      0,
 	}
 
 	ap.SSID = bss.SSID
 
 	ap.Frequency = bss.Frequency
 	ap.Channel = frequencyToChannel(ap.Frequency)
-	ap.Signal = int(bss.Signal)
-	ap.SignalQuality = signalToQuality(int(bss.Signal))
+	ap.Signal = int(bss.Signal / 100)
+	ap.SignalQuality = signalToQuality(int(bss.Signal / 100))
 	ap.BeaconInt = int(bss.BeaconInterval.Seconds() / 0.1024)
 
 	ap.ChannelWidth = 20
@@ -154,7 +174,63 @@ func (s *WiFiScannerMDLayher) convertBSSToAccessPoint(bss *wifi.BSS) []AccessPoi
 		ap.BSSLoadUtilization = int(bss.Load.ChannelUtilization)
 	}
 
+	if bss.RSN.IsInitialized() {
+		s.parseSecurityFromRSN(bss.RSN, &ap)
+	}
+
 	return []AccessPoint{ap}
+}
+
+func (s *WiFiScannerMDLayher) parseSecurityFromRSN(rsn wifi.RSNInfo, ap *AccessPoint) {
+	for _, cipher := range rsn.PairwiseCiphers {
+		ap.SecurityCiphers = append(ap.SecurityCiphers, cipher.String())
+	}
+
+	for _, akm := range rsn.AKMs {
+		ap.AuthMethods = append(ap.AuthMethods, akm.String())
+	}
+
+	hasSAE := false
+	hasWPA3 := false
+	hasWPA2 := false
+	for _, akm := range rsn.AKMs {
+		if akm == wifi.RSNAkmSAE || akm == wifi.RSNAkmFTSAE {
+			hasSAE = true
+		}
+		if akm == wifi.RSNAkm8021XSuiteB || akm == wifi.RSNAkm8021XCNSA ||
+			akm == wifi.RSNAkmSAE || akm == wifi.RSNAkmFTSAE ||
+			rsn.GroupMgmtCipher == wifi.RSNCipherGCMP128 ||
+			rsn.GroupMgmtCipher == wifi.RSNCipherGCMP256 ||
+			rsn.GroupMgmtCipher == wifi.RSNCipherBIPGMAC128 ||
+			rsn.GroupMgmtCipher == wifi.RSNCipherBIPGMAC256 ||
+			rsn.GroupMgmtCipher == wifi.RSNCipherBIPCMAC256 {
+			hasWPA3 = true
+		}
+		if akm == wifi.RSNAkmPSK || akm == wifi.RSNAkmFTPSK ||
+			akm == wifi.RSNAkm8021X || akm == wifi.RSNAkmFT8021X ||
+			akm == wifi.RSNAkm8021XSHA256 {
+			hasWPA2 = true
+		}
+	}
+
+	if hasSAE {
+		ap.Security = "WPA3"
+	} else if hasWPA3 {
+		ap.Security = "WPA3-Enterprise"
+	} else if hasWPA2 {
+		ap.Security = "WPA2"
+	}
+
+	pmfCapable := rsn.Capabilities&0x01 != 0
+	pmfRequired := rsn.Capabilities&0x02 != 0
+
+	if pmfRequired {
+		ap.PMF = "Required"
+	} else if pmfCapable {
+		ap.PMF = "Optional"
+	} else {
+		ap.PMF = "Disabled"
+	}
 }
 
 func (s *WiFiScannerMDLayher) GetLinkInfo(iface string) (map[string]string, error) {
@@ -324,6 +400,238 @@ func calculateEstimatedRange(txPower int, band string, hasHE bool) float64 {
 	}
 
 	return rangeMeters
+}
+
+type ie struct {
+	ID   uint8
+	Data []byte
+}
+
+func parseIEs(b []byte) []ie {
+	var ies []ie
+	for len(b) >= 2 {
+		id := b[0]
+		length := int(b[1])
+		b = b[2:]
+
+		if length > len(b) {
+			break
+		}
+
+		ies = append(ies, ie{
+			ID:   id,
+			Data: b[:length],
+		})
+
+		b = b[length:]
+	}
+
+	return ies
+}
+
+func parseCapabilitiesIEs(ies []ie, ap *AccessPoint) {
+	for _, ie := range ies {
+		switch ie.ID {
+		case 45:
+			parseHTCapabilities(ie.Data, ap)
+		case 191:
+			parseVHTCapabilities(ie.Data, ap)
+		case 255:
+			parseHECapabilities(ie.Data, ap)
+		case 38:
+			parseTPCReport(ie.Data, ap)
+		case 7:
+			parseCountryIE(ie.Data, ap)
+		case 221:
+			parseVendorSpecificIE(ie.Data, ap)
+		}
+	}
+}
+
+func parseHTCapabilities(data []byte, ap *AccessPoint) {
+	if len(data) < 2 {
+		return
+	}
+
+	capabilities := uint16(data[0])<<8 | uint16(data[1])
+
+	if (capabilities & 0x0200) != 0 {
+		ap.Capabilities = append(ap.Capabilities, "HT")
+	}
+
+	channelWidth := (capabilities >> 2) & 0x3
+	switch channelWidth {
+	case 1:
+		ap.ChannelWidth = 40
+	case 2:
+		ap.ChannelWidth = 40
+	case 3:
+		ap.ChannelWidth = 20
+	}
+
+	if len(data) >= 2 {
+		supportedMCS := data[1]
+		rxMCS := supportedMCS & 0x7F
+		txMCS := (supportedMCS >> 7) & 0x7F
+
+		maxStream := 0
+		if rxMCS&0x01 != 0 || txMCS&0x01 != 0 {
+			maxStream = 1
+		}
+		if rxMCS&0x02 != 0 || txMCS&0x02 != 0 {
+			maxStream = 2
+		}
+		if rxMCS&0x04 != 0 || txMCS&0x04 != 0 {
+			maxStream = 3
+		}
+		if rxMCS&0x08 != 0 || txMCS&0x08 != 0 {
+			maxStream = 4
+		}
+
+		if maxStream > ap.MIMOStreams {
+			ap.MIMOStreams = maxStream
+		}
+	}
+}
+
+func parseVHTCapabilities(data []byte, ap *AccessPoint) {
+	if len(data) < 2 {
+		return
+	}
+
+	ap.Capabilities = appendUnique(ap.Capabilities, "VHT")
+
+	if len(data) < 12 {
+		return
+	}
+
+	channelWidth := data[0] & 0x03
+	switch channelWidth {
+	case 0:
+		ap.ChannelWidth = 20
+	case 1:
+		ap.ChannelWidth = 40
+	case 2:
+		ap.ChannelWidth = 80
+	case 3:
+		ap.ChannelWidth = 160
+	}
+
+	maxMCS := data[2]
+	txMCS := maxMCS & 0x03
+	rxMCS := (maxMCS >> 2) & 0x03
+
+	maxStream := 0
+	if txMCS == 3 || rxMCS == 3 {
+		maxStream = 4
+	} else if txMCS == 2 || rxMCS == 2 {
+		maxStream = 3
+	} else if txMCS == 1 || rxMCS == 1 {
+		maxStream = 2
+	} else {
+		maxStream = 1
+	}
+
+	if maxStream > ap.MIMOStreams {
+		ap.MIMOStreams = maxStream
+	}
+
+	muMIMO := (data[1] & 0x18) >> 3
+	if muMIMO != 0 {
+		ap.MUMIMO = true
+	}
+}
+
+func parseHECapabilities(data []byte, ap *AccessPoint) {
+	if len(data) < 4 {
+		return
+	}
+
+	ap.Capabilities = appendUnique(ap.Capabilities, "HE")
+
+	macCap := uint32(data[0]) | uint32(data[1])<<8 | uint32(data[2])<<16 | uint32(data[3])<<24
+
+	if (macCap & 0x00000800) != 0 {
+		ap.TWTSupport = true
+	}
+
+	if (macCap & 0x00000008) != 0 {
+		ap.BSSTransition = true
+	}
+
+	phyCap := uint32(data[4]) | uint32(data[5])<<8 | uint32(data[6])<<16 | uint32(data[7])<<24
+	if len(data) >= 8 {
+		muMIMO := (phyCap & 0x00000003)
+		if muMIMO != 0 {
+			ap.MUMIMO = true
+		}
+
+		qamSupport := (phyCap >> 2) & 0x03
+		if qamSupport == 1 {
+			ap.QAMSupport = 1024
+		} else if qamSupport == 2 {
+			ap.QAMSupport = 4096
+		} else if qamSupport == 0 {
+			ap.QAMSupport = 256
+		}
+
+		if (phyCap & 0x00000008) != 0 {
+			ap.OBSSPD = true
+		}
+	}
+}
+
+func parseTPCReport(data []byte, ap *AccessPoint) {
+	if len(data) < 9 {
+		return
+	}
+
+	ap.TxPower = int(int8(data[8]))
+}
+
+func parseCountryIE(data []byte, ap *AccessPoint) {
+	if len(data) < 3 {
+		return
+	}
+
+	country := string(data[:3])
+	ap.CountryCode = strings.ToUpper(country)
+}
+
+func parseVendorSpecificIE(data []byte, ap *AccessPoint) {
+	if len(data) < 4 {
+		return
+	}
+
+	oui := data[0:3]
+
+	ouiString := fmt.Sprintf("%02X:%02X:%02X", oui[0], oui[1], oui[2])
+	wpaOUI := "00:50:F2"
+	msOUI := "00:0F:AC"
+
+	if ouiString == wpaOUI {
+		if len(data) >= 4 && data[3] == 0x04 {
+			ap.WPS = true
+		}
+	} else if ouiString == msOUI {
+		if len(data) >= 5 {
+			ieType := data[4]
+			if ieType == 0x4A {
+				ap.BSSColor = int(data[5])
+			} else if ieType == 0x13 {
+				ap.APName = string(data[5:])
+			}
+		}
+	}
+}
+
+func appendUnique(slice []string, item string) []string {
+	for _, s := range slice {
+		if s == item {
+			return slice
+		}
+	}
+	return append(slice, item)
 }
 
 // parseBitrateInfo extracts WiFi standard, channel width, and MIMO config from bitrate string
