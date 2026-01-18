@@ -19,7 +19,7 @@ type WiFiScanner struct {
 }
 
 // NewWiFiScanner creates a new WiFi scanner instance
-func NewWiFiScanner(cacheFile string) *WiFiScanner {
+func NewWiFiScanner(cacheFile string) WiFiBackend {
 	ouiLookup := NewOUILookup(cacheFile)
 	ouiLookup.LoadOUIDatabase()
 
@@ -576,6 +576,10 @@ func (s *WiFiScanner) GetStationStats(iface string) (map[string]string, error) {
 	return stats, nil
 }
 
+func (s *WiFiScanner) Close() error {
+	return nil
+}
+
 // Helper functions
 
 func frequencyToChannel(freq int) int {
@@ -625,7 +629,9 @@ func parseBitrateInfo(bitrateInfo string) (wifiStandard, channelWidth, mimoConfi
 	channelWidth = "20"
 	mimoConfig = "1x1"
 
-	if strings.Contains(bitrateInfo, "HE") {
+	if strings.Contains(bitrateInfo, "EHT") {
+		wifiStandard = "WiFi 7 (802.11be)"
+	} else if strings.Contains(bitrateInfo, "HE") {
 		wifiStandard = "WiFi 6 (802.11ax)"
 	} else if strings.Contains(bitrateInfo, "VHT") {
 		wifiStandard = "WiFi 5 (802.11ac)"
