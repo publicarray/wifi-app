@@ -7,6 +7,7 @@ export namespace main {
 	    frequency: number;
 	    channel: number;
 	    channelWidth: number;
+	    dfs: boolean;
 	    signal: number;
 	    signalQuality: number;
 	    noise: number;
@@ -54,6 +55,7 @@ export namespace main {
 	        this.frequency = source["frequency"];
 	        this.channel = source["channel"];
 	        this.channelWidth = source["channelWidth"];
+	        this.dfs = source["dfs"];
 	        this.signal = source["signal"];
 	        this.signalQuality = source["signalQuality"];
 	        this.noise = source["noise"];

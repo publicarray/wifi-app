@@ -604,25 +604,6 @@ func frequencyToChannel(freq int) int {
 	return 0
 }
 
-func signalToQuality(signal int) int {
-	if signal >= -30 {
-		return 100
-	}
-	if signal <= -100 {
-		return 0
-	}
-	return int((float64(signal+100) / 70.0) * 100)
-}
-
-func appendUnique(slice []string, item string) []string {
-	for _, s := range slice {
-		if s == item {
-			return slice
-		}
-	}
-	return append(slice, item)
-}
-
 // parseBitrateInfo extracts WiFi standard, channel width, and MIMO config from bitrate string
 func parseBitrateInfo(bitrateInfo string) (wifiStandard, channelWidth, mimoConfig string) {
 	wifiStandard = "802.11"

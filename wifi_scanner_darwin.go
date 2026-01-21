@@ -314,13 +314,3 @@ func (s *darwinScanner) GetLinkInfo(iface string) (map[string]string, error) {
 func (s *darwinScanner) Close() error {
 	return nil
 }
-
-func signalToQuality(signal int) int {
-	if signal >= -30 {
-		return 100
-	}
-	if signal <= -100 {
-		return 0
-	}
-	return int((float64(signal+100) / 70.0) * 100)
-}

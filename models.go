@@ -10,6 +10,7 @@ type AccessPoint struct {
 	Frequency     int       `json:"frequency"`     // Frequency in MHz
 	Channel       int       `json:"channel"`       // WiFi channel number
 	ChannelWidth  int       `json:"channelWidth"`  // Channel width in MHz (20, 40, 80, 160)
+	DFS           bool      `json:"dfs"`           // DFS (Dynamic Frequency Selection) channel
 	Signal        int       `json:"signal"`        // Signal strength in dBm
 	SignalQuality int       `json:"signalQuality"` // Signal quality percentage (0-100)
 	Noise         int       `json:"noise"`         // Noise level in dBm

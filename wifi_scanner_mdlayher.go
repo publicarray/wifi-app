@@ -12,6 +12,51 @@ import (
 	"github.com/mdlayher/wifi"
 )
 
+// WiFi frequency ranges and channel constants
+const (
+	// 2.4GHz band channels
+	Freq2412MHz        = 2412
+	Freq2484MHz        = 2484
+	Freq2407MHz        = 2407
+	ChannelSpacing5MHz = 5
+
+	// 5GHz band channels
+	Freq5170MHz = 5170
+	Freq5825MHz = 5825
+	Freq5000MHz = 5000
+
+	// 6GHz band channels
+	Freq5935MHz = 5935
+	Freq5955MHz = 5955
+	Freq5965MHz = 5965
+	Freq5985MHz = 5985
+	Freq5950MHz = 5950
+	Freq7115MHz = 7115
+
+	// Channel constants
+	Channel14 = 14
+	Channel2  = 2
+	Channel6  = 6
+
+	// DFS (Dynamic Frequency Selection) channels - 5GHz band
+	DFSChannel52  = 52
+	DFSChannel56  = 56
+	DFSChannel60  = 60
+	DFSChannel64  = 64
+	DFSChannel100 = 100
+	DFSChannel104 = 104
+	DFSChannel108 = 108
+	DFSChannel112 = 112
+	DFSChannel116 = 116
+	DFSChannel120 = 120
+	DFSChannel124 = 124
+	DFSChannel128 = 128
+	DFSChannel132 = 132
+	DFSChannel136 = 136
+	DFSChannel140 = 140
+	DFSChannel144 = 144
+)
+
 type WiFiScannerMDLayher struct {
 	client    *wifi.Client
 	ouiLookup *OUILookup
@@ -67,7 +112,7 @@ func (s *WiFiScannerMDLayher) ScanNetworks(iface string) ([]AccessPoint, error) 
 	}
 
 	// active scanning wifi networks
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	err = s.client.Scan(ctx, targetInterface)
 	if err != nil {
@@ -122,6 +167,7 @@ func (s *WiFiScannerMDLayher) ScanNetworks(iface string) ([]AccessPoint, error) 
 			accessPoints[i].Noise = noiseFloor
 			accessPoints[i].SNR = accessPoints[i].Signal - noiseFloor
 		}
+		accessPoints[i].DFS = isDFSChannel(accessPoints[i].Channel)
 		accessPoints[i].MaxTheoreticalSpeed = calculateMaxTheoreticalSpeed(&accessPoints[i])
 		accessPoints[i].RealWorldSpeed = calculateRealWorldSpeed(accessPoints[i].MaxTheoreticalSpeed)
 		hasHE := false
@@ -303,35 +349,25 @@ func (s *WiFiScannerMDLayher) Close() error {
 }
 
 func frequencyToChannel(freq int) int {
-	if freq >= 2412 && freq <= 2484 {
-		if freq == 2484 {
-			return 14
+	if freq >= Freq2412MHz && freq <= Freq2484MHz {
+		if freq == Freq2484MHz {
+			return Channel14
 		}
-		return (freq - 2407) / 5
+		return (freq - Freq2407MHz) / ChannelSpacing5MHz
 	}
-	if freq >= 5170 && freq <= 5825 {
-		return (freq - 5000) / 5
+	if freq >= Freq5170MHz && freq <= Freq5825MHz {
+		return (freq - Freq5000MHz) / ChannelSpacing5MHz
 	}
-	if freq >= 5955 && freq <= 7115 {
-		if freq == 5935 || freq == 5955 {
-			return 2
+	if freq >= Freq5955MHz && freq <= Freq7115MHz {
+		if freq == Freq5935MHz || freq == Freq5955MHz {
+			return Channel2
 		}
-		if freq == 5965 || freq == 5985 {
-			return 6
+		if freq == Freq5965MHz || freq == Freq5985MHz {
+			return Channel6
 		}
-		return (freq - 5950) / 5
+		return (freq - Freq5950MHz) / ChannelSpacing5MHz
 	}
 	return 0
-}
-
-func signalToQuality(signal int) int {
-	if signal >= -30 {
-		return 100
-	}
-	if signal <= -100 {
-		return 0
-	}
-	return int((float64(signal+100) / 70.0) * 100)
 }
 
 func calculateMaxTheoreticalSpeed(ap *AccessPoint) int {
@@ -384,30 +420,41 @@ func calculateRealWorldSpeed(theoreticalSpeed int) int {
 }
 
 func calculateEstimatedRange(txPower int, band string, hasHE bool) float64 {
+	const (
+		CenterFreq24GHz        = 2437
+		CenterFreq5GHz         = 5400
+		DefaultSignalThreshold = -82.0
+		HESignalThreshold      = -87.0
+		MinRangeMeters         = 10.0
+		MaxRangeMeters         = 500.0
+		PathLossConstant       = 20.0
+		ReferenceFrequency     = 2437.0
+	)
+
 	var frequencyMHz float64
 	if band == "2.4GHz" {
-		frequencyMHz = 2437
+		frequencyMHz = CenterFreq24GHz
 	} else if band == "5GHz" {
-		frequencyMHz = 5400
+		frequencyMHz = CenterFreq5GHz
 	} else {
-		frequencyMHz = 2437
+		frequencyMHz = CenterFreq24GHz
 	}
 
 	eirp := float64(txPower)
-	minSignal := -82.0
+	minSignal := DefaultSignalThreshold
 	if hasHE {
-		minSignal = -87.0
+		minSignal = HESignalThreshold
 	}
 
 	signalMargin := eirp - minSignal
-	adjustment := 20.0 * math.Log10(frequencyMHz/2437.0)
-	rangeMeters := math.Pow(10.0, (signalMargin-adjustment)/20.0)
+	adjustment := PathLossConstant * math.Log10(frequencyMHz/ReferenceFrequency)
+	rangeMeters := math.Pow(10.0, (signalMargin-adjustment)/PathLossConstant)
 
-	if rangeMeters < 10 {
-		return 10.0
+	if rangeMeters < MinRangeMeters {
+		return MinRangeMeters
 	}
-	if rangeMeters > 500 {
-		return 500.0
+	if rangeMeters > MaxRangeMeters {
+		return MaxRangeMeters
 	}
 
 	return rangeMeters
@@ -665,13 +712,16 @@ func parseVendorSpecificIE(data []byte, ap *AccessPoint) {
 	}
 }
 
-func appendUnique(slice []string, item string) []string {
-	for _, s := range slice {
-		if s == item {
-			return slice
-		}
+func isDFSChannel(channel int) bool {
+	switch channel {
+	case DFSChannel52, DFSChannel56, DFSChannel60, DFSChannel64,
+		DFSChannel100, DFSChannel104, DFSChannel108, DFSChannel112,
+		DFSChannel116, DFSChannel120, DFSChannel124, DFSChannel128,
+		DFSChannel132, DFSChannel136, DFSChannel140, DFSChannel144:
+		return true
+	default:
+		return false
 	}
-	return append(slice, item)
 }
 
 // parseBitrateInfo extracts WiFi standard, channel width, and MIMO config from bitrate string

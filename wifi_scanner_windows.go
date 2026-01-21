@@ -355,13 +355,3 @@ func contains(slice []string, item string) bool {
 func getCurrentTime() time.Time {
 	return time.Now()
 }
-
-func signalToQuality(signal int) int {
-	if signal >= -30 {
-		return 100
-	}
-	if signal <= -100 {
-		return 0
-	}
-	return int((float64(signal+100) / 70.0) * 100)
-}
