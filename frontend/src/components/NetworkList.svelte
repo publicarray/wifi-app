@@ -341,7 +341,7 @@
                                                                 ap.signal,
                                                             )}>{ap.signal} dBm</span
                                                         >
-                                                        <span class="capability-tooltip"><strong>Signal Strength</strong><br/>Signal strength in dBm (decibel-milliwatts)<br/>Closer to 0 = stronger signal<br/><br/><span class="technical-label">Technical Details:</span><span class="technical-bullet">Standard metric for WiFi signal quality</span><span class="technical-bullet">Typical range: -30 to -90 dBm</span><span class="technical-bullet">&lt; -50 dBm: Excellent (near AP)</span><span class="technical-bullet">-50 to -60 dBm: Good (reliable)</span><span class="technical-bullet">-60 to -70 dBm: Fair (workable)</span><span class="technical-bullet">&gt; -70 dBm: Poor (unstable)</span><span class="technical-bullet">5 dBm difference ≈ 2x power</span><span class="technical-bullet">RSSI (Received Signal Strength Indication)</span><span class="technical-bullet">For reliable connection: &lt; -65 dBm recommended</span></span>
+                                                        <span class="capability-tooltip"><strong>Signal Strength</strong><br/>Closer to 0 = stronger signal<br/>&lt;-50: Excellent | -50 to -65: Good | &gt;-70: Poor</span>
                                                     </span>
                                                 </div>
                                                 <div class="ap-metric">
@@ -352,9 +352,8 @@
                                                         class="metric-value-with-tooltip"
                                                     >
                                                         <span
-                                                            >{ap.channel} ({ap.channelWidth}MHz)</span
+                                                            >{ap.channel} ({ap.channelWidth}MHz){#if ap.dfs} <span class="dfs-badge">DFS</span>{/if}</span
                                                         >
-                                                        <span class="capability-tooltip"><strong>WiFi Channel</strong><br/>WiFi radio channel number and width<br/><br/><span class="technical-label">Technical Details:</span><span class="technical-bullet">2.4GHz band: Channels 1-14 (1,6,11 non-overlapping)</span><span class="technical-bullet">5GHz band: Channels 36-165 (typically 36/40/44/48 for indoor)</span><span class="technical-bullet">Channel width affects max speed and range</span><span class="technical-bullet">Non-overlapping channels reduce interference</span><span class="technical-bullet">Auto-channel selection picks least congested</span><span class="technical-bullet">Check channel overlap before deployment</span><span class="technical-bullet">Different countries have different allowed channels</span></span>
                                                     </span>
                                                 </div>
                                                 <div class="ap-metric">
@@ -366,7 +365,7 @@
                                                     >
                                                         <span>{ap.txPower} dBm</span
                                                         >
-                                                        <span class="capability-tooltip"><strong>Transmit Power</strong><br/>Transmit power level in dBm<br/><br/><span class="technical-label">Technical Details:</span><span class="technical-bullet">Maximum power AP can transmit</span><span class="technical-bullet">Typical range: 15-30 dBm (home), 30 dBm (enterprise)</span><span class="technical-bullet">2x power ≈ 2x range (approximate)</span><span class="technical-bullet">Legal limits vary by country/regulatory domain</span><span class="technical-bullet">2.4GHz: 100mW max in most regions</span><span class="technical-bullet">5GHz: 200-1000mW depending on DFS</span><span class="technical-bullet">Higher power = better range but more interference</span><span class="technical-bullet">TX power + client TX power = link budget</span><span class="technical-bullet">EIRP = TX power + antenna gain</span></span>
+                                                        <span class="capability-tooltip"><strong>Transmit Power</strong><br/>AP broadcast power. Higher = better range but more interference</span>
                                                     </span>
                                                 </div>
                                                 <div class="ap-metric">
@@ -377,7 +376,7 @@
                                                         class="metric-value-with-tooltip"
                                                     >
                                                         <span>{ap.vendor}</span>
-                                                        <span class="capability-tooltip"><strong>Vendor/Manufacturer</strong><br/>Manufacturer of the WiFi access point<br/><br/><span class="technical-label">Technical Details:</span><span class="technical-bullet">Identified via OUI (Organizationally Unique Identifier)</span><span class="technical-bullet">First 3 bytes of MAC address = vendor ID</span><span class="technical-bullet">OUI database maintained by IEEE</span><span class="technical-bullet">Common vendors: Cisco, Ubiquiti, Aruba, Ruckus</span><span class="technical-bullet">Unknown vendor = OUI not in database or reserved</span><span class="technical-bullet">Vendor indicates hardware quality and feature set</span><span class="technical-bullet">Different vendors have different default configurations</span><span class="technical-bullet">Can help predict compatibility and features</span></span>
+                                                        <span class="capability-tooltip"><strong>Vendor</strong><br/>Identified from MAC address OUI prefix</span>
                                                     </span>
                                                 </div>
                                             </div>
@@ -394,7 +393,7 @@
                                                         >
                                                             BSS Transition
                                                             (802.11v)
-                                                            <span class="capability-tooltip"><strong>BSS Transition (802.11v)</strong><br/>Enables smart AP switching for better connectivity<br/><br/><span class="technical-label">Technical Details:</span><span class="technical-bullet">Network-assisted roaming reduces reconnection time</span><span class="technical-bullet">AP can advise client to switch to better BSS</span><span class="technical-bullet">Improves mobility in multi-AP environments</span><span class="technical-bullet">Reduces battery drain with targeted roaming</span></span>
+                                                            <span class="capability-tooltip"><strong>BSS Transition (802.11v)</strong><br/>AP-assisted roaming for better handoff between APs</span>
                                                         </span>
                                                         <span
                                                             class="value-pill {getCapabilityStatusClass(
@@ -406,28 +405,25 @@
                                                                 : "Not supported"}
                                                         </span>
                                                     </div>
-                                                    {#if ap.fastroaming}
-                                                        <div
-                                                            class="capability-item"
+                                                    <div
+                                                        class="capability-item"
+                                                    >
+                                                        <span
+                                                            class="capability-label"
                                                         >
-                                                            <span
-                                                                class="capability-label"
-                                                            >
-                                                                Fast Roaming
-                                                                (802.11r)
-                                                                <span class="capability-tooltip"><strong>Fast BSS Transition (802.11r)</strong><br/>Reduces reconnection time during AP handoff<br/><br/><span class="technical-label">Technical Details:</span><span class="technical-bullet">Pre-authenticates with target AP before current connection drops</span><span class="technical-bullet">Reduces roaming latency to &lt;50ms</span><span class="technical-bullet">Maintains security during transition (no full re-auth)</span><span class="technical-bullet">Critical for VoIP and real-time applications</span></span>
-                                                            </span>
-                                                            <span
-                                                                class="value-pill {getCapabilityStatusClass(
-                                                                    ap.fastroaming,
-                                                                )}"
-                                                            >
-                                                                {ap.fastroaming
-                                                                    ? "Supported"
-                                                                    : "Not supported"}
-                                                            </span>
-                                                        </div>
-                                                    {/if}
+                                                            Fast Roaming
+                                                            (802.11r)
+                                                        </span>
+                                                        <span
+                                                            class="value-pill {getCapabilityStatusClass(
+                                                                ap.fastroaming,
+                                                            )}"
+                                                        >
+                                                            {ap.fastroaming
+                                                                ? "Supported"
+                                                                : "Not supported"}
+                                                        </span>
+                                                    </div>
                                                     {#if ap.twtSupport}
                                                         <div
                                                             class="capability-item"
@@ -438,7 +434,7 @@
                                                                 TWT Support
                                                                 (Target Wake
                                                                 Time)
-                                                                <span class="capability-tooltip"><strong>Target Wake Time (WiFi 6)</strong><br/>Optimizes power usage for battery devices<br/><br/><span class="technical-label">Technical Details:</span><span class="technical-bullet">Client can schedule when to receive data</span><span class="technical-bullet">AP holds data until client wake time</span><span class="technical-bullet">Reduces power consumption by 30-50%</span><span class="technical-bullet">Essential for IoT and mobile sensors</span></span>
+                                                                <span class="capability-tooltip"><strong>Target Wake Time (WiFi 6)</strong><br/>Scheduled wake times for better battery life on clients</span>
                                                             </span>
                                                             <span
                                                                 class="value-pill {getCapabilityStatusClass(
@@ -451,29 +447,24 @@
                                                             </span>
                                                         </div>
                                                     {/if}
-                                                    {#if ap.uapsd}
-                                                        <div
-                                                            class="capability-item"
+                                                    <div
+                                                        class="capability-item"
+                                                    >
+                                                        <span
+                                                            class="capability-label"
                                                         >
-                                                            <span
-                                                                class="capability-label"
-                                                            >
-                                                                UAPSD
-                                                                (Unscheduled
-                                                                APSD)
-                                                                <span class="capability-tooltip"><strong>Unscheduled APSD</strong><br/>Saves battery with optimized power delivery<br/><br/><span class="technical-label">Technical Details:</span><span class="technical-bullet">AP can wake clients for buffered traffic</span><span class="technical-bullet">Reduces need for constant radio listening</span><span class="technical-bullet">Extends client battery life significantly</span><span class="technical-bullet">Best for mobile devices and IoT</span></span>
-                                                            </span>
-                                                            <span
-                                                                class="value-pill {getCapabilityStatusClass(
-                                                                    ap.uapsd,
-                                                                )}"
-                                                            >
-                                                                {ap.uapsd
-                                                                    ? "Supported"
-                                                                    : "Not supported"}
-                                                            </span>
-                                                        </div>
-                                                    {/if}
+                                                            UAPSD (U-APSD)
+                                                        </span>
+                                                        <span
+                                                            class="value-pill {getCapabilityStatusClass(
+                                                                ap.uapsd,
+                                                            )}"
+                                                        >
+                                                            {ap.uapsd
+                                                                ? "Supported"
+                                                                : "Not supported"}
+                                                        </span>
+                                                    </div>
                                                 </div>
 
                                                 <div class="capability-title">
@@ -488,7 +479,7 @@
                                                                 class="capability-label"
                                                             >
                                                                 SNR
-                                                                <span class="capability-tooltip"><strong>Signal-to-Noise Ratio</strong><br/>Higher = better connection quality<br/><br/><span class="technical-label">Technical Details:</span><span class="technical-bullet">Difference between signal strength and noise floor</span><span class="technical-bullet">&gt;30 dB: Excellent (HD video, gaming)</span><span class="technical-bullet">20-30 dB: Good (streaming, video calls)</span><span class="technical-bullet">10-20 dB: Fair (web browsing)</span><span class="technical-bullet">&lt;10 dB: Poor (intermittent, slow)</span></span>
+                                                                <span class="capability-tooltip"><strong>SNR</strong><br/>Signal minus noise. &gt;25dB: Excellent | 15-25: Good | &lt;15: Poor</span>
                                                             </span>
                                                             <span
                                                                 class="value-pill {getSNRStatusClass(
@@ -507,7 +498,7 @@
                                                                 class="capability-label"
                                                             >
                                                                 Real-world Speed
-                                                                <span class="capability-tooltip"><strong>Real-world Speed</strong><br/>Expected throughput (~60-70% of theoretical max)<br/><br/><span class="technical-label">Technical Details:</span><span class="technical-bullet">Accounts for protocol overhead and interference</span><span class="technical-bullet">Typical efficiency: 60-70% of theoretical</span><span class="technical-bullet">Affected by signal strength and congestion</span><span class="technical-bullet">Measured: Actual data transfer rate</span></span>
+                                                                <span class="capability-tooltip"><strong>Real-world Speed</strong><br/>~60-70% of theoretical max accounting for overhead</span>
                                                             </span>
                                                             <span
                                                                 class="value-pill {ap.realWorldSpeed >
@@ -528,7 +519,7 @@
                                                                 class="capability-label"
                                                             >
                                                                 Estimated Range
-                                                                <span class="capability-tooltip"><strong>Estimated Range</strong><br/>Maximum reliable connection distance<br/><br/><span class="technical-label">Technical Details:</span><span class="technical-bullet">Based on signal strength and environment</span><span class="technical-bullet">Free space path loss calculation</span><span class="technical-bullet">Varies with frequency (2.4GHz vs 5GHz)</span><span class="technical-bullet">Obstacles (walls, interference) reduce actual range</span></span>
+                                                                <span class="capability-tooltip"><strong>Estimated Range</strong><br/>Free-space estimate. Walls/obstacles reduce actual range</span>
                                                             </span>
                                                             <span
                                                                 class="value-pill value-neutral"
@@ -548,7 +539,7 @@
                                                             >
                                                                 Channel
                                                                 Utilization
-                                                                <span class="capability-tooltip"><strong>Channel Utilization</strong><br/>How much of channel capacity is in use<br/><br/><span class="technical-label">Technical Details:</span><span class="technical-bullet">Percentage of airtime used by this AP</span><span class="technical-bullet">&lt;60%: Good capacity available</span><span class="technical-bullet">60-80%: Moderate congestion</span><span class="technical-bullet">&gt;80%: Severe congestion (consider other channel)</span></span>
+                                                                <span class="capability-tooltip"><strong>Channel Utilization</strong><br/>Airtime in use. &lt;50%: Good | 50-80%: Busy | &gt;80%: Congested</span>
                                                             </span>
                                                             <span
                                                                 class="value-pill {getUtilizationStatusClass(
@@ -577,7 +568,7 @@
                                                         >
                                                             PMF (Protected
                                                             Management Frames)
-                                                            <span class="capability-tooltip"><strong>Protected Management Frames (PMF)</strong><br/>Prevents attacks on WiFi management frames<br/><br/><span class="technical-label">Technical Details:</span><span class="technical-bullet">Digitally signs all management frames (beacons, etc.)</span><span class="technical-bullet">Prevents rogue AP attacks and deauthentication</span><span class="technical-bullet">Required: 802.11w standard enforcement</span><span class="technical-bullet">Optional: Additional security layer on top of WPA2</span></span>
+                                                            <span class="capability-tooltip"><strong>PMF (802.11w)</strong><br/>Protects against deauth attacks. Required for WPA3</span>
                                                         </span>
                                                         <span
                                                             class="value-pill {getPMFStatusClass(
@@ -597,7 +588,7 @@
                                                             >
                                                                 Encryption
                                                                 Ciphers
-                                                                <span class="capability-tooltip"><strong>Encryption Ciphers</strong><br/>Type of encryption algorithm used<br/><br/><span class="technical-label">Technical Details:</span><span class="technical-bullet">CCMP (AES-CCM): Modern, strong, recommended</span><span class="technical-bullet">GCMP: WiFi 6 optimized CCMP</span><span class="technical-bullet">TKIP: Legacy, weak, security risk</span><span class="technical-bullet">WEP: Broken, easily cracked, disable if possible</span></span>
+                                                                <span class="capability-tooltip"><strong>Ciphers</strong><br/>CCMP/GCMP: Good | TKIP: Weak | WEP: Broken</span>
                                                             </span>
                                                             <span
                                                                 class="value-pill {getCipherStatusClass(
@@ -618,7 +609,7 @@
                                                                 class="capability-label"
                                                             >
                                                                 Auth Methods
-                                                                <span class="capability-tooltip"><strong>Authentication Methods</strong><br/>Security protocols for network access<br/><br/><span class="technical-label">Technical Details:</span><span class="technical-bullet">SAE: WPA3 Simultaneous Authentication of Equals</span><span class="technical-bullet">PSK: Pre-Shared Key (WPA2-Personal)</span><span class="technical-bullet">802.1X: Enterprise authentication (RADIUS)</span><span class="technical-bullet">Open: No authentication (insecure)</span></span>
+                                                                <span class="capability-tooltip"><strong>Auth Methods</strong><br/>SAE: WPA3 | PSK: WPA2 | 802.1X: Enterprise</span>
                                                             </span>
                                                             <span
                                                                 class="value-pill {getAuthStatusClass(
@@ -639,7 +630,7 @@
                                                                 class="capability-label"
                                                             >
                                                                 WPS
-                                                                <span class="capability-tooltip"><strong>WiFi Protected Setup</strong><br/>Easy connection method with security risks<br/><br/><span class="technical-label">Technical Details:</span><span class="technical-bullet">Simplifies client enrollment via PIN/PBC</span><span class="technical-bullet">Known vulnerabilities: brute force attacks</span><span class="technical-bullet">Can bypass WPA2 encryption in some cases</span><span class="technical-bullet">Recommendation: Disable in enterprise deployments</span></span>
+                                                                <span class="capability-tooltip"><strong>WPS</strong><br/>Easy setup but security risk. Recommend disabled</span>
                                                             </span>
                                                             <span
                                                                 class="value-pill {ap.wps
@@ -666,7 +657,7 @@
                                                                 class="capability-label"
                                                             >
                                                                 BSS Color
-                                                                <span class="capability-tooltip"><strong>BSS Color</strong><br/>Collision reduction identifier for WiFi 6<br/><br/><span class="technical-label">Technical Details:</span><span class="technical-bullet">Unique ID (0-63) to distinguish overlapping BSS</span><span class="technical-bullet">Allows simultaneous transmission on same channel</span><span class="technical-bullet">Reduces false carrier sensing issues</span><span class="technical-bullet">Required for WiFi 6 operation</span></span>
+                                                                <span class="capability-tooltip"><strong>BSS Color</strong><br/>WiFi 6 identifier (0-63) for spatial reuse</span>
                                                             </span>
                                                             <span
                                                                 class="value-pill value-neutral"
@@ -684,7 +675,7 @@
                                                             >
                                                                 OBSS PD (Spatial
                                                                 Reuse)
-                                                                <span class="capability-tooltip"><strong>Spatial Reuse (OBSS PD)</strong><br/>Improves performance in dense WiFi environments<br/><br/><span class="technical-label">Technical Details:</span><span class="technical-bullet">AP can transmit during overlapping BSS transmissions</span><span class="technical-bullet">Improves throughput by up to 30% in crowded areas</span><span class="technical-bullet">WiFi 6/7 feature (802.11ax/be)</span><span class="technical-bullet">Critical for enterprise deployments</span></span>
+                                                                <span class="capability-tooltip"><strong>OBSS PD</strong><br/>WiFi 6 spatial reuse for dense environments</span>
                                                             </span>
                                                             <span
                                                                 class="value-pill {getCapabilityStatusClass(
@@ -706,7 +697,7 @@
                                                             >
                                                                 Max QAM
                                                                 Modulation
-                                                                <span class="capability-tooltip"><strong>QAM Modulation Level</strong><br/>Higher QAM = more bits per transmission<br/><br/><span class="technical-label">Technical Details:</span><span class="technical-bullet">256-QAM: 8 bits per symbol (WiFi 5 baseline)</span><span class="technical-bullet">1024-QAM: 10 bits per symbol (WiFi 6 standard)</span><span class="technical-bullet">4096-QAM: 12 bits per symbol (WiFi 7 standard)</span><span class="technical-bullet">Higher QAM requires stronger signal and less noise</span></span>
+                                                                <span class="capability-tooltip"><strong>Max QAM</strong><br/>256: WiFi 5 | 1024: WiFi 6 | 4096: WiFi 7</span>
                                                             </span>
                                                             <span
                                                                 class="value-pill value-neutral {getQamClass(
@@ -725,7 +716,7 @@
                                                                 class="capability-label"
                                                             >
                                                                 MU-MIMO
-                                                                <span class="capability-tooltip"><strong>Multi-User MIMO</strong><br/>Transmits to multiple devices simultaneously<br/><br/><span class="technical-label">Technical Details:</span><span class="technical-bullet">AP serves multiple clients in same time slot</span><span class="technical-bullet">Improves total throughput by 2-3x</span><span class="technical-bullet">Reduces latency for multiple clients</span><span class="technical-bullet">Requires support on both AP and client side</span></span>
+                                                                <span class="capability-tooltip"><strong>MU-MIMO</strong><br/>Simultaneous transmission to multiple clients</span>
                                                             </span>
                                                             <span
                                                                 class="value-pill {getCapabilityStatusClass(
@@ -747,7 +738,7 @@
                                                             >
                                                                 Neighbor Report
                                                                 (802.11k)
-                                                                <span class="capability-tooltip"><strong>Neighbor Report (802.11k)</strong><br/>AP provides info about nearby access points<br/><br/><span class="technical-label">Technical Details:</span><span class="technical-bullet">Helps clients choose best AP for roaming</span><span class="technical-bullet">Reports BSSIDs, channels, signal strengths</span><span class="technical-bullet">Improves roaming decisions and AP selection</span><span class="technical-bullet">Essential for enterprise WiFi management</span></span>
+                                                                <span class="capability-tooltip"><strong>802.11k</strong><br/>AP shares nearby AP info for smarter roaming</span>
                                                             </span>
                                                             <span
                                                                 class="value-pill {getCapabilityStatusClass(
@@ -774,7 +765,7 @@
                                                                 class="capability-label"
                                                             >
                                                                 QoS (WMM)
-                                                                <span class="capability-tooltip"><strong>WMM QoS</strong><br/>Prioritizes certain traffic types<br/><br/><span class="technical-label">Technical Details:</span><span class="technical-bullet">Prioritizes voice/video over file downloads</span><span class="technical-bullet">Uses traffic categorization (AC_VO, AC_VI, AC_BE, AC_BK)</span><span class="technical-bullet">Reduces latency and jitter for real-time apps</span><span class="technical-bullet">Standard feature, should always be enabled</span></span>
+                                                                <span class="capability-tooltip"><strong>WMM</strong><br/>Traffic prioritization for voice/video</span>
                                                             </span>
                                                             <span
                                                                 class="value-pill {getCapabilityStatusClass(
@@ -795,7 +786,7 @@
                                                                 class="capability-label"
                                                             >
                                                                 Country Code
-                                                                <span class="capability-tooltip"><strong>Regulatory Domain</strong><br/>Country-specific WiFi regulations<br/><br/><span class="technical-label">Technical Details:</span><span class="technical-bullet">Limits TX power and channels per country</span><span class="technical-bullet">AP must comply with local regulations</span><span class="technical-bullet">Affects channel availability and max power</span><span class="technical-bullet">US, EU, JP have different allowed channels</span></span>
+                                                                <span class="capability-tooltip"><strong>Country Code</strong><br/>Regulatory domain for TX power and channels</span>
                                                             </span>
                                                             <span
                                                                 class="value-pill value-neutral"
@@ -812,7 +803,7 @@
                                                                 class="capability-label"
                                                             >
                                                                 AP Name
-                                                                <span class="capability-tooltip"><strong>AP Name/Identifier</strong><br/>Human-readable access point label<br/><br/><span class="technical-label">Technical Details:</span><span class="technical-bullet">Configured by network administrator</span><span class="technical-bullet">Used for AP identification in management</span><span class="technical-bullet">Helps with deployment documentation</span><span class="technical-bullet">Often includes location/floor info</span></span>
+                                                                <span class="capability-tooltip"><strong>AP Name</strong><br/>Admin-configured identifier</span>
                                                             </span>
                                                             <span
                                                                 class="value-pill value-neutral"
@@ -834,7 +825,7 @@
                                                             class="capability-label"
                                                         >
                                                             DTIM Interval
-                                                            <span class="capability-tooltip"><strong>DTIM Interval</strong><br/>Beacon interval for multicast/broadcast traffic<br/><br/><span class="technical-label">Technical Details:</span><span class="technical-bullet">AP sends broadcast data every DTIM * beacon interval</span><span class="technical-bullet">Lower DTIM (1-3) = better battery life</span><span class="technical-bullet">Higher DTIM = delayed multicast (worse VoIP)</span><span class="technical-bullet">Standard value: 100 TUs (100 beacon periods)</span></span>
+                                                            <span class="capability-tooltip"><strong>DTIM</strong><br/>Beacon interval. Lower = better for power save</span>
                                                         </span>
                                                         <span
                                                             class="value-pill value-neutral"
@@ -850,7 +841,7 @@
                                                                 class="capability-label"
                                                             >
                                                                 MIMO Streams
-                                                                <span class="capability-tooltip"><strong>MIMO Spatial Streams</strong><br/>Number of simultaneous data paths<br/><br/><span class="technical-label">Technical Details:</span><span class="technical-bullet">Multiple antennas send/receive data streams</span><span class="technical-bullet">Doubles throughput for each stream</span><span class="technical-bullet">2×2: 2 TX, 2 RX (2 streams)</span><span class="technical-bullet">4×4: 4 TX, 4 RX (4 streams, max typical)</span></span>
+                                                                <span class="capability-tooltip"><strong>MIMO</strong><br/>Spatial streams. More = higher throughput</span>
                                                             </span>
                                                             <span
                                                                 class="value-pill value-neutral"
@@ -868,7 +859,7 @@
                                                             >
                                                                 Max Theoretical
                                                                 Speed
-                                                                <span class="capability-tooltip"><strong>Max Theoretical Speed</strong><br/>Maximum possible data transfer rate<br/><br/><span class="technical-label">Technical Details:</span><span class="technical-bullet">Based on PHY layer specifications</span><span class="technical-bullet">Formula: QAM × channel width × spatial streams</span><span class="technical-bullet">Ideal conditions: No overhead, no interference</span><span class="technical-bullet">Real-world: Typically 60-70% of theoretical</span></span>
+                                                                <span class="capability-tooltip"><strong>Max Speed</strong><br/>PHY rate. Real-world is ~60-70% of this</span>
                                                             </span>
                                                             <span
                                                                 class="value-pill value-neutral"
@@ -1255,6 +1246,19 @@
         border: 1px solid rgba(136, 136, 136, 0.3);
     }
 
+    .dfs-badge {
+        display: inline-block;
+        padding: 1px 5px;
+        border-radius: 3px;
+        font-size: 9px;
+        font-weight: 600;
+        background: rgba(255, 152, 0, 0.2);
+        color: #ff9800;
+        border: 1px solid rgba(255, 152, 0, 0.4);
+        margin-left: 4px;
+        vertical-align: middle;
+    }
+
     .capability-tooltip {
         position: fixed;
         background: rgba(0, 0, 0, 0.95);
@@ -1272,6 +1276,7 @@
         top: 50%;
         transform: translate(-50%, -100%) translateY(-12px);
         line-height: 1.5;
+        user-select: none;
     }
 
     .technical-section {
