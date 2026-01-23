@@ -487,8 +487,14 @@ func (s *WiFiScannerMDLayher) parseCapabilitiesIEs(ies []wifi.IE, ap *AccessPoin
 		switch ie.ID {
 		case 45:
 			parseHTCapabilities(ie.Data, ap)
+		case 61:
+			parseHTOperation(ie.Data, ap)
+		case 70:
+			parseRMCapabilities(ie.Data, ap)
 		case 191:
 			parseVHTCapabilities(ie.Data, ap)
+		case 192:
+			parseVHTOperation(ie.Data, ap)
 		case 255:
 			parseHECapabilities(ie.Data, ap)
 		case 38:
@@ -504,45 +510,35 @@ func (s *WiFiScannerMDLayher) parseCapabilitiesIEs(ies []wifi.IE, ap *AccessPoin
 }
 
 func parseHTCapabilities(data []byte, ap *AccessPoint) {
-	if len(data) < 2 {
+	// HT Capabilities IE (ID 45) per IEEE 802.11-2020 section 9.4.2.55
+	// Structure: HT Capability Info (2) + A-MPDU Params (1) + Supported MCS Set (16) + ...
+	if len(data) < 3 {
 		return
 	}
 
-	capabilities := uint16(data[0])<<8 | uint16(data[1])
+	ap.Capabilities = appendUnique(ap.Capabilities, "HT")
 
-	if (capabilities & 0x0200) != 0 {
-		ap.Capabilities = append(ap.Capabilities, "HT")
+	// HT Capability Info (bytes 0-1), little-endian
+	capabilities := uint16(data[0]) | uint16(data[1])<<8
+
+	// Bit 1: Supported Channel Width Set (0=20MHz only, 1=20MHz and 40MHz)
+	if (capabilities & 0x02) != 0 {
+		if ap.ChannelWidth < 40 {
+			ap.ChannelWidth = 40
+		}
 	}
 
-	channelWidth := (capabilities >> 2) & 0x3
-	switch channelWidth {
-	case 1:
-		ap.ChannelWidth = 40
-	case 2:
-		ap.ChannelWidth = 40
-	case 3:
-		ap.ChannelWidth = 20
-	}
-
-	if len(data) >= 2 {
-		supportedMCS := data[1]
-		rxMCS := supportedMCS & 0x7F
-		txMCS := (supportedMCS >> 7) & 0x7F
-
+	// Supported MCS Set is at bytes 3-18 (16 bytes)
+	// Bytes 3-12: RX MCS Bitmask (10 bytes = 80 bits for MCS 0-79)
+	// Each spatial stream supports MCS 0-7, so 8 MCS indexes per stream
+	if len(data) >= 7 {
+		rxMcsBitmask := data[3:7]
 		maxStream := 0
-		if rxMCS&0x01 != 0 || txMCS&0x01 != 0 {
-			maxStream = 1
+		for ss := 0; ss < 4; ss++ {
+			if rxMcsBitmask[ss] != 0 {
+				maxStream = ss + 1
+			}
 		}
-		if rxMCS&0x02 != 0 || txMCS&0x02 != 0 {
-			maxStream = 2
-		}
-		if rxMCS&0x04 != 0 || txMCS&0x04 != 0 {
-			maxStream = 3
-		}
-		if rxMCS&0x08 != 0 || txMCS&0x08 != 0 {
-			maxStream = 4
-		}
-
 		if maxStream > ap.MIMOStreams {
 			ap.MIMOStreams = maxStream
 		}
@@ -550,124 +546,205 @@ func parseHTCapabilities(data []byte, ap *AccessPoint) {
 }
 
 func parseVHTCapabilities(data []byte, ap *AccessPoint) {
-	if len(data) < 2 {
+	// VHT Capabilities IE (ID 191) per IEEE 802.11-2020 section 9.4.2.157
+	// Structure: VHT Capabilities Info (4 bytes) + VHT Supported MCS Set (8 bytes) = 12 bytes
+	if len(data) < 12 {
 		return
 	}
 
 	ap.Capabilities = appendUnique(ap.Capabilities, "VHT")
 
-	if len(data) < 12 {
-		return
-	}
-
-	channelWidth := data[0] & 0x03
-	switch channelWidth {
-	case 0:
-		ap.ChannelWidth = 20
+	// VHT Capabilities Info (bytes 0-3)
+	// Bits 2-3: Supported Channel Width Set
+	chanWidthSet := (data[0] >> 2) & 0x03
+	switch chanWidthSet {
 	case 1:
-		ap.ChannelWidth = 40
+		ap.ChannelWidth = 160
 	case 2:
-		ap.ChannelWidth = 80
-	case 3:
 		ap.ChannelWidth = 160
 	}
 
-	maxMCS := data[2]
-	txMCS := maxMCS & 0x03
-	rxMCS := (maxMCS >> 2) & 0x03
+	// Bits 19: SU Beamformer, Bit 20: SU Beamformee, Bits 21-22: MU Beamformer
+	if (data[2] & 0x08) != 0 {
+		ap.MUMIMO = true
+	}
+
+	// VHT Supported MCS Set (bytes 4-11)
+	// Bytes 4-5: RX MCS Map (16 bits, 2 bits per spatial stream)
+	// 0b11 = not supported, 0b00-0b10 = supported
+	rxMcsMap := uint16(data[4]) | uint16(data[5])<<8
 
 	maxStream := 0
-	if txMCS == 3 || rxMCS == 3 {
-		maxStream = 4
-	} else if txMCS == 2 || rxMCS == 2 {
-		maxStream = 3
-	} else if txMCS == 1 || rxMCS == 1 {
-		maxStream = 2
-	} else {
-		maxStream = 1
+	for ss := 0; ss < 8; ss++ {
+		mcsVal := (rxMcsMap >> (ss * 2)) & 0x03
+		if mcsVal != 3 {
+			maxStream = ss + 1
+		}
 	}
 
 	if maxStream > ap.MIMOStreams {
 		ap.MIMOStreams = maxStream
 	}
-
-	muMIMO := (data[1] & 0x18) >> 3
-	if muMIMO != 0 {
-		ap.MUMIMO = true
-	}
 }
 
 func parseHECapabilities(data []byte, ap *AccessPoint) {
-	if len(data) < 4 {
+	// HE Capabilities IE is Element ID 255 with Extension ID 35
+	// The first byte should be the extension ID
+	if len(data) < 1 {
+		return
+	}
+
+	extID := data[0]
+	if extID == 35 {
+		parseHECapabilitiesElement(data[1:], ap)
+	} else if extID == 36 {
+		parseHEOperation(data[1:], ap)
+	}
+}
+
+func parseHECapabilitiesElement(data []byte, ap *AccessPoint) {
+	// HE Capabilities Element per IEEE 802.11ax-2021 section 9.4.2.242
+	// Structure: HE MAC Caps (6 bytes) + HE PHY Caps (11 bytes) + Supported MCS and NSS Set (variable) + PPE Thresholds
+	if len(data) < 17 {
 		return
 	}
 
 	ap.Capabilities = appendUnique(ap.Capabilities, "HE")
 
-	macCap := uint32(data[0]) | uint32(data[1])<<8 | uint32(data[2])<<16 | uint32(data[3])<<24
-
-	if (macCap & 0x00000800) != 0 {
+	// HE MAC Capabilities (bytes 0-5)
+	// Bit 11: TWT Responder Support
+	macCap0 := data[0]
+	macCap1 := data[1]
+	if (macCap1 & 0x08) != 0 {
 		ap.TWTSupport = true
 	}
+	_ = macCap0
 
-	if (macCap & 0x00000008) != 0 {
-		ap.BSSTransition = true
+	// HE PHY Capabilities (bytes 6-16)
+	phyCap := data[6:17]
+
+	// Byte 8, Bits 3-4: MU Beamformer
+	if (phyCap[2] & 0x10) != 0 {
+		ap.MUMIMO = true
 	}
 
-	if len(data) >= 8 {
-		phyCap := uint32(data[4]) | uint32(data[5])<<8 | uint32(data[6])<<16 | uint32(data[7])<<24
-		muMIMO := (phyCap & 0x00000003)
-		if muMIMO != 0 {
-			ap.MUMIMO = true
-		}
+	// TX 1024-QAM: Byte 10, Bit 3
+	// RX 1024-QAM: Byte 10, Bit 4
+	if len(phyCap) >= 5 && ((phyCap[4]&0x08) != 0 || (phyCap[4]&0x10) != 0) {
+		ap.QAMSupport = 1024
+	}
 
-		qamSupport := (phyCap >> 2) & 0x03
-		if qamSupport == 1 {
-			ap.QAMSupport = 1024
-		} else if qamSupport == 2 {
-			ap.QAMSupport = 4096
-		} else if qamSupport == 0 {
-			ap.QAMSupport = 256
-		}
+	// OBSS PD-based SR: Byte 9, Bit 4
+	if len(phyCap) >= 4 && (phyCap[3]&0x10) != 0 {
+		ap.OBSSPD = true
+	}
 
-		if (phyCap & 0x00000008) != 0 {
-			ap.OBSSPD = true
+	// Supported HE-MCS And NSS Set (bytes 17+)
+	// RX HE-MCS Map: 2 bytes, 2 bits per spatial stream
+	if len(data) >= 19 {
+		rxMcsMap := uint16(data[17]) | uint16(data[18])<<8
+		maxStream := 0
+		for ss := 0; ss < 8; ss++ {
+			mcsVal := (rxMcsMap >> (ss * 2)) & 0x03
+			if mcsVal != 3 {
+				maxStream = ss + 1
+			}
+		}
+		if maxStream > ap.MIMOStreams {
+			ap.MIMOStreams = maxStream
 		}
 	}
+}
+
+func parseHEOperation(data []byte, ap *AccessPoint) {
+	// HE Operation Element per IEEE 802.11ax-2021 section 9.4.2.243
+	// Structure: HE Operation Parameters (3) + BSS Color Information (1) + Basic HE-MCS and NSS Set (2) + ...
+	if len(data) < 4 {
+		return
+	}
+	// BSS Color Information is at byte 3
+	// Bits 0-5: BSS Color (0-63)
+	ap.BSSColor = int(data[3] & 0x3F)
 }
 
 func parseTPCReport(data []byte, ap *AccessPoint) {
-	if len(data) < 9 {
+	// TPC Report IE (ID 38) per IEEE 802.11-2020 section 9.4.2.16
+	// Structure: TX Power (1 byte) + Link Margin (1 byte) = 2 bytes total
+	if len(data) < 2 {
 		return
 	}
+	ap.TxPower = int(int8(data[0]))
+}
 
-	ap.TxPower = int(int8(data[8]))
+func parseRMCapabilities(data []byte, ap *AccessPoint) {
+	// RM Enabled Capabilities IE (ID 70) per IEEE 802.11-2020 section 9.4.2.44
+	// 5 bytes of capability flags
+	if len(data) < 1 {
+		return
+	}
+	// Byte 0, Bit 1: Neighbor Report capability (802.11k)
+	if (data[0] & 0x02) != 0 {
+		ap.NeighborReport = true
+	}
+}
+
+func parseHTOperation(data []byte, ap *AccessPoint) {
+	// HT Operation IE (ID 61) per IEEE 802.11-2020 section 9.4.2.56
+	if len(data) < 2 {
+		return
+	}
+	// Byte 1 contains STA Channel Width and secondary channel offset
+	staChanWidth := (data[1] & 0x04) >> 2
+	if staChanWidth == 1 {
+		if ap.ChannelWidth < 40 {
+			ap.ChannelWidth = 40
+		}
+	}
+}
+
+func parseVHTOperation(data []byte, ap *AccessPoint) {
+	// VHT Operation IE (ID 192) per IEEE 802.11-2020 section 9.4.2.158
+	if len(data) < 1 {
+		return
+	}
+	// Byte 0: Channel Width field
+	// 0 = 20 or 40 MHz, 1 = 80 MHz, 2 = 160 MHz, 3 = 80+80 MHz
+	switch data[0] {
+	case 1:
+		ap.ChannelWidth = 80
+	case 2:
+		ap.ChannelWidth = 160
+	case 3:
+		ap.ChannelWidth = 160
+	}
 }
 
 func parseExtendedCapabilities(data []byte, ap *AccessPoint) {
-	if len(data) < 8 {
-		return
+	// Extended Capabilities IE structure per IEEE 802.11-2020 section 9.4.2.26
+	// Capabilities are bit-indexed, with byte 0 containing bits 0-7, byte 1 containing bits 8-15, etc.
+
+	// Byte 0: bits 0-7 (20/40 BSS Coexistence, etc.)
+	if len(data) >= 1 {
+		// Bit 6: S-PSMP Support (U-APSD coexistence)
+		if (data[0] & 0x40) != 0 {
+			ap.UAPSD = true
+		}
 	}
 
-	if (data[0] & 0x40) != 0 {
-		ap.UAPSD = true
+	// Byte 2: bits 16-23
+	// Bit 19: BSS Transition (802.11v) = byte 2, bit 3 (0x08)
+	if len(data) >= 3 {
+		if (data[2] & 0x08) != 0 {
+			ap.BSSTransition = true
+		}
 	}
 
-	if (data[1] & 0x01) != 0 {
-		ap.BSSTransition = true
-	}
+	// Byte 3: bits 24-31
+	// Bit 31: Interworking = byte 3, bit 7 (0x80)
+	// Bit 30: QoS Map = byte 3, bit 6 (0x40)
 
-	if (data[1] & 0x04) != 0 {
-		ap.NeighborReport = true
-	}
-
-	if (data[7] & 0x80) != 0 {
-		ap.PMF = "Required"
-	} else if (data[7] & 0x40) != 0 {
-		ap.PMF = "Optional"
-	} else {
-		ap.PMF = "Disabled"
-	}
+	// Note: Neighbor Report (802.11k) is NOT in Extended Capabilities IE.
+	// It's in RM Enabled Capabilities IE (ID 70). See parseRMCapabilities().
 }
 
 func parseCountryIE(data []byte, ap *AccessPoint) {
@@ -701,13 +778,8 @@ func parseVendorSpecificIE(data []byte, ap *AccessPoint) {
 			}
 		}
 	} else if ouiString == msOUI {
-		if len(data) >= 5 {
-			ieType := data[4]
-			if ieType == 0x4A && len(data) >= 6 {
-				ap.BSSColor = int(data[5])
-			} else if ieType == 0x13 {
-				ap.APName = string(data[5:])
-			}
+		if len(data) >= 5 && data[4] == 0x13 {
+			ap.APName = string(data[5:])
 		}
 	}
 }

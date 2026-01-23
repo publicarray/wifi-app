@@ -54,3 +54,27 @@ func appendUnique(slice []string, item string) []string {
 	}
 	return append(slice, item)
 }
+
+func channelToFrequency(channel int) int {
+	if channel >= 1 && channel <= 14 {
+		if channel == 14 {
+			return 2484
+		}
+		return 2407 + (channel * 5)
+	}
+	if channel >= 36 && channel <= 165 {
+		return 5000 + (channel * 5)
+	}
+	if channel >= 1 && channel <= 233 {
+		if channel == 2 || channel == 1 {
+			return 5935
+		}
+		if channel == 5 || channel == 9 {
+			return 5950 + ((channel - 5) * 20)
+		}
+		if channel >= 11 && channel <= 253 {
+			return 5950 + (channel * 20)
+		}
+	}
+	return 0
+}

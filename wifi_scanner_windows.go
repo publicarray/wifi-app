@@ -63,24 +63,23 @@ func (s *windowsScanner) parseNetshScanOutput(output string) ([]AccessPoint, err
 				aps = append(aps, *currentAP)
 			}
 			currentAP = &AccessPoint{
-				Vendor:        s.ouiLookup.LookupVendor(line),
-				SSID:          strings.TrimSpace(matches[1]),
-				SignalQuality: 50,
-				LastSeen:      getCurrentTime(),
-				Capabilities:  []string{},
+				Vendor:       s.ouiLookup.LookupVendor(line),
+				SSID:         strings.TrimSpace(matches[1]),
+				LastSeen:     getCurrentTime(),
+				Capabilities: []string{},
 			}
 		}
 		if matches := bssidRegex.FindStringSubmatch(line); matches != nil && currentAP != nil {
 			currentAP.BSSID = matches[1]
 		}
 		if matches := signalRegex.FindStringSubmatch(line); matches != nil && currentAP != nil {
-			if signal, err := strconv.Atoi(matches[1]); err != nil {
+			if signal, err := strconv.Atoi(matches[1]); err == nil {
 				currentAP.Signal = (signal - 100)
 				currentAP.SignalQuality = signal
 			}
 		}
 		if matches := channelRegex.FindStringSubmatch(line); matches != nil && currentAP != nil {
-			if ch, err := strconv.Atoi(matches[1]); err != nil {
+			if ch, err := strconv.Atoi(matches[1]); err == nil {
 				currentAP.Channel = ch
 			}
 		}
@@ -112,12 +111,28 @@ func (s *windowsScanner) parseNetshScanOutput(output string) ([]AccessPoint, err
 		aps = append(aps, *currentAP)
 	}
 
+	// Post-process to set frequency, band, and default values
 	for i := range aps {
-		aps[i].ChannelWidth = 20
-		aps[i].Frequency = 2400
-		aps[i].Band = "2.4GHz"
+		// Set frequency and band based on channel
+		aps[i].Frequency = channelToFrequency(aps[i].Channel)
+		if aps[i].Frequency > 5900 {
+			aps[i].Band = "6GHz"
+		} else if aps[i].Frequency > 5000 {
+			aps[i].Band = "5GHz"
+		} else if aps[i].Frequency > 2400 {
+			aps[i].Band = "2.4GHz"
+		}
+
+		// Set defaults if not already set
+		if aps[i].ChannelWidth == 0 {
+			aps[i].ChannelWidth = 20
+		}
 		if aps[i].Security == "" {
 			aps[i].Security = "Open"
+		}
+		// SignalQuality already set from signal parsing
+		if aps[i].SignalQuality == 0 && aps[i].Signal != 0 {
+			aps[i].SignalQuality = signalToQuality(aps[i].Signal)
 		}
 	}
 
@@ -168,6 +183,7 @@ func (s *windowsScanner) GetConnectionInfo(iface string) (ConnectionInfo, error)
 	channelRegex := regexp.MustCompile(`Channel\s*:\s*(\d+)`)
 	receiveRateRegex := regexp.MustCompile(`Receive rate \(Mbps\)\s*:\s*([\d.]+)`)
 	transmitRateRegex := regexp.MustCompile(`Transmit rate \(Mbps\)\s*:\s*([\d.]+)`)
+	signalRegex := regexp.MustCompile(`Signal\s*:\s*(\d+)%`)
 
 	connInfo := ConnectionInfo{}
 
@@ -197,13 +213,27 @@ func (s *windowsScanner) GetConnectionInfo(iface string) (ConnectionInfo, error)
 				connInfo.TxBitrate = rate
 			}
 		}
+		if matches := signalRegex.FindStringSubmatch(line); matches != nil {
+			if signal, err := strconv.Atoi(matches[1]); err == nil {
+				connInfo.Signal = signal - 100
+				connInfo.SignalAvg = signal - 100
+			}
+		}
 	}
 
-	connInfo.Signal = -70
-	connInfo.SignalAvg = -70
+	if connInfo.Signal == 0 {
+		connInfo.Signal = -70
+	}
+	if connInfo.SignalAvg == 0 {
+		connInfo.SignalAvg = connInfo.Signal
+	}
 	connInfo.WiFiStandard = "802.11ac/n"
-	connInfo.ChannelWidth = 20
-	connInfo.MIMOConfig = "1x1"
+	if connInfo.ChannelWidth == 0 {
+		connInfo.ChannelWidth = 20
+	}
+	if connInfo.MIMOConfig == "" {
+		connInfo.MIMOConfig = "1x1"
+	}
 
 	return connInfo, nil
 }

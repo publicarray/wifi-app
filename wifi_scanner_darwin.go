@@ -48,35 +48,52 @@ func (s *darwinScanner) ScanNetworks(iface string) ([]AccessPoint, error) {
 func (s *darwinScanner) parseAirportScanOutput(output string) ([]AccessPoint, error) {
 	lines := strings.Split(output, "\n")
 	var aps []AccessPoint
-	var currentAP *AccessPoint
 
-	agrCtlRSSIRegex := regexp.MustCompile(`agrCtlRSSI:\s+(-?\d+)`)
+	ssidRegex := regexp.MustCompile(`^\s*(\S+)\s+(\d+)\s+(-?\d+)\s+\[([^\]]+)\]\s+([^\s]+)`)
 
-	for _, line := range lines {
-		if matches := agrCtlRSSIRegex.FindStringSubmatch(line); matches != nil {
-			if rssi, err := strconv.Atoi(matches[1]); err == nil {
-				if currentAP != nil {
-					aps = append(aps, *currentAP)
+	for i, line := range lines {
+		if i == 0 {
+			continue
+		}
+
+		matches := ssidRegex.FindStringSubmatch(line)
+		if len(matches) >= 5 {
+			ssid := matches[1]
+			channel := -1
+			signal := -100
+			bssid := matches[5]
+
+			if ch, err := strconv.Atoi(matches[2]); err == nil {
+				channel = ch
+			}
+			if rssi, err := strconv.Atoi(matches[3]); err == nil {
+				signal = rssi
+			}
+
+			if ssid != "" && channel > 0 {
+				freq := channelToFrequency(channel)
+				band := "2.4GHz"
+				if freq > 5900 {
+					band = "6GHz"
+				} else if freq > 5000 {
+					band = "5GHz"
 				}
-				currentAP = &AccessPoint{
-					Vendor:        s.ouiLookup.LookupVendor(line),
-					Signal:        rssi,
-					SignalQuality: signalToQuality(rssi),
+
+				ap := AccessPoint{
+					SSID:          ssid,
+					BSSID:         bssid,
+					Channel:       channel,
+					Frequency:     freq,
+					Band:          band,
+					Signal:        signal,
+					SignalQuality: signalToQuality(signal),
+					Vendor:        s.ouiLookup.LookupVendor(bssid),
 					LastSeen:      s.parseAirportTime(),
 					Capabilities:  []string{},
+					ChannelWidth:  20,
 				}
+				aps = append(aps, ap)
 			}
-		}
-	}
-
-	if currentAP != nil {
-		aps = append(aps, *currentAP)
-	}
-
-	for i := range aps {
-		aps[i].ChannelWidth = 20
-		if aps[i].Band == "" {
-			aps[i].Band = "2.4GHz/5GHz"
 		}
 	}
 
