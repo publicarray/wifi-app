@@ -278,8 +278,8 @@ func (s *WiFiScannerMDLayher) parseSecurityFromRSN(rsn wifi.RSNInfo, ap *AccessP
 		ap.Security = "WPA2"
 	}
 
-	pmfCapable := rsn.Capabilities&0x01 != 0
-	pmfRequired := rsn.Capabilities&0x02 != 0
+	pmfCapable := rsn.Capabilities&0x80 != 0  // Bit 7 = MFPC (Management Frame Protection Capable)
+	pmfRequired := rsn.Capabilities&0x40 != 0 // Bit 6 = MFPR (Management Frame Protection Required)
 
 	if pmfRequired {
 		ap.PMF = "Required"
