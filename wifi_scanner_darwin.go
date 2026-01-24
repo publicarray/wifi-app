@@ -2,9 +2,7 @@ package main
 
 import (
 	"fmt"
-	"os"
 	"os/exec"
-	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -16,17 +14,7 @@ type darwinScanner struct {
 	ouiLookup        *OUILookup
 }
 
-func newDarwinScanner() WiFiBackend {
-	cacheDir, err := os.UserCacheDir()
-	if err != nil {
-		cacheDir = os.TempDir()
-	}
-	cacheFile := filepath.Join(cacheDir, "wifi-app", "oui.txt")
-
-	if err := os.MkdirAll(filepath.Dir(cacheFile), 0755); err != nil {
-		cacheFile = filepath.Join(os.TempDir(), "oui.txt")
-	}
-
+func NewWiFiScanner(cacheFile string) WiFiBackend {
 	ouiLookup := NewOUILookup(cacheFile)
 	ouiLookup.LoadOUIDatabase()
 
