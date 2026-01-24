@@ -4,7 +4,6 @@ package main
 
 import (
 	"fmt"
-	"math"
 	"os/exec"
 	"regexp"
 	"strconv"
@@ -326,112 +325,15 @@ func (s *WiFiScanner) parseScanOutput(output string) ([]AccessPoint, error) {
 			aps[i].BSSLoadStations = -1
 			aps[i].BSSLoadUtilization = -1
 		}
-		aps[i].MaxTheoreticalSpeed = calculateMaxTheoreticalSpeed(&aps[i])
-		aps[i].RealWorldSpeed = calculateRealWorldSpeed(aps[i].MaxTheoreticalSpeed)
 
 		if aps[i].Noise != 0 {
 			aps[i].SNR = aps[i].Signal - aps[i].Noise
 		}
 
-		hasHE := false
-		for _, cap := range aps[i].Capabilities {
-			if cap == "HE" {
-				hasHE = true
-				break
-			}
-		}
-		aps[i].EstimatedRange = calculateEstimatedRange(aps[i].TxPower, aps[i].Band, hasHE)
+		aps[i].DFS = isDFSChannel(aps[i].Channel)
 	}
 
 	return aps, nil
-}
-
-// calculateMaxTheoreticalSpeed calculates the maximum theoretical throughput in Mbps
-func calculateMaxTheoreticalSpeed(ap *AccessPoint) int {
-	var baseSpeed float64
-	var hasHE, hasVHT, hasHT bool
-
-	// Determine WiFi standard and base speed
-	for _, cap := range ap.Capabilities {
-		if cap == "HE" {
-			hasHE = true
-		} else if cap == "VHT" {
-			hasVHT = true
-		} else if cap == "HT" {
-			hasHT = true
-		}
-	}
-
-	// Base speeds (per stream) at 20MHz
-	if hasHE {
-		// WiFi 6 (802.11ax)
-		baseSpeed = 286.8 // MCS 11, 1024-QAM, 2.4GHz
-	} else if hasVHT {
-		// WiFi 5 (802.11ac)
-		baseSpeed = 433.3 // MCS 9, 256-QAM, 80MHz
-	} else if hasHT {
-		// WiFi 4 (802.11n)
-		baseSpeed = 72.2 // MCS 7, 64-QAM, 20MHz
-	} else {
-		// Legacy (802.11a/g)
-		baseSpeed = 54
-	}
-
-	// Adjust for channel width
-	widthMultiplier := 1.0
-	switch ap.ChannelWidth {
-	case 40:
-		widthMultiplier = 2.0
-	case 80:
-		widthMultiplier = 4.0
-	case 160:
-		widthMultiplier = 8.0
-	case 320:
-		widthMultiplier = 16.0
-	}
-
-	// Adjust for MIMO streams
-	streamMultiplier := float64(ap.MIMOStreams)
-	if streamMultiplier < 1 {
-		streamMultiplier = 1
-	}
-
-	maxSpeed := baseSpeed * widthMultiplier * streamMultiplier
-	return int(maxSpeed)
-}
-
-func calculateRealWorldSpeed(theoreticalSpeed int) int {
-	return int(float64(theoreticalSpeed) * 0.65)
-}
-
-func calculateEstimatedRange(txPower int, band string, hasHE bool) float64 {
-	var frequencyMHz float64
-	if band == "2.4GHz" {
-		frequencyMHz = 2437
-	} else if band == "5GHz" {
-		frequencyMHz = 5400
-	} else {
-		frequencyMHz = 2437
-	}
-
-	eirp := float64(txPower)
-	minSignal := -82.0
-	if hasHE {
-		minSignal = -87.0
-	}
-
-	signalMargin := eirp - minSignal
-	adjustment := 20.0 * math.Log10(frequencyMHz/2437.0)
-	rangeMeters := math.Pow(10.0, (signalMargin-adjustment)/20.0)
-
-	if rangeMeters < 10 {
-		return 10.0
-	}
-	if rangeMeters > 500 {
-		return 500.0
-	}
-
-	return rangeMeters
 }
 
 // GetLinkInfo gets information about the current WiFi connection
@@ -570,6 +472,21 @@ func (s *WiFiScanner) GetStationStats(iface string) (map[string]string, error) {
 		}
 		if matches := lastAckSignalRegex.FindStringSubmatch(line); matches != nil {
 			stats["last_ack_signal"] = matches[1]
+		}
+	}
+
+	if retries, ok := stats["tx_retries"]; ok {
+		if packets, ok := stats["tx_packets"]; ok {
+			retriesInt, _ := strconv.ParseUint(retries, 10, 64)
+			packetsInt, _ := strconv.ParseUint(packets, 10, 64)
+			retryRate := 0.0
+			if packetsInt > 0 {
+				retryRate = float64(retriesInt) / float64(packetsInt) * 100.0
+				if retryRate > 100.0 {
+					retryRate = 100.0
+				}
+			}
+			stats["retry_rate"] = fmt.Sprintf("%.2f", retryRate)
 		}
 	}
 

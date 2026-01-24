@@ -5,7 +5,6 @@ package main
 import (
 	"context"
 	"fmt"
-	"math"
 	"strings"
 	"time"
 
@@ -123,16 +122,6 @@ func (s *WiFiScannerMDLayher) ScanNetworks(iface string) ([]AccessPoint, error) 
 			accessPoints[i].SNR = accessPoints[i].Signal - noiseFloor
 		}
 		accessPoints[i].DFS = isDFSChannel(accessPoints[i].Channel)
-		accessPoints[i].MaxTheoreticalSpeed = calculateMaxTheoreticalSpeed(&accessPoints[i])
-		accessPoints[i].RealWorldSpeed = calculateRealWorldSpeed(accessPoints[i].MaxTheoreticalSpeed)
-		hasHE := false
-		for _, cap := range accessPoints[i].Capabilities {
-			if cap == "HE" {
-				hasHE = true
-				break
-			}
-		}
-		accessPoints[i].EstimatedRange = calculateEstimatedRange(accessPoints[i].TxPower, accessPoints[i].Band, hasHE)
 	}
 	return accessPoints, nil
 }
@@ -292,6 +281,15 @@ func (s *WiFiScannerMDLayher) GetLinkInfo(iface string) (map[string]string, erro
 	info["tx_failed"] = fmt.Sprintf("%d", station.TransmitFailed)
 	info["connected_time"] = fmt.Sprintf("%d", int(station.Connected.Seconds()))
 
+	retryRate := 0.0
+	if station.TransmittedPackets > 0 {
+		retryRate = float64(station.TransmitRetries) / float64(station.TransmittedPackets) * 100.0
+		if retryRate > 100.0 {
+			retryRate = 100.0
+		}
+	}
+	info["retry_rate"] = fmt.Sprintf("%.2f", retryRate)
+
 	return info, nil
 }
 
@@ -301,96 +299,6 @@ func (s *WiFiScannerMDLayher) GetStationStats(iface string) (map[string]string, 
 
 func (s *WiFiScannerMDLayher) Close() error {
 	return s.client.Close()
-}
-
-func calculateMaxTheoreticalSpeed(ap *AccessPoint) int {
-	var baseSpeed float64
-	var hasHE, hasVHT, hasHT bool
-
-	for _, cap := range ap.Capabilities {
-		if cap == "HE" {
-			hasHE = true
-		} else if cap == "VHT" {
-			hasVHT = true
-		} else if cap == "HT" {
-			hasHT = true
-		}
-	}
-
-	if hasHE {
-		baseSpeed = 286.8
-	} else if hasVHT {
-		baseSpeed = 433.3
-	} else if hasHT {
-		baseSpeed = 72.2
-	} else {
-		baseSpeed = 54
-	}
-
-	widthMultiplier := 1.0
-	switch ap.ChannelWidth {
-	case 40:
-		widthMultiplier = 2.0
-	case 80:
-		widthMultiplier = 4.0
-	case 160:
-		widthMultiplier = 8.0
-	case 320:
-		widthMultiplier = 16.0
-	}
-
-	streamMultiplier := float64(ap.MIMOStreams)
-	if streamMultiplier < 1 {
-		streamMultiplier = 1
-	}
-
-	maxSpeed := baseSpeed * widthMultiplier * streamMultiplier
-	return int(maxSpeed)
-}
-
-func calculateRealWorldSpeed(theoreticalSpeed int) int {
-	return int(float64(theoreticalSpeed) * 0.65)
-}
-
-func calculateEstimatedRange(txPower int, band string, hasHE bool) float64 {
-	const (
-		CenterFreq24GHz        = 2437
-		CenterFreq5GHz         = 5400
-		DefaultSignalThreshold = -82.0
-		HESignalThreshold      = -87.0
-		MinRangeMeters         = 10.0
-		MaxRangeMeters         = 500.0
-		PathLossConstant       = 20.0
-		ReferenceFrequency     = 2437.0
-	)
-
-	var frequencyMHz float64
-	if band == "2.4GHz" {
-		frequencyMHz = CenterFreq24GHz
-	} else if band == "5GHz" {
-		frequencyMHz = CenterFreq5GHz
-	} else {
-		frequencyMHz = CenterFreq24GHz
-	}
-
-	eirp := float64(txPower)
-	minSignal := DefaultSignalThreshold
-	if hasHE {
-		minSignal = HESignalThreshold
-	}
-
-	signalMargin := eirp - minSignal
-	adjustment := PathLossConstant * math.Log10(frequencyMHz/ReferenceFrequency)
-	rangeMeters := math.Pow(10.0, (signalMargin-adjustment)/PathLossConstant)
-
-	if rangeMeters < MinRangeMeters {
-		return MinRangeMeters
-	}
-	if rangeMeters > MaxRangeMeters {
-		return MaxRangeMeters
-	}
-
-	return rangeMeters
 }
 
 func parseIEs(b []byte) []wifi.IE {

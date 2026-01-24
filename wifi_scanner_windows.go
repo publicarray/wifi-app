@@ -637,12 +637,10 @@ func (s *windowsScanner) parseInformationElements(ap *AccessPoint, entry *WLAN_B
 		offset += 2 + uint32(length)
 	}
 
-	// Set default MIMO if not detected
 	if ap.MIMOStreams == 0 {
 		ap.MIMOStreams = 1
 	}
 
-	// Set default QAM based on WiFi generation if not detected
 	if ap.QAMSupport == 0 {
 		if hasEHT {
 			ap.QAMSupport = 4096
@@ -655,18 +653,10 @@ func (s *windowsScanner) parseInformationElements(ap *AccessPoint, entry *WLAN_B
 		}
 	}
 
-	// Calculate theoretical and real-world speeds
-	ap.MaxTheoreticalSpeed = calculateMaxSpeed(ap.ChannelWidth, ap.MIMOStreams, ap.QAMSupport, hasHE, hasEHT)
-	ap.RealWorldSpeed = int(float64(ap.MaxTheoreticalSpeed) * 0.65) // ~65% of theoretical
-
-	// Calculate SNR if noise is available (Windows doesn't provide noise, estimate from signal)
 	if ap.Noise == 0 {
-		ap.Noise = -95 // Typical noise floor
+		ap.Noise = -95
 	}
 	ap.SNR = ap.Signal - ap.Noise
-
-	// Estimate range based on signal and typical path loss model
-	ap.EstimatedRange = estimateRange(ap.Signal, ap.Frequency)
 }
 
 func (s *windowsScanner) parseRSNElement(ap *AccessPoint, data []byte) {
@@ -1257,114 +1247,6 @@ func getVHTQAM(mcsMap uint16) int {
 		}
 	}
 	return 64
-}
-
-func calculateMaxSpeed(channelWidth, streams, qam int, hasHE, hasEHT bool) int {
-	if streams == 0 {
-		streams = 1
-	}
-	if channelWidth == 0 {
-		channelWidth = 20
-	}
-
-	var baseSpeed int
-	switch channelWidth {
-	case 20:
-		if hasEHT {
-			baseSpeed = 172
-		} else if hasHE {
-			baseSpeed = 143
-		} else {
-			baseSpeed = 86
-		}
-	case 40:
-		if hasEHT {
-			baseSpeed = 344
-		} else if hasHE {
-			baseSpeed = 287
-		} else {
-			baseSpeed = 200
-		}
-	case 80:
-		if hasEHT {
-			baseSpeed = 720
-		} else if hasHE {
-			baseSpeed = 600
-		} else {
-			baseSpeed = 433
-		}
-	case 160:
-		if hasEHT {
-			baseSpeed = 1441
-		} else if hasHE {
-			baseSpeed = 1201
-		} else {
-			baseSpeed = 867
-		}
-	case 320:
-		baseSpeed = 2882
-	default:
-		baseSpeed = 86
-	}
-
-	speed := baseSpeed * streams
-
-	if qam >= 4096 {
-		speed = speed * 120 / 100
-	} else if qam >= 1024 {
-		speed = speed * 110 / 100
-	}
-
-	return speed
-}
-
-func estimateRange(signal, frequency int) float64 {
-	if signal == 0 {
-		return 0
-	}
-
-	pathLossExponent := 2.7
-	if frequency > 5000 {
-		pathLossExponent = 3.0
-	}
-	if frequency > 5900 {
-		pathLossExponent = 3.5
-	}
-
-	freqMHz := float64(frequency)
-	if freqMHz == 0 {
-		freqMHz = 2437
-	}
-
-	txPower := 20.0
-	fspl := txPower - float64(signal)
-
-	freeSpaceConstant := 27.55
-	log10Freq := 0.0
-	switch {
-	case freqMHz < 3000:
-		log10Freq = 3.39
-	case freqMHz < 6000:
-		log10Freq = 3.72
-	default:
-		log10Freq = 3.78
-	}
-
-	distanceLog := (fspl - freeSpaceConstant - 20*log10Freq) / (10 * pathLossExponent)
-
-	distance := 1.0
-	for i := 0; i < int(distanceLog*10); i++ {
-		distance *= 1.259
-	}
-
-	if distance < 1 {
-		distance = 1
-	}
-	if distance > 500 {
-		distance = 500
-	}
-
-	return distance
 }
 
 func calculateRetryRate(retries, totalPackets uint64) float64 {
