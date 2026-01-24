@@ -134,12 +134,12 @@ type ScanResult struct {
 	TotalNetworks int           `json:"totalNetworks"`
 }
 
-// ConnectionInfo represents basic WiFi connection information
 type ConnectionInfo struct {
 	Connected    bool    `json:"connected"`
 	SSID         string  `json:"ssid"`
 	BSSID        string  `json:"bssid"`
 	Channel      int     `json:"channel"`
+	Frequency    int     `json:"frequency"`
 	Signal       int     `json:"signal"`
 	SignalAvg    int     `json:"signalAvg"`
 	RxBitrate    float64 `json:"rxBitrate"`

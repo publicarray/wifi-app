@@ -456,6 +456,12 @@ func (s *windowsScanner) parseInformationElements(ap *AccessPoint, entry *WLAN_B
 	iePtr := unsafe.Add(unsafe.Pointer(entry), uintptr(entry.IEOffset))
 	ieData := unsafe.Slice((*byte)(iePtr), entry.IESize)
 
+	// Track parsed values for speed calculation
+	var htMCSSet []byte
+	var vhtMCSMap uint16
+	var heMCSMap uint16
+	var hasVHT, hasHE, hasEHT bool
+
 	offset := uint32(0)
 	for offset+2 <= entry.IESize {
 		elementID := ieData[offset]
@@ -468,34 +474,56 @@ func (s *windowsScanner) parseInformationElements(ap *AccessPoint, entry *WLAN_B
 		data := ieData[offset+2 : offset+2+uint32(length)]
 
 		switch elementID {
-		case 5:
+		case 5: // TIM (Traffic Indication Map)
 			if length >= 2 {
 				ap.DTIM = int(data[1])
 			}
 
-		case 45:
+		case 7: // Country Information
+			if length >= 2 {
+				// First 2 bytes are the country code (ASCII)
+				ap.CountryCode = string(data[0:2])
+			}
+
+		case 11: // BSS Load
+			if length >= 5 {
+				// Byte 0-1: Station Count (little-endian)
+				ap.BSSLoadStations = int(uint16(data[0]) | uint16(data[1])<<8)
+				// Byte 2: Channel Utilization (0-255, convert to percentage)
+				ap.BSSLoadUtilization = int(data[2])
+			}
+
+		case 45: // HT Capabilities
 			if length >= 2 {
 				htCaps := uint16(data[0]) | uint16(data[1])<<8
 				if htCaps&0x0002 != 0 {
 					ap.ChannelWidth = 40
 				}
 			}
+			// Extract MIMO streams from HT MCS Set (bytes 3-6)
+			if length >= 6 {
+				htMCSSet = data[3:7]
+				streams := countHTStreams(htMCSSet)
+				if streams > ap.MIMOStreams {
+					ap.MIMOStreams = streams
+				}
+			}
 
-		case 48:
+		case 48: // RSN
 			s.parseRSNElement(ap, data)
 
-		case 70:
+		case 54: // Mobility Domain (802.11r)
+			if length >= 2 {
+				ap.FastRoaming = true
+			}
+
+		case 70: // RM Enabled Capabilities (802.11k)
 			if length >= 1 {
 				ap.NeighborReport = (data[0] & 0x02) != 0
 				ap.BSSTransition = (data[0] & 0x08) != 0
 			}
 
-		case 54:
-			if length >= 2 {
-				ap.FastRoaming = true
-			}
-
-		case 127:
+		case 127: // Extended Capabilities
 			if length >= 3 {
 				ap.BSSTransition = (data[2] & 0x08) != 0
 			}
@@ -503,7 +531,8 @@ func (s *windowsScanner) parseInformationElements(ap *AccessPoint, entry *WLAN_B
 				ap.TWTSupport = (data[5] & 0x02) != 0
 			}
 
-		case 191:
+		case 191: // VHT Capabilities
+			hasVHT = true
 			if length >= 4 {
 				vhtCaps := uint32(data[0]) | uint32(data[1])<<8 | uint32(data[2])<<16 | uint32(data[3])<<24
 				switch (vhtCaps >> 2) & 0x03 {
@@ -518,31 +547,48 @@ func (s *windowsScanner) parseInformationElements(ap *AccessPoint, entry *WLAN_B
 					ap.MUMIMO = true
 				}
 			}
+			// VHT MCS Map at bytes 4-5 (RX) and 6-7 (TX) - we use RX
+			if length >= 8 {
+				vhtMCSMap = uint16(data[4]) | uint16(data[5])<<8
+				streams := countVHTStreams(vhtMCSMap)
+				if streams > ap.MIMOStreams {
+					ap.MIMOStreams = streams
+				}
+				// Determine QAM from MCS map
+				qam := getVHTQAM(vhtMCSMap)
+				if qam > ap.QAMSupport {
+					ap.QAMSupport = qam
+				}
+			}
 
-		case 221:
+		case 221: // Vendor Specific
 			if length >= 4 {
+				// Microsoft WPA OUI
 				if data[0] == 0x00 && data[1] == 0x50 && data[2] == 0xF2 {
 					switch data[3] {
-					case 0x01:
+					case 0x01: // WPA
 						if ap.Security == "Open" || ap.Security == "WEP" {
 							ap.Security = "WPA"
 						}
-					case 0x02:
+					case 0x02: // WMM/WME
 						ap.QoSSupport = true
 						if length >= 8 {
 							ap.UAPSD = (data[7] & 0x80) != 0
 						}
+					case 0x04: // WPS
+						ap.WPS = true
 					}
 				}
 			}
 
-		case 255:
+		case 255: // Extension Element
 			if length >= 1 {
 				extID := data[0]
 				extData := data[1:]
 
 				switch extID {
-				case 35:
+				case 35: // HE Capabilities
+					hasHE = true
 					ap.Capabilities = appendUnique(ap.Capabilities, "WiFi6")
 					if len(extData) >= 6 {
 						ap.TWTSupport = (extData[0] & 0x04) != 0
@@ -550,8 +596,21 @@ func (s *windowsScanner) parseInformationElements(ap *AccessPoint, entry *WLAN_B
 						ap.BSSColor = int(extData[4] & 0x3F)
 						ap.OBSSPD = (extData[4] & 0x40) != 0
 					}
+					// HE MCS Map starts at byte 6 (after MAC caps and PHY caps)
+					// Structure varies but typically at fixed offset
+					if len(extData) >= 11 {
+						heMCSMap = uint16(extData[9]) | uint16(extData[10])<<8
+						streams := countHEStreams(heMCSMap)
+						if streams > ap.MIMOStreams {
+							ap.MIMOStreams = streams
+						}
+						// HE supports 1024-QAM
+						if ap.QAMSupport < 1024 {
+							ap.QAMSupport = 1024
+						}
+					}
 
-				case 36:
+				case 36: // HE Operation
 					if len(extData) >= 5 {
 						heOp := extData[0]
 						if heOp&0x04 != 0 {
@@ -559,12 +618,17 @@ func (s *windowsScanner) parseInformationElements(ap *AccessPoint, entry *WLAN_B
 						}
 					}
 
-				case 106:
+				case 106: // EHT Capabilities (WiFi 7)
+					hasEHT = true
 					ap.Capabilities = appendUnique(ap.Capabilities, "WiFi7")
 					if len(extData) >= 2 && ap.ChannelWidth < 320 {
 						if extData[1]&0x02 != 0 {
 							ap.ChannelWidth = 320
 						}
+					}
+					// EHT supports 4096-QAM
+					if ap.QAMSupport < 4096 {
+						ap.QAMSupport = 4096
 					}
 				}
 			}
@@ -572,6 +636,37 @@ func (s *windowsScanner) parseInformationElements(ap *AccessPoint, entry *WLAN_B
 
 		offset += 2 + uint32(length)
 	}
+
+	// Set default MIMO if not detected
+	if ap.MIMOStreams == 0 {
+		ap.MIMOStreams = 1
+	}
+
+	// Set default QAM based on WiFi generation if not detected
+	if ap.QAMSupport == 0 {
+		if hasEHT {
+			ap.QAMSupport = 4096
+		} else if hasHE {
+			ap.QAMSupport = 1024
+		} else if hasVHT {
+			ap.QAMSupport = 256
+		} else {
+			ap.QAMSupport = 64
+		}
+	}
+
+	// Calculate theoretical and real-world speeds
+	ap.MaxTheoreticalSpeed = calculateMaxSpeed(ap.ChannelWidth, ap.MIMOStreams, ap.QAMSupport, hasHE, hasEHT)
+	ap.RealWorldSpeed = int(float64(ap.MaxTheoreticalSpeed) * 0.65) // ~65% of theoretical
+
+	// Calculate SNR if noise is available (Windows doesn't provide noise, estimate from signal)
+	if ap.Noise == 0 {
+		ap.Noise = -95 // Typical noise floor
+	}
+	ap.SNR = ap.Signal - ap.Noise
+
+	// Estimate range based on signal and typical path loss model
+	ap.EstimatedRange = estimateRange(ap.Signal, ap.Frequency)
 }
 
 func (s *windowsScanner) parseRSNElement(ap *AccessPoint, data []byte) {
@@ -734,11 +829,14 @@ func (s *windowsScanner) GetConnectionInfo(iface string) (ConnectionInfo, error)
 		rssi = int32(-100 + int32(assoc.WlanSignalQuality)/2)
 	}
 
+	frequency := channelToFrequency(channel)
+
 	info := ConnectionInfo{
 		Connected:    true,
 		SSID:         formatSSID(assoc.Dot11SSID),
 		BSSID:        formatMACAddress(assoc.Dot11BSSID),
 		Channel:      channel,
+		Frequency:    frequency,
 		Signal:       int(rssi),
 		SignalAvg:    int(rssi),
 		RxBitrate:    float64(assoc.RxRate) / 1000.0,
@@ -878,6 +976,8 @@ func (s *windowsScanner) GetLinkInfo(iface string) (map[string]string, error) {
 		result["tx_retries"] = fmt.Sprintf("%d", stats.OutDiscards)
 		result["tx_failed"] = fmt.Sprintf("%d", stats.OutErrors)
 		result["connected_time"] = fmt.Sprintf("%d", connectedTime)
+		result["retry_rate"] = fmt.Sprintf("%.2f", calculateRetryRate(stats.OutDiscards, txPackets))
+		result["frequency"] = fmt.Sprintf("%d", info.Frequency)
 	} else {
 		result["rx_bytes"] = "0"
 		result["tx_bytes"] = "0"
@@ -886,6 +986,8 @@ func (s *windowsScanner) GetLinkInfo(iface string) (map[string]string, error) {
 		result["tx_retries"] = "0"
 		result["tx_failed"] = "0"
 		result["connected_time"] = "0"
+		result["retry_rate"] = "0.00"
+		result["frequency"] = "0"
 	}
 
 	return result, nil
@@ -949,6 +1051,7 @@ func (s *windowsScanner) GetStationStats(iface string) (map[string]string, error
 		result["tx_failed"] = fmt.Sprintf("%d", stats.OutErrors)
 		result["connected_time"] = fmt.Sprintf("%d", connectedTime)
 		result["last_ack_signal"] = fmt.Sprintf("%d", info.Signal)
+		result["retry_rate"] = fmt.Sprintf("%.2f", calculateRetryRate(stats.OutDiscards, txPackets))
 	} else {
 		result["rx_bytes"] = "0"
 		result["tx_bytes"] = "0"
@@ -958,6 +1061,7 @@ func (s *windowsScanner) GetStationStats(iface string) (map[string]string, error
 		result["tx_failed"] = "0"
 		result["connected_time"] = "0"
 		result["last_ack_signal"] = "0"
+		result["retry_rate"] = "0.00"
 	}
 
 	return result, nil
@@ -1094,4 +1198,182 @@ func phyTypeToStandard(phyType uint32) string {
 	default:
 		return "802.11"
 	}
+}
+
+func countHTStreams(mcsSet []byte) int {
+	if len(mcsSet) < 4 {
+		return 1
+	}
+	streams := 0
+	for i := 0; i < 4; i++ {
+		if mcsSet[i] != 0 {
+			streams = i + 1
+		}
+	}
+	if streams == 0 {
+		return 1
+	}
+	return streams
+}
+
+func countVHTStreams(mcsMap uint16) int {
+	streams := 0
+	for ss := 0; ss < 8; ss++ {
+		mcs := (mcsMap >> (ss * 2)) & 0x03
+		if mcs != 0x03 {
+			streams = ss + 1
+		}
+	}
+	if streams == 0 {
+		return 1
+	}
+	return streams
+}
+
+func countHEStreams(mcsMap uint16) int {
+	streams := 0
+	for ss := 0; ss < 8; ss++ {
+		mcs := (mcsMap >> (ss * 2)) & 0x03
+		if mcs != 0x03 {
+			streams = ss + 1
+		}
+	}
+	if streams == 0 {
+		return 1
+	}
+	return streams
+}
+
+func getVHTQAM(mcsMap uint16) int {
+	for ss := 0; ss < 8; ss++ {
+		mcs := (mcsMap >> (ss * 2)) & 0x03
+		switch mcs {
+		case 0:
+			return 64
+		case 1:
+			return 256
+		case 2:
+			return 256
+		}
+	}
+	return 64
+}
+
+func calculateMaxSpeed(channelWidth, streams, qam int, hasHE, hasEHT bool) int {
+	if streams == 0 {
+		streams = 1
+	}
+	if channelWidth == 0 {
+		channelWidth = 20
+	}
+
+	var baseSpeed int
+	switch channelWidth {
+	case 20:
+		if hasEHT {
+			baseSpeed = 172
+		} else if hasHE {
+			baseSpeed = 143
+		} else {
+			baseSpeed = 86
+		}
+	case 40:
+		if hasEHT {
+			baseSpeed = 344
+		} else if hasHE {
+			baseSpeed = 287
+		} else {
+			baseSpeed = 200
+		}
+	case 80:
+		if hasEHT {
+			baseSpeed = 720
+		} else if hasHE {
+			baseSpeed = 600
+		} else {
+			baseSpeed = 433
+		}
+	case 160:
+		if hasEHT {
+			baseSpeed = 1441
+		} else if hasHE {
+			baseSpeed = 1201
+		} else {
+			baseSpeed = 867
+		}
+	case 320:
+		baseSpeed = 2882
+	default:
+		baseSpeed = 86
+	}
+
+	speed := baseSpeed * streams
+
+	if qam >= 4096 {
+		speed = speed * 120 / 100
+	} else if qam >= 1024 {
+		speed = speed * 110 / 100
+	}
+
+	return speed
+}
+
+func estimateRange(signal, frequency int) float64 {
+	if signal == 0 {
+		return 0
+	}
+
+	pathLossExponent := 2.7
+	if frequency > 5000 {
+		pathLossExponent = 3.0
+	}
+	if frequency > 5900 {
+		pathLossExponent = 3.5
+	}
+
+	freqMHz := float64(frequency)
+	if freqMHz == 0 {
+		freqMHz = 2437
+	}
+
+	txPower := 20.0
+	fspl := txPower - float64(signal)
+
+	freeSpaceConstant := 27.55
+	log10Freq := 0.0
+	switch {
+	case freqMHz < 3000:
+		log10Freq = 3.39
+	case freqMHz < 6000:
+		log10Freq = 3.72
+	default:
+		log10Freq = 3.78
+	}
+
+	distanceLog := (fspl - freeSpaceConstant - 20*log10Freq) / (10 * pathLossExponent)
+
+	distance := 1.0
+	for i := 0; i < int(distanceLog*10); i++ {
+		distance *= 1.259
+	}
+
+	if distance < 1 {
+		distance = 1
+	}
+	if distance > 500 {
+		distance = 500
+	}
+
+	return distance
+}
+
+func calculateRetryRate(retries, totalPackets uint64) float64 {
+	if totalPackets == 0 {
+		return 0.0
+	}
+	rate := float64(retries) / float64(totalPackets) * 100.0
+	if rate > 100.0 {
+		rate = 100.0
+	}
+	return rate
 }

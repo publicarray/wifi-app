@@ -147,6 +147,7 @@ func (s *darwinScanner) GetConnectionInfo(iface string) (ConnectionInfo, error) 
 		if matches := channelRegex.FindStringSubmatch(line); matches != nil {
 			if ch, err := strconv.Atoi(matches[1]); err == nil {
 				connInfo.Channel = ch
+				connInfo.Frequency = channelToFrequency(ch)
 			}
 		}
 		if matches := rssiRegex.FindStringSubmatch(line); matches != nil {
