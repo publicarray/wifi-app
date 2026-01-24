@@ -12,11 +12,9 @@ import (
 	"golang.org/x/sys/windows"
 )
 
-// Windows WLAN API constants
 const (
 	WLAN_API_VERSION = 2
 
-	// WLAN_INTERFACE_STATE
 	wlanInterfaceStateNotReady           = 0
 	wlanInterfaceStateConnected          = 1
 	wlanInterfaceStateAdHocNetworkFormed = 2
@@ -26,45 +24,40 @@ const (
 	wlanInterfaceStateDiscovering        = 6
 	wlanInterfaceStateAuthenticating     = 7
 
-	// WLAN_INTF_OPCODE
 	wlanIntfOpcodeCurrentConnection = 7
 	wlanIntfOpcodeChannelNumber     = 8
 	wlanIntfOpcodeStatistics        = 0x10000101
 	wlanIntfOpcodeRssi              = 0x10000102
 
-	// DOT11_BSS_TYPE
 	dot11BssTypeInfrastructure = 1
 	dot11BssTypeIndependent    = 2
 	dot11BssTypeAny            = 3
 
-	// DOT11_PHY_TYPE
 	dot11PhyTypeUnknown    = 0
 	dot11PhyTypeFhss       = 1
 	dot11PhyTypeDsss       = 2
 	dot11PhyTypeIrBaseband = 3
-	dot11PhyTypeOfdm       = 4  // 802.11a
-	dot11PhyTypeHrDsss     = 5  // 802.11b
-	dot11PhyTypeErp        = 6  // 802.11g
-	dot11PhyTypeHt         = 7  // 802.11n
-	dot11PhyTypeVht        = 8  // 802.11ac
-	dot11PhyTypeDmg        = 9  // 802.11ad
-	dot11PhyTypeHe         = 10 // 802.11ax (WiFi 6)
-	dot11PhyTypeEht        = 11 // 802.11be (WiFi 7)
+	dot11PhyTypeOfdm       = 4
+	dot11PhyTypeHrDsss     = 5
+	dot11PhyTypeErp        = 6
+	dot11PhyTypeHt         = 7
+	dot11PhyTypeVht        = 8
+	dot11PhyTypeDmg        = 9
+	dot11PhyTypeHe         = 10
+	dot11PhyTypeEht        = 11
 
-	// DOT11_AUTH_ALGORITHM
 	dot11AuthAlgo80211Open      = 1
 	dot11AuthAlgo80211SharedKey = 2
 	dot11AuthAlgoWPA            = 3
 	dot11AuthAlgoWPAPSK         = 4
 	dot11AuthAlgoWPANone        = 5
-	dot11AuthAlgoRSNA           = 6 // WPA2-Enterprise
-	dot11AuthAlgoRSNAPSK        = 7 // WPA2-Personal
-	dot11AuthAlgoWPA3           = 8 // WPA3-Enterprise 192-bit
-	dot11AuthAlgoWPA3SAE        = 9 // WPA3-Personal
+	dot11AuthAlgoRSNA           = 6
+	dot11AuthAlgoRSNAPSK        = 7
+	dot11AuthAlgoWPA3           = 8
+	dot11AuthAlgoWPA3SAE        = 9
 	dot11AuthAlgoOWE            = 10
 	dot11AuthAlgoWPA3ENT        = 11
 
-	// DOT11_CIPHER_ALGORITHM
 	dot11CipherAlgoNone    = 0x00
 	dot11CipherAlgoWEP40   = 0x01
 	dot11CipherAlgoTKIP    = 0x02
@@ -76,49 +69,42 @@ const (
 	dot11CipherAlgoCCMP256 = 0x0a
 	dot11CipherAlgoWEP     = 0x101
 
-	// Capability bits
 	capabilityESS     = 0x0001
 	capabilityIBSS    = 0x0002
 	capabilityPrivacy = 0x0010
 
-	// Constants
-	dot11SSIDMaxLength = 32
-	wlanMaxNameLength  = 256
-	wlanMaxRateSetSize = 126
+	dot11SSIDMaxLength  = 32
+	wlanMaxNameLength   = 256
+	wlanMaxRateSetSize  = 126
+	ifMaxStringSize     = 256
+	ifMaxPhysAddressLen = 32
+	ifTypeIEEE80211     = 71
 )
 
-// Windows WLAN API structures
-
-// DOT11_SSID represents an 802.11 SSID
 type DOT11_SSID struct {
 	SSIDLength uint32
 	SSID       [dot11SSIDMaxLength]byte
 }
 
-// DOT11_MAC_ADDRESS is a 6-byte MAC address
 type DOT11_MAC_ADDRESS [6]byte
 
-// WLAN_INTERFACE_INFO contains information about a wireless interface
 type WLAN_INTERFACE_INFO struct {
 	InterfaceGUID        windows.GUID
 	InterfaceDescription [wlanMaxNameLength]uint16
 	State                uint32
 }
 
-// WLAN_INTERFACE_INFO_LIST contains an array of interface info
 type WLAN_INTERFACE_INFO_LIST struct {
 	NumberOfItems uint32
 	Index         uint32
 	InterfaceInfo [1]WLAN_INTERFACE_INFO
 }
 
-// WLAN_RATE_SET contains supported data rates
 type WLAN_RATE_SET struct {
 	RateSetLength uint32
 	RateSet       [wlanMaxRateSetSize]uint16
 }
 
-// WLAN_BSS_ENTRY contains information about a BSS (access point)
 type WLAN_BSS_ENTRY struct {
 	Dot11SSID             DOT11_SSID
 	PhyID                 uint32
@@ -138,14 +124,12 @@ type WLAN_BSS_ENTRY struct {
 	IESize                uint32
 }
 
-// WLAN_BSS_LIST contains a list of BSS entries
 type WLAN_BSS_LIST struct {
 	TotalSize      uint32
 	NumberOfItems  uint32
 	WlanBssEntries [1]WLAN_BSS_ENTRY
 }
 
-// WLAN_ASSOCIATION_ATTRIBUTES contains association attributes
 type WLAN_ASSOCIATION_ATTRIBUTES struct {
 	Dot11SSID         DOT11_SSID
 	Dot11BSSType      uint32
@@ -153,11 +137,10 @@ type WLAN_ASSOCIATION_ATTRIBUTES struct {
 	Dot11PhyType      uint32
 	Dot11PhyIndex     uint32
 	WlanSignalQuality uint32
-	RxRate            uint32 // in Kbps
-	TxRate            uint32 // in Kbps
+	RxRate            uint32
+	TxRate            uint32
 }
 
-// WLAN_SECURITY_ATTRIBUTES contains security attributes
 type WLAN_SECURITY_ATTRIBUTES struct {
 	SecurityEnabled      int32
 	OneXEnabled          int32
@@ -165,7 +148,6 @@ type WLAN_SECURITY_ATTRIBUTES struct {
 	Dot11CipherAlgorithm uint32
 }
 
-// WLAN_CONNECTION_ATTRIBUTES contains connection attributes
 type WLAN_CONNECTION_ATTRIBUTES struct {
 	State                 uint32
 	ConnectionMode        uint32
@@ -174,15 +156,54 @@ type WLAN_CONNECTION_ATTRIBUTES struct {
 	SecurityAttributes    WLAN_SECURITY_ATTRIBUTES
 }
 
-// WLAN_STATISTICS contains wireless LAN statistics
-type WLAN_STATISTICS struct {
-	FourWayHandshakeFailures   uint64
-	TKIPCounterMeasuresInvoked uint64
-	Reserved                   uint64
-	// ... more fields exist but we only need basic ones
+type NET_LUID struct {
+	Value uint64
 }
 
-// wlanapi.dll function bindings
+type MIB_IF_ROW2 struct {
+	InterfaceLuid               NET_LUID
+	InterfaceIndex              uint32
+	InterfaceGuid               windows.GUID
+	Alias                       [ifMaxStringSize + 1]uint16
+	Description                 [ifMaxStringSize + 1]uint16
+	PhysicalAddressLength       uint32
+	PhysicalAddress             [ifMaxPhysAddressLen]byte
+	PermanentPhysicalAddress    [ifMaxPhysAddressLen]byte
+	Mtu                         uint32
+	Type                        uint32
+	TunnelType                  uint32
+	MediaType                   uint32
+	PhysicalMediumType          uint32
+	AccessType                  uint32
+	DirectionType               uint32
+	InterfaceAndOperStatusFlags byte
+	OperStatus                  uint32
+	AdminStatus                 uint32
+	MediaConnectState           uint32
+	NetworkGuid                 windows.GUID
+	ConnectionType              uint32
+	TransmitLinkSpeed           uint64
+	ReceiveLinkSpeed            uint64
+	InOctets                    uint64
+	InUcastPkts                 uint64
+	InNUcastPkts                uint64
+	InDiscards                  uint64
+	InErrors                    uint64
+	InUnknownProtos             uint64
+	InUcastOctets               uint64
+	InMulticastOctets           uint64
+	InBroadcastOctets           uint64
+	OutOctets                   uint64
+	OutUcastPkts                uint64
+	OutNUcastPkts               uint64
+	OutDiscards                 uint64
+	OutErrors                   uint64
+	OutUcastOctets              uint64
+	OutMulticastOctets          uint64
+	OutBroadcastOctets          uint64
+	OutQLen                     uint64
+}
+
 var (
 	wlanAPI               = windows.NewLazySystemDLL("wlanapi.dll")
 	wlanOpenHandle        = wlanAPI.NewProc("WlanOpenHandle")
@@ -192,12 +213,32 @@ var (
 	wlanScan              = wlanAPI.NewProc("WlanScan")
 	wlanGetNetworkBssList = wlanAPI.NewProc("WlanGetNetworkBssList")
 	wlanFreeMemory        = wlanAPI.NewProc("WlanFreeMemory")
+
+	iphlpapi                   = windows.NewLazySystemDLL("iphlpapi.dll")
+	getIfEntry2                = iphlpapi.NewProc("GetIfEntry2")
+	convertInterfaceGuidToLuid = iphlpapi.NewProc("ConvertInterfaceGuidToLuid")
 )
 
 type windowsScanner struct {
-	ouiLookup    *OUILookup
-	clientHandle uintptr
-	mu           sync.Mutex
+	ouiLookup       *OUILookup
+	clientHandle    uintptr
+	mu              sync.Mutex
+	interfaceCache  map[string]interfaceCacheEntry
+	baselineStats   map[string]trafficStats
+	connectionStart map[string]time.Time
+}
+
+type interfaceCacheEntry struct {
+	guid        windows.GUID
+	description string
+}
+
+type trafficStats struct {
+	inOctets   uint64
+	outOctets  uint64
+	inPackets  uint64
+	outPackets uint64
+	timestamp  time.Time
 }
 
 func NewWiFiScanner(cacheFile string) WiFiBackend {
@@ -205,12 +246,13 @@ func NewWiFiScanner(cacheFile string) WiFiBackend {
 	ouiLookup.LoadOUIDatabase()
 
 	scanner := &windowsScanner{
-		ouiLookup: ouiLookup,
+		ouiLookup:       ouiLookup,
+		interfaceCache:  make(map[string]interfaceCacheEntry),
+		baselineStats:   make(map[string]trafficStats),
+		connectionStart: make(map[string]time.Time),
 	}
 
-	// Open WLAN handle
 	if err := scanner.openHandle(); err != nil {
-		// Handle will be opened on first use if this fails
 		fmt.Printf("Warning: Failed to open WLAN handle on init: %v\n", err)
 	}
 
@@ -278,18 +320,23 @@ func (s *windowsScanner) GetInterfaces() ([]string, error) {
 	}
 
 	interfaces := make([]string, 0, interfaceList.NumberOfItems)
-
-	// Calculate the size of each interface info entry
 	infoSize := unsafe.Sizeof(WLAN_INTERFACE_INFO{})
 
 	for i := uint32(0); i < interfaceList.NumberOfItems; i++ {
-		// Get pointer to the i-th interface info
 		infoPtr := unsafe.Add(unsafe.Pointer(&interfaceList.InterfaceInfo[0]), uintptr(i)*infoSize)
 		info := (*WLAN_INTERFACE_INFO)(infoPtr)
 
-		// Convert GUID to string for interface identification
-		guidStr := guidToString(info.InterfaceGUID)
-		interfaces = append(interfaces, guidStr)
+		description := syscall.UTF16ToString(info.InterfaceDescription[:])
+		if description == "" {
+			description = "Wi-Fi"
+		}
+
+		s.interfaceCache[description] = interfaceCacheEntry{
+			guid:        info.InterfaceGUID,
+			description: description,
+		}
+
+		interfaces = append(interfaces, description)
 	}
 
 	return interfaces, nil
@@ -300,44 +347,34 @@ func (s *windowsScanner) ScanNetworks(iface string) ([]AccessPoint, error) {
 		return nil, err
 	}
 
-	// Parse interface GUID
-	guid, err := stringToGUID(iface)
+	guid, err := s.resolveInterfaceGUID(iface)
 	if err != nil {
-		// If not a GUID, try to find interface by description
-		guid, err = s.findInterfaceGUID(iface)
-		if err != nil {
-			return nil, fmt.Errorf("invalid interface: %w", err)
-		}
+		return nil, fmt.Errorf("invalid interface: %w", err)
 	}
 
-	// Trigger a scan (async operation)
 	ret, _, _ := wlanScan.Call(
 		s.clientHandle,
 		uintptr(unsafe.Pointer(&guid)),
-		0, // pDot11Ssid - NULL for all networks
-		0, // pIeData - NULL
-		0, // pReserved
+		0,
+		0,
+		0,
 	)
 
 	if ret != 0 {
-		// Don't fail if scan trigger fails, we might still have cached results
 		fmt.Printf("Warning: WlanScan failed with error: %d\n", ret)
 	}
 
-	// Wait a bit for scan to complete
-	// In production, you'd want to use WlanRegisterNotification for async notification
-	time.Sleep(500 * time.Millisecond)
+	time.Sleep(100 * time.Millisecond)
 
-	// Get BSS list
 	var bssList *WLAN_BSS_LIST
 
 	ret, _, _ = wlanGetNetworkBssList.Call(
 		s.clientHandle,
 		uintptr(unsafe.Pointer(&guid)),
-		0, // pDot11Ssid - NULL for all SSIDs
+		0,
 		uintptr(dot11BssTypeAny),
-		0, // bSecurityEnabled - FALSE to get all
-		0, // pReserved
+		0,
+		0,
 		uintptr(unsafe.Pointer(&bssList)),
 	)
 
@@ -352,12 +389,9 @@ func (s *windowsScanner) ScanNetworks(iface string) ([]AccessPoint, error) {
 	defer wlanFreeMemory.Call(uintptr(unsafe.Pointer(bssList)))
 
 	aps := make([]AccessPoint, 0, bssList.NumberOfItems)
-
-	// Calculate size of BSS entry for pointer arithmetic
 	entrySize := unsafe.Sizeof(WLAN_BSS_ENTRY{})
 
 	for i := uint32(0); i < bssList.NumberOfItems; i++ {
-		// Get pointer to the i-th BSS entry
 		entryPtr := unsafe.Add(unsafe.Pointer(&bssList.WlanBssEntries[0]), uintptr(i)*entrySize)
 		entry := (*WLAN_BSS_ENTRY)(entryPtr)
 
@@ -372,7 +406,6 @@ func (s *windowsScanner) bssEntryToAccessPoint(entry *WLAN_BSS_ENTRY) AccessPoin
 	ssid := formatSSID(entry.Dot11SSID)
 	bssid := formatMACAddress(entry.Dot11BSSID)
 
-	// Frequency is in kHz, convert to MHz
 	frequency := int(entry.ChCenterFrequency / 1000)
 	channel := frequencyToChannel(frequency)
 
@@ -383,16 +416,13 @@ func (s *windowsScanner) bssEntryToAccessPoint(entry *WLAN_BSS_ENTRY) AccessPoin
 		band = "5GHz"
 	}
 
-	// Determine security from capability bits
 	security := "Open"
 	if entry.CapabilityInformation&capabilityPrivacy != 0 {
-		security = "WEP" // At minimum, will be refined if we parse IEs
+		security = "WEP"
 	}
 
-	// WiFi standard from PHY type
 	wifiStandard := phyTypeToStandard(entry.Dot11BSSPhyType)
 
-	// Calculate signal quality percentage
 	signalQuality := int(entry.LinkQuality)
 	if signalQuality > 100 {
 		signalQuality = 100
@@ -404,7 +434,7 @@ func (s *windowsScanner) bssEntryToAccessPoint(entry *WLAN_BSS_ENTRY) AccessPoin
 		Vendor:        s.ouiLookup.LookupVendor(bssid),
 		Frequency:     frequency,
 		Channel:       channel,
-		ChannelWidth:  20, // Default, would need IE parsing for actual width
+		ChannelWidth:  20,
 		Signal:        int(entry.RSSI),
 		SignalQuality: signalQuality,
 		Security:      security,
@@ -412,9 +442,9 @@ func (s *windowsScanner) bssEntryToAccessPoint(entry *WLAN_BSS_ENTRY) AccessPoin
 		LastSeen:      time.Now(),
 		Capabilities:  []string{wifiStandard},
 		BeaconInt:     int(entry.BeaconPeriod),
+		DFS:           isDFSChannel(channel),
 	}
 
-	// Parse Information Elements for additional details if available
 	if entry.IESize > 0 && entry.IEOffset > 0 {
 		s.parseInformationElements(&ap, entry)
 	}
@@ -423,9 +453,6 @@ func (s *windowsScanner) bssEntryToAccessPoint(entry *WLAN_BSS_ENTRY) AccessPoin
 }
 
 func (s *windowsScanner) parseInformationElements(ap *AccessPoint, entry *WLAN_BSS_ENTRY) {
-	// IE data starts at offset IEOffset from the beginning of the WLAN_BSS_ENTRY
-	// This is a simplified parser - full IE parsing is complex
-
 	iePtr := unsafe.Add(unsafe.Pointer(entry), uintptr(entry.IEOffset))
 	ieData := unsafe.Slice((*byte)(iePtr), entry.IESize)
 
@@ -441,55 +468,104 @@ func (s *windowsScanner) parseInformationElements(ap *AccessPoint, entry *WLAN_B
 		data := ieData[offset+2 : offset+2+uint32(length)]
 
 		switch elementID {
-		case 48: // RSN (WPA2/WPA3)
-			ap.Security = parseRSNSecurity(data)
-		case 221: // Vendor specific (WPA1, WMM, etc.)
-			if length >= 4 {
-				// Check for WPA OUI: 00:50:F2:01
-				if data[0] == 0x00 && data[1] == 0x50 && data[2] == 0xF2 && data[3] == 0x01 {
-					if ap.Security == "Open" || ap.Security == "WEP" {
-						ap.Security = "WPA"
-					}
-				}
-				// Check for WMM/QoS OUI: 00:50:F2:02
-				if data[0] == 0x00 && data[1] == 0x50 && data[2] == 0xF2 && data[3] == 0x02 {
-					ap.QoSSupport = true
-				}
+		case 5:
+			if length >= 2 {
+				ap.DTIM = int(data[1])
 			}
-		case 45: // HT Capabilities (802.11n)
+
+		case 45:
 			if length >= 2 {
 				htCaps := uint16(data[0]) | uint16(data[1])<<8
-				if htCaps&0x0002 != 0 { // Channel width 40MHz supported
+				if htCaps&0x0002 != 0 {
 					ap.ChannelWidth = 40
 				}
 			}
-		case 191: // VHT Capabilities (802.11ac)
+
+		case 48:
+			s.parseRSNElement(ap, data)
+
+		case 70:
+			if length >= 1 {
+				ap.NeighborReport = (data[0] & 0x02) != 0
+				ap.BSSTransition = (data[0] & 0x08) != 0
+			}
+
+		case 54:
+			if length >= 2 {
+				ap.FastRoaming = true
+			}
+
+		case 127:
+			if length >= 3 {
+				ap.BSSTransition = (data[2] & 0x08) != 0
+			}
+			if length >= 6 {
+				ap.TWTSupport = (data[5] & 0x02) != 0
+			}
+
+		case 191:
 			if length >= 4 {
 				vhtCaps := uint32(data[0]) | uint32(data[1])<<8 | uint32(data[2])<<16 | uint32(data[3])<<24
-				// Check supported channel width
 				switch (vhtCaps >> 2) & 0x03 {
-				case 1:
+				case 1, 2:
 					ap.ChannelWidth = 160
-				case 2:
-					ap.ChannelWidth = 160 // 80+80
 				default:
 					if ap.ChannelWidth < 80 {
 						ap.ChannelWidth = 80
 					}
 				}
-				// Check MU-MIMO
 				if vhtCaps&(1<<19) != 0 {
 					ap.MUMIMO = true
 				}
 			}
-		case 255: // Extension element
+
+		case 221:
+			if length >= 4 {
+				if data[0] == 0x00 && data[1] == 0x50 && data[2] == 0xF2 {
+					switch data[3] {
+					case 0x01:
+						if ap.Security == "Open" || ap.Security == "WEP" {
+							ap.Security = "WPA"
+						}
+					case 0x02:
+						ap.QoSSupport = true
+						if length >= 8 {
+							ap.UAPSD = (data[7] & 0x80) != 0
+						}
+					}
+				}
+			}
+
+		case 255:
 			if length >= 1 {
 				extID := data[0]
+				extData := data[1:]
+
 				switch extID {
-				case 35: // HE Capabilities (802.11ax)
-					ap.Capabilities = append(ap.Capabilities, "WiFi6")
-				case 106: // EHT Capabilities (802.11be)
-					ap.Capabilities = append(ap.Capabilities, "WiFi7")
+				case 35:
+					ap.Capabilities = appendUnique(ap.Capabilities, "WiFi6")
+					if len(extData) >= 6 {
+						ap.TWTSupport = (extData[0] & 0x04) != 0
+						ap.UAPSD = (extData[0] & 0x08) != 0
+						ap.BSSColor = int(extData[4] & 0x3F)
+						ap.OBSSPD = (extData[4] & 0x40) != 0
+					}
+
+				case 36:
+					if len(extData) >= 5 {
+						heOp := extData[0]
+						if heOp&0x04 != 0 {
+							ap.BSSColor = int(extData[4] & 0x3F)
+						}
+					}
+
+				case 106:
+					ap.Capabilities = appendUnique(ap.Capabilities, "WiFi7")
+					if len(extData) >= 2 && ap.ChannelWidth < 320 {
+						if extData[1]&0x02 != 0 {
+							ap.ChannelWidth = 320
+						}
+					}
 				}
 			}
 		}
@@ -498,51 +574,119 @@ func (s *windowsScanner) parseInformationElements(ap *AccessPoint, entry *WLAN_B
 	}
 }
 
-func parseRSNSecurity(data []byte) string {
+func (s *windowsScanner) parseRSNElement(ap *AccessPoint, data []byte) {
 	if len(data) < 8 {
-		return "WPA2"
+		ap.Security = "WPA2"
+		return
 	}
 
-	// Skip version (2 bytes) and group cipher suite (4 bytes)
+	groupCipher := ""
+	if len(data) >= 6 {
+		if data[2] == 0x00 && data[3] == 0x0F && data[4] == 0xAC {
+			switch data[5] {
+			case 2:
+				groupCipher = "TKIP"
+			case 4:
+				groupCipher = "CCMP"
+			case 8:
+				groupCipher = "GCMP"
+			case 9:
+				groupCipher = "GCMP-256"
+			}
+		}
+	}
+
 	offset := 6
-
 	if len(data) < offset+2 {
-		return "WPA2"
+		ap.Security = "WPA2"
+		return
 	}
 
-	// Pairwise cipher count
 	pairwiseCount := uint16(data[offset]) | uint16(data[offset+1])<<8
 	offset += 2
 
-	// Skip pairwise cipher suites
-	offset += int(pairwiseCount) * 4
-
-	if len(data) < offset+2 {
-		return "WPA2"
-	}
-
-	// AKM count
-	akmCount := uint16(data[offset]) | uint16(data[offset+1])<<8
-	offset += 2
-
-	// Check AKM suites for WPA3
-	for i := uint16(0); i < akmCount && offset+4 <= len(data); i++ {
-		akmSuite := data[offset : offset+4]
-		// OUI 00:0F:AC (IEEE)
-		if akmSuite[0] == 0x00 && akmSuite[1] == 0x0F && akmSuite[2] == 0xAC {
-			switch akmSuite[3] {
-			case 8: // SAE (WPA3-Personal)
-				return "WPA3"
-			case 12, 13: // WPA3-Enterprise
-				return "WPA3-Enterprise"
-			case 18: // OWE
-				return "OWE"
+	pairwiseCiphers := []string{}
+	for i := uint16(0); i < pairwiseCount && offset+4 <= len(data); i++ {
+		if data[offset] == 0x00 && data[offset+1] == 0x0F && data[offset+2] == 0xAC {
+			switch data[offset+3] {
+			case 2:
+				pairwiseCiphers = append(pairwiseCiphers, "TKIP")
+			case 4:
+				pairwiseCiphers = append(pairwiseCiphers, "CCMP")
+			case 8:
+				pairwiseCiphers = append(pairwiseCiphers, "GCMP")
+			case 9:
+				pairwiseCiphers = append(pairwiseCiphers, "GCMP-256")
 			}
 		}
 		offset += 4
 	}
 
-	return "WPA2"
+	if len(data) < offset+2 {
+		ap.Security = "WPA2"
+		ap.SecurityCiphers = pairwiseCiphers
+		return
+	}
+
+	akmCount := uint16(data[offset]) | uint16(data[offset+1])<<8
+	offset += 2
+
+	authMethods := []string{}
+	securityType := "WPA2"
+
+	for i := uint16(0); i < akmCount && offset+4 <= len(data); i++ {
+		if data[offset] == 0x00 && data[offset+1] == 0x0F && data[offset+2] == 0xAC {
+			switch data[offset+3] {
+			case 1:
+				authMethods = append(authMethods, "EAP")
+			case 2:
+				authMethods = append(authMethods, "PSK")
+			case 5:
+				authMethods = append(authMethods, "EAP-SHA256")
+			case 6:
+				authMethods = append(authMethods, "PSK-SHA256")
+			case 8:
+				authMethods = append(authMethods, "SAE")
+				securityType = "WPA3"
+			case 9:
+				authMethods = append(authMethods, "FT-SAE")
+				securityType = "WPA3"
+				ap.FastRoaming = true
+			case 12:
+				authMethods = append(authMethods, "EAP-SUITE-B")
+				securityType = "WPA3-Enterprise"
+			case 13:
+				authMethods = append(authMethods, "EAP-SUITE-B-192")
+				securityType = "WPA3-Enterprise"
+			case 18:
+				authMethods = append(authMethods, "OWE")
+				securityType = "OWE"
+			}
+		}
+		offset += 4
+	}
+
+	if len(data) >= offset+2 {
+		rsnCaps := uint16(data[offset]) | uint16(data[offset+1])<<8
+
+		mfpCapable := (rsnCaps & 0x0080) != 0
+		mfpRequired := (rsnCaps & 0x0040) != 0
+
+		if mfpRequired {
+			ap.PMF = "Required"
+		} else if mfpCapable {
+			ap.PMF = "Optional"
+		} else {
+			ap.PMF = "Disabled"
+		}
+	}
+
+	ap.Security = securityType
+	ap.SecurityCiphers = pairwiseCiphers
+	ap.AuthMethods = authMethods
+	if groupCipher != "" && len(ap.SecurityCiphers) == 0 {
+		ap.SecurityCiphers = []string{groupCipher}
+	}
 }
 
 func (s *windowsScanner) GetConnectionInfo(iface string) (ConnectionInfo, error) {
@@ -555,7 +699,6 @@ func (s *windowsScanner) GetConnectionInfo(iface string) (ConnectionInfo, error)
 		return ConnectionInfo{}, err
 	}
 
-	// Query current connection
 	var dataSize uint32
 	var connAttr *WLAN_CONNECTION_ATTRIBUTES
 
@@ -570,7 +713,6 @@ func (s *windowsScanner) GetConnectionInfo(iface string) (ConnectionInfo, error)
 	)
 
 	if ret != 0 {
-		// Not connected or error
 		return ConnectionInfo{Connected: false}, nil
 	}
 
@@ -580,20 +722,15 @@ func (s *windowsScanner) GetConnectionInfo(iface string) (ConnectionInfo, error)
 
 	defer wlanFreeMemory.Call(uintptr(unsafe.Pointer(connAttr)))
 
-	// Check if actually connected
 	if connAttr.State != wlanInterfaceStateConnected {
 		return ConnectionInfo{Connected: false}, nil
 	}
 
 	assoc := &connAttr.AssociationAttributes
 
-	// Get channel
 	channel, _ := s.queryChannel(guid)
-
-	// Get RSSI
 	rssi, _ := s.queryRSSI(guid)
 	if rssi == 0 {
-		// Estimate from signal quality
 		rssi = int32(-100 + int32(assoc.WlanSignalQuality)/2)
 	}
 
@@ -604,11 +741,11 @@ func (s *windowsScanner) GetConnectionInfo(iface string) (ConnectionInfo, error)
 		Channel:      channel,
 		Signal:       int(rssi),
 		SignalAvg:    int(rssi),
-		RxBitrate:    float64(assoc.RxRate) / 1000.0, // Convert Kbps to Mbps
+		RxBitrate:    float64(assoc.RxRate) / 1000.0,
 		TxBitrate:    float64(assoc.TxRate) / 1000.0,
 		WiFiStandard: phyTypeToStandard(assoc.Dot11PhyType),
-		ChannelWidth: 20,    // Would need deeper query for actual width
-		MIMOConfig:   "1x1", // Would need driver-specific query
+		ChannelWidth: 20,
+		MIMOConfig:   "1x1",
 	}
 
 	return info, nil
@@ -658,6 +795,26 @@ func (s *windowsScanner) queryRSSI(guid windows.GUID) (int32, error) {
 	return *rssi, nil
 }
 
+func (s *windowsScanner) getInterfaceStats(guid windows.GUID) (*MIB_IF_ROW2, error) {
+	var row MIB_IF_ROW2
+
+	ret, _, _ := convertInterfaceGuidToLuid.Call(
+		uintptr(unsafe.Pointer(&guid)),
+		uintptr(unsafe.Pointer(&row.InterfaceLuid)),
+	)
+
+	if ret != 0 {
+		return nil, fmt.Errorf("ConvertInterfaceGuidToLuid failed: %d", ret)
+	}
+
+	ret, _, _ = getIfEntry2.Call(uintptr(unsafe.Pointer(&row)))
+	if ret != 0 {
+		return nil, fmt.Errorf("GetIfEntry2 failed: %d", ret)
+	}
+
+	return &row, nil
+}
+
 func (s *windowsScanner) GetLinkInfo(iface string) (map[string]string, error) {
 	info, err := s.GetConnectionInfo(iface)
 	if err != nil {
@@ -665,26 +822,73 @@ func (s *windowsScanner) GetLinkInfo(iface string) (map[string]string, error) {
 	}
 
 	if !info.Connected {
+		s.mu.Lock()
+		delete(s.baselineStats, iface)
+		delete(s.connectionStart, iface)
+		s.mu.Unlock()
 		return map[string]string{"connected": "false"}, nil
 	}
 
-	return map[string]string{
-		"connected":      "true",
-		"ssid":           info.SSID,
-		"bssid":          info.BSSID,
-		"channel":        fmt.Sprintf("%d", info.Channel),
-		"signal":         fmt.Sprintf("%d", info.Signal),
-		"signal_avg":     fmt.Sprintf("%d", info.SignalAvg),
-		"rx_bitrate":     fmt.Sprintf("%.1f", info.RxBitrate),
-		"tx_bitrate":     fmt.Sprintf("%.1f", info.TxBitrate),
-		"rx_bytes":       "0", // Would need performance counters
-		"tx_bytes":       "0",
-		"rx_packets":     "0",
-		"tx_packets":     "0",
-		"tx_retries":     "0",
-		"tx_failed":      "0",
-		"connected_time": "0",
-	}, nil
+	guid, _ := s.resolveInterfaceGUID(iface)
+	stats, err := s.getInterfaceStats(guid)
+
+	result := map[string]string{
+		"connected":  "true",
+		"ssid":       info.SSID,
+		"bssid":      info.BSSID,
+		"channel":    fmt.Sprintf("%d", info.Channel),
+		"signal":     fmt.Sprintf("%d", info.Signal),
+		"signal_avg": fmt.Sprintf("%d", info.SignalAvg),
+		"rx_bitrate": fmt.Sprintf("%.1f", info.RxBitrate),
+		"tx_bitrate": fmt.Sprintf("%.1f", info.TxBitrate),
+	}
+
+	if err == nil && stats != nil {
+		s.mu.Lock()
+		baseline, hasBaseline := s.baselineStats[iface]
+		connStart, hasConnStart := s.connectionStart[iface]
+
+		if !hasBaseline {
+			s.baselineStats[iface] = trafficStats{
+				inOctets:   stats.InOctets,
+				outOctets:  stats.OutOctets,
+				inPackets:  stats.InUcastPkts + stats.InNUcastPkts,
+				outPackets: stats.OutUcastPkts + stats.OutNUcastPkts,
+				timestamp:  time.Now(),
+			}
+			baseline = s.baselineStats[iface]
+		}
+
+		if !hasConnStart {
+			s.connectionStart[iface] = time.Now()
+			connStart = s.connectionStart[iface]
+		}
+		s.mu.Unlock()
+
+		rxBytes := stats.InOctets - baseline.inOctets
+		txBytes := stats.OutOctets - baseline.outOctets
+		rxPackets := (stats.InUcastPkts + stats.InNUcastPkts) - baseline.inPackets
+		txPackets := (stats.OutUcastPkts + stats.OutNUcastPkts) - baseline.outPackets
+		connectedTime := int(time.Since(connStart).Seconds())
+
+		result["rx_bytes"] = fmt.Sprintf("%d", rxBytes)
+		result["tx_bytes"] = fmt.Sprintf("%d", txBytes)
+		result["rx_packets"] = fmt.Sprintf("%d", rxPackets)
+		result["tx_packets"] = fmt.Sprintf("%d", txPackets)
+		result["tx_retries"] = fmt.Sprintf("%d", stats.OutDiscards)
+		result["tx_failed"] = fmt.Sprintf("%d", stats.OutErrors)
+		result["connected_time"] = fmt.Sprintf("%d", connectedTime)
+	} else {
+		result["rx_bytes"] = "0"
+		result["tx_bytes"] = "0"
+		result["rx_packets"] = "0"
+		result["tx_packets"] = "0"
+		result["tx_retries"] = "0"
+		result["tx_failed"] = "0"
+		result["connected_time"] = "0"
+	}
+
+	return result, nil
 }
 
 func (s *windowsScanner) GetStationStats(iface string) (map[string]string, error) {
@@ -697,22 +901,66 @@ func (s *windowsScanner) GetStationStats(iface string) (map[string]string, error
 		return map[string]string{"connected": "false"}, nil
 	}
 
-	return map[string]string{
-		"connected":       "true",
-		"bssid":           info.BSSID,
-		"signal":          fmt.Sprintf("%d", info.Signal),
-		"signal_avg":      fmt.Sprintf("%d", info.SignalAvg),
-		"rx_bitrate":      fmt.Sprintf("%.1f", info.RxBitrate),
-		"tx_bitrate":      fmt.Sprintf("%.1f", info.TxBitrate),
-		"rx_bytes":        "0",
-		"tx_bytes":        "0",
-		"rx_packets":      "0",
-		"tx_packets":      "0",
-		"tx_retries":      "0",
-		"tx_failed":       "0",
-		"connected_time":  "0",
-		"last_ack_signal": "0",
-	}, nil
+	guid, _ := s.resolveInterfaceGUID(iface)
+	stats, err := s.getInterfaceStats(guid)
+
+	result := map[string]string{
+		"connected":  "true",
+		"bssid":      info.BSSID,
+		"signal":     fmt.Sprintf("%d", info.Signal),
+		"signal_avg": fmt.Sprintf("%d", info.SignalAvg),
+		"rx_bitrate": fmt.Sprintf("%.1f", info.RxBitrate),
+		"tx_bitrate": fmt.Sprintf("%.1f", info.TxBitrate),
+	}
+
+	if err == nil && stats != nil {
+		s.mu.Lock()
+		baseline, hasBaseline := s.baselineStats[iface]
+		connStart, hasConnStart := s.connectionStart[iface]
+
+		if !hasBaseline {
+			s.baselineStats[iface] = trafficStats{
+				inOctets:   stats.InOctets,
+				outOctets:  stats.OutOctets,
+				inPackets:  stats.InUcastPkts + stats.InNUcastPkts,
+				outPackets: stats.OutUcastPkts + stats.OutNUcastPkts,
+				timestamp:  time.Now(),
+			}
+			baseline = s.baselineStats[iface]
+		}
+
+		if !hasConnStart {
+			s.connectionStart[iface] = time.Now()
+			connStart = s.connectionStart[iface]
+		}
+		s.mu.Unlock()
+
+		rxBytes := stats.InOctets - baseline.inOctets
+		txBytes := stats.OutOctets - baseline.outOctets
+		rxPackets := (stats.InUcastPkts + stats.InNUcastPkts) - baseline.inPackets
+		txPackets := (stats.OutUcastPkts + stats.OutNUcastPkts) - baseline.outPackets
+		connectedTime := int(time.Since(connStart).Seconds())
+
+		result["rx_bytes"] = fmt.Sprintf("%d", rxBytes)
+		result["tx_bytes"] = fmt.Sprintf("%d", txBytes)
+		result["rx_packets"] = fmt.Sprintf("%d", rxPackets)
+		result["tx_packets"] = fmt.Sprintf("%d", txPackets)
+		result["tx_retries"] = fmt.Sprintf("%d", stats.OutDiscards)
+		result["tx_failed"] = fmt.Sprintf("%d", stats.OutErrors)
+		result["connected_time"] = fmt.Sprintf("%d", connectedTime)
+		result["last_ack_signal"] = fmt.Sprintf("%d", info.Signal)
+	} else {
+		result["rx_bytes"] = "0"
+		result["tx_bytes"] = "0"
+		result["rx_packets"] = "0"
+		result["tx_packets"] = "0"
+		result["tx_retries"] = "0"
+		result["tx_failed"] = "0"
+		result["connected_time"] = "0"
+		result["last_ack_signal"] = "0"
+	}
+
+	return result, nil
 }
 
 func (s *windowsScanner) Close() error {
@@ -726,13 +974,16 @@ func (s *windowsScanner) Close() error {
 	return nil
 }
 
-// Helper functions
-
 func (s *windowsScanner) resolveInterfaceGUID(iface string) (windows.GUID, error) {
+	if cached, ok := s.interfaceCache[iface]; ok {
+		return cached.guid, nil
+	}
+
 	guid, err := stringToGUID(iface)
 	if err == nil {
 		return guid, nil
 	}
+
 	return s.findInterfaceGUID(iface)
 }
 
@@ -751,14 +1002,12 @@ func (s *windowsScanner) findInterfaceGUID(name string) (windows.GUID, error) {
 
 	defer wlanFreeMemory.Call(uintptr(unsafe.Pointer(interfaceList)))
 
-	// If name is empty or "Wi-Fi", return the first interface
 	if name == "" || name == "Wi-Fi" || name == "WiFi" {
 		if interfaceList.NumberOfItems > 0 {
 			return interfaceList.InterfaceInfo[0].InterfaceGUID, nil
 		}
 	}
 
-	// Search by description
 	infoSize := unsafe.Sizeof(WLAN_INTERFACE_INFO{})
 	for i := uint32(0); i < interfaceList.NumberOfItems; i++ {
 		infoPtr := unsafe.Add(unsafe.Pointer(&interfaceList.InterfaceInfo[0]), uintptr(i)*infoSize)
@@ -770,7 +1019,6 @@ func (s *windowsScanner) findInterfaceGUID(name string) (windows.GUID, error) {
 		}
 	}
 
-	// Return first interface if no match
 	if interfaceList.NumberOfItems > 0 {
 		return interfaceList.InterfaceInfo[0].InterfaceGUID, nil
 	}
@@ -788,7 +1036,6 @@ func guidToString(guid windows.GUID) string {
 func stringToGUID(s string) (windows.GUID, error) {
 	var guid windows.GUID
 
-	// Try parsing with braces
 	n, err := fmt.Sscanf(s, "{%08X-%04X-%04X-%02X%02X-%02X%02X%02X%02X%02X%02X}",
 		&guid.Data1, &guid.Data2, &guid.Data3,
 		&guid.Data4[0], &guid.Data4[1],
@@ -798,7 +1045,6 @@ func stringToGUID(s string) (windows.GUID, error) {
 		return guid, nil
 	}
 
-	// Try without braces
 	n, err = fmt.Sscanf(s, "%08X-%04X-%04X-%02X%02X-%02X%02X%02X%02X%02X%02X",
 		&guid.Data1, &guid.Data2, &guid.Data3,
 		&guid.Data4[0], &guid.Data4[1],
