@@ -21,3 +21,4 @@ jobs:
         with:
           build-name: ${{ matrix.build.name }}
           build-platform: ${{ matrix.build.platform }}
+          AUTO_STACK: 'false'
