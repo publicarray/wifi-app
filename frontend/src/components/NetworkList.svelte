@@ -19,10 +19,22 @@
     let filterSecurity = "";
     let showHidden = false;
 
-    $: filteredNetworks = filterNetworks(networks);
-    $: sortedNetworks = sortNetworks(filteredNetworks);
+    $: filteredNetworks = filterNetworks(
+        networks,
+        filterText,
+        filterChannel,
+        filterSecurity,
+        showHidden,
+    );
+    $: sortedNetworks = sortNetworks(filteredNetworks, sortBy, sortOrder);
 
-    function filterNetworks(networksToFilter) {
+    function filterNetworks(
+        networksToFilter,
+        filterText,
+        filterChannel,
+        filterSecurity,
+        showHidden,
+    ) {
         return networksToFilter.filter((network) => {
             // Text filter
             if (
@@ -35,7 +47,7 @@
             // Channel filter
             if (
                 filterChannel !== "" &&
-                network.channel.toString() !== filterChannel
+                Number(network.channel) !== Number(filterChannel)
             ) {
                 return false;
             }
@@ -54,9 +66,17 @@
         });
     }
 
-    function sortNetworks(networksToSort) {
+    function sortNetworks(networksToSort, sortBy, sortOrder) {
         return [...networksToSort].sort((a, b) => {
             let aValue, bValue;
+
+            const securityRank = {
+                Open: 0,
+                WEP: 1,
+                WPA: 2,
+                WPA2: 3,
+                WPA3: 4,
+            };
 
             switch (sortBy) {
                 case "ssid":
@@ -72,8 +92,8 @@
                     bValue = b.channel;
                     break;
                 case "security":
-                    aValue = a.security;
-                    bValue = b.security;
+                    aValue = securityRank[a.security] ?? 0;
+                    bValue = securityRank[b.security] ?? 0;
                     break;
                 case "apCount":
                     aValue = a.apCount;
@@ -106,7 +126,7 @@
         } else {
             expandedNetworks.add(ssid);
         }
-        expandedNetworks = expandedNetworks;
+        expandedNetworks = new Set(expandedNetworks);
     }
 
     function getSignalClass(signal) {
@@ -185,24 +205,37 @@
                 type="text"
                 placeholder="Filter by SSID..."
                 bind:value={filterText}
+                on:keydown={(e) => e.key === "Enter" && e.preventDefault()}
                 class="filter-input"
+                title="Filter networks by SSID name"
             />
 
-            <select bind:value={filterChannel} class="filter-select">
+            <select
+                bind:value={filterChannel}
+                class="filter-select"
+                title="Filter networks by primary channel"
+            >
                 <option value="">All Channels</option>
                 {#each availableChannels as channel}
                     <option value={channel}>Channel {channel}</option>
                 {/each}
             </select>
 
-            <select bind:value={filterSecurity} class="filter-select">
+            <select
+                bind:value={filterSecurity}
+                class="filter-select"
+                title="Filter networks by security type"
+            >
                 <option value="">All Security</option>
                 {#each availableSecurityTypes as security}
                     <option value={security}>{security}</option>
                 {/each}
             </select>
 
-            <label class="checkbox-label">
+            <label
+                class="checkbox-label"
+                title="Include networks with hidden SSIDs"
+            >
                 <input type="checkbox" bind:checked={showHidden} />
                 Show Hidden
             </label>
@@ -214,7 +247,11 @@
         <table class="network-table">
             <thead>
                 <tr>
-                    <th class="sortable" on:click={() => toggleSort("ssid")}>
+                    <th
+                        class="sortable"
+                        on:click={() => toggleSort("ssid")}
+                        title="Service Set Identifier (Network Name)"
+                    >
                         SSID
                         {#if sortBy === "ssid"}
                             <span class="sort-indicator"
@@ -222,7 +259,11 @@
                             >
                         {/if}
                     </th>
-                    <th class="sortable" on:click={() => toggleSort("apCount")}>
+                    <th
+                        class="sortable"
+                        on:click={() => toggleSort("apCount")}
+                        title="Number of Access Points in this network"
+                    >
                         APs
                         {#if sortBy === "apCount"}
                             <span class="sort-indicator"
@@ -230,7 +271,11 @@
                             >
                         {/if}
                     </th>
-                    <th class="sortable" on:click={() => toggleSort("channel")}>
+                    <th
+                        class="sortable"
+                        on:click={() => toggleSort("channel")}
+                        title="Primary channel number"
+                    >
                         Channel
                         {#if sortBy === "channel"}
                             <span class="sort-indicator"
@@ -238,7 +283,11 @@
                             >
                         {/if}
                     </th>
-                    <th class="sortable" on:click={() => toggleSort("signal")}>
+                    <th
+                        class="sortable"
+                        on:click={() => toggleSort("signal")}
+                        title="Signal strength (dBm). Closer to 0 is better."
+                    >
                         Signal
                         {#if sortBy === "signal"}
                             <span class="sort-indicator"
@@ -249,6 +298,7 @@
                     <th
                         class="sortable"
                         on:click={() => toggleSort("security")}
+                        title="Security protocol (e.g., WPA2, WPA3)"
                     >
                         Security
                         {#if sortBy === "security"}
@@ -257,7 +307,7 @@
                             >
                         {/if}
                     </th>
-                    <th>Status</th>
+                    <th title="Connection status or detected issues">Status</th>
                 </tr>
             </thead>
             <tbody>
@@ -321,10 +371,14 @@
                                     {#each network.accessPoints as ap}
                                         <div class="ap-card">
                                             <div class="ap-header">
-                                                <span class="ap-bssid"
+                                                <span
+                                                    class="ap-bssid"
+                                                    title="BSSID (MAC Address)"
                                                     >{ap.bssid}</span
                                                 >
-                                                <span class="ap-band"
+                                                <span
+                                                    class="ap-band"
+                                                    title="Frequency Band"
                                                     >{ap.band}</span
                                                 >
                                             </div>
@@ -339,9 +393,19 @@
                                                         <span
                                                             class={getSignalClass(
                                                                 ap.signal,
-                                                            )}>{ap.signal} dBm</span
+                                                            )}
+                                                            >{ap.signal} dBm</span
                                                         >
-                                                        <span class="capability-tooltip"><strong>Signal Strength</strong><br/>Closer to 0 = stronger signal<br/>&lt;-50: Excellent | -50 to -65: Good | &gt;-70: Poor</span>
+                                                        <span
+                                                            class="capability-tooltip"
+                                                            ><strong
+                                                                >Signal Strength</strong
+                                                            ><br />Closer to 0 =
+                                                            stronger signal<br
+                                                            />&lt;-50: Excellent
+                                                            | -50 to -65: Good |
+                                                            &gt;-70: Poor</span
+                                                        >
                                                     </span>
                                                 </div>
                                                 <div class="ap-metric">
@@ -352,7 +416,22 @@
                                                         class="metric-value-with-tooltip"
                                                     >
                                                         <span
-                                                            >{ap.channel} ({ap.channelWidth}MHz){#if ap.dfs} <span class="dfs-badge">DFS</span>{/if}</span
+                                                            >{ap.channel} ({ap.channelWidth}MHz){#if ap.dfs}
+                                                                <span
+                                                                    class="dfs-badge"
+                                                                    >DFS</span
+                                                                >{/if}</span
+                                                        >
+                                                        <span
+                                                            class="capability-tooltip"
+                                                            ><strong
+                                                                >Channel Info</strong
+                                                            ><br />Channel {ap.channel}
+                                                            • {ap.channelWidth}MHz
+                                                            Width{#if ap.dfs}<br
+                                                                />DFS (Radar
+                                                                Detection)
+                                                                Required{/if}</span
                                                         >
                                                     </span>
                                                 </div>
@@ -363,9 +442,18 @@
                                                     <span
                                                         class="metric-value-with-tooltip"
                                                     >
-                                                        <span>{ap.txPower} dBm</span
+                                                        <span
+                                                            >{ap.txPower} dBm</span
                                                         >
-                                                        <span class="capability-tooltip"><strong>Transmit Power</strong><br/>AP broadcast power. Higher = better range but more interference</span>
+                                                        <span
+                                                            class="capability-tooltip"
+                                                            ><strong
+                                                                >Transmit Power</strong
+                                                            ><br />AP broadcast
+                                                            power. Higher =
+                                                            better range but
+                                                            more interference</span
+                                                        >
                                                     </span>
                                                 </div>
                                                 <div class="ap-metric">
@@ -376,7 +464,14 @@
                                                         class="metric-value-with-tooltip"
                                                     >
                                                         <span>{ap.vendor}</span>
-                                                        <span class="capability-tooltip"><strong>Vendor</strong><br/>Identified from MAC address OUI prefix</span>
+                                                        <span
+                                                            class="capability-tooltip"
+                                                            ><strong
+                                                                >Vendor</strong
+                                                            ><br />Identified
+                                                            from MAC address OUI
+                                                            prefix</span
+                                                        >
                                                     </span>
                                                 </div>
                                             </div>
@@ -393,7 +488,18 @@
                                                         >
                                                             BSS Transition
                                                             (802.11v)
-                                                            <span class="capability-tooltip"><strong>BSS Transition (802.11v)</strong><br/>AP-assisted roaming for better handoff between APs</span>
+                                                            <span
+                                                                class="capability-tooltip"
+                                                                ><strong
+                                                                    >BSS
+                                                                    Transition
+                                                                    (802.11v)</strong
+                                                                ><br
+                                                                />AP-assisted
+                                                                roaming for
+                                                                better handoff
+                                                                between APs</span
+                                                            >
                                                         </span>
                                                         <span
                                                             class="value-pill {getCapabilityStatusClass(
@@ -434,7 +540,20 @@
                                                                 TWT Support
                                                                 (Target Wake
                                                                 Time)
-                                                                <span class="capability-tooltip"><strong>Target Wake Time (WiFi 6)</strong><br/>Scheduled wake times for better battery life on clients</span>
+                                                                <span
+                                                                    class="capability-tooltip"
+                                                                    ><strong
+                                                                        >Target
+                                                                        Wake
+                                                                        Time
+                                                                        (WiFi 6)</strong
+                                                                    ><br
+                                                                    />Scheduled
+                                                                    wake times
+                                                                    for better
+                                                                    battery life
+                                                                    on clients</span
+                                                                >
                                                             </span>
                                                             <span
                                                                 class="value-pill {getCapabilityStatusClass(
@@ -479,7 +598,19 @@
                                                                 class="capability-label"
                                                             >
                                                                 SNR
-                                                                <span class="capability-tooltip"><strong>SNR</strong><br/>Signal minus noise. &gt;25dB: Excellent | 15-25: Good | &lt;15: Poor</span>
+                                                                <span
+                                                                    class="capability-tooltip"
+                                                                    ><strong
+                                                                        >SNR</strong
+                                                                    ><br
+                                                                    />Signal
+                                                                    minus noise.
+                                                                    &gt;25dB:
+                                                                    Excellent |
+                                                                    15-25: Good
+                                                                    | &lt;15:
+                                                                    Poor</span
+                                                                >
                                                             </span>
                                                             <span
                                                                 class="value-pill {getSNRStatusClass(
@@ -498,7 +629,18 @@
                                                                 class="capability-label"
                                                             >
                                                                 Real-world Speed
-                                                                <span class="capability-tooltip"><strong>Real-world Speed</strong><br/>~60-70% of theoretical max accounting for overhead</span>
+                                                                <span
+                                                                    class="capability-tooltip"
+                                                                    ><strong
+                                                                        >Real-world
+                                                                        Speed</strong
+                                                                    ><br
+                                                                    />~60-70% of
+                                                                    theoretical
+                                                                    max
+                                                                    accounting
+                                                                    for overhead</span
+                                                                >
                                                             </span>
                                                             <span
                                                                 class="value-pill {ap.realWorldSpeed >
@@ -519,7 +661,18 @@
                                                                 class="capability-label"
                                                             >
                                                                 Estimated Range
-                                                                <span class="capability-tooltip"><strong>Estimated Range</strong><br/>Free-space estimate. Walls/obstacles reduce actual range</span>
+                                                                <span
+                                                                    class="capability-tooltip"
+                                                                    ><strong
+                                                                        >Estimated
+                                                                        Range</strong
+                                                                    ><br
+                                                                    />Free-space
+                                                                    estimate.
+                                                                    Walls/obstacles
+                                                                    reduce
+                                                                    actual range</span
+                                                                >
                                                             </span>
                                                             <span
                                                                 class="value-pill value-neutral"
@@ -539,7 +692,20 @@
                                                             >
                                                                 Channel
                                                                 Utilization
-                                                                <span class="capability-tooltip"><strong>Channel Utilization</strong><br/>Airtime in use. &lt;50%: Good | 50-80%: Busy | &gt;80%: Congested</span>
+                                                                <span
+                                                                    class="capability-tooltip"
+                                                                    ><strong
+                                                                        >Channel
+                                                                        Utilization</strong
+                                                                    ><br
+                                                                    />Airtime in
+                                                                    use.
+                                                                    &lt;50%:
+                                                                    Good |
+                                                                    50-80%: Busy
+                                                                    | &gt;80%:
+                                                                    Congested</span
+                                                                >
                                                             </span>
                                                             <span
                                                                 class="value-pill {getUtilizationStatusClass(
@@ -568,7 +734,17 @@
                                                         >
                                                             PMF (Protected
                                                             Management Frames)
-                                                            <span class="capability-tooltip"><strong>PMF (802.11w)</strong><br/>Protects against deauth attacks. Required for WPA3</span>
+                                                            <span
+                                                                class="capability-tooltip"
+                                                                ><strong
+                                                                    >PMF
+                                                                    (802.11w)</strong
+                                                                ><br />Protects
+                                                                against deauth
+                                                                attacks.
+                                                                Required for
+                                                                WPA3</span
+                                                            >
                                                         </span>
                                                         <span
                                                             class="value-pill {getPMFStatusClass(
@@ -588,7 +764,16 @@
                                                             >
                                                                 Encryption
                                                                 Ciphers
-                                                                <span class="capability-tooltip"><strong>Ciphers</strong><br/>CCMP/GCMP: Good | TKIP: Weak | WEP: Broken</span>
+                                                                <span
+                                                                    class="capability-tooltip"
+                                                                    ><strong
+                                                                        >Ciphers</strong
+                                                                    ><br
+                                                                    />CCMP/GCMP:
+                                                                    Good | TKIP:
+                                                                    Weak | WEP:
+                                                                    Broken</span
+                                                                >
                                                             </span>
                                                             <span
                                                                 class="value-pill {getCipherStatusClass(
@@ -609,7 +794,17 @@
                                                                 class="capability-label"
                                                             >
                                                                 Auth Methods
-                                                                <span class="capability-tooltip"><strong>Auth Methods</strong><br/>SAE: WPA3 | PSK: WPA2 | 802.1X: Enterprise</span>
+                                                                <span
+                                                                    class="capability-tooltip"
+                                                                    ><strong
+                                                                        >Auth
+                                                                        Methods</strong
+                                                                    ><br />SAE:
+                                                                    WPA3 | PSK:
+                                                                    WPA2 |
+                                                                    802.1X:
+                                                                    Enterprise</span
+                                                                >
                                                             </span>
                                                             <span
                                                                 class="value-pill {getAuthStatusClass(
@@ -630,7 +825,17 @@
                                                                 class="capability-label"
                                                             >
                                                                 WPS
-                                                                <span class="capability-tooltip"><strong>WPS</strong><br/>Easy setup but security risk. Recommend disabled</span>
+                                                                <span
+                                                                    class="capability-tooltip"
+                                                                    ><strong
+                                                                        >WPS</strong
+                                                                    ><br />Easy
+                                                                    setup but
+                                                                    security
+                                                                    risk.
+                                                                    Recommend
+                                                                    disabled</span
+                                                                >
                                                             </span>
                                                             <span
                                                                 class="value-pill {ap.wps
@@ -657,7 +862,17 @@
                                                                 class="capability-label"
                                                             >
                                                                 BSS Color
-                                                                <span class="capability-tooltip"><strong>BSS Color</strong><br/>WiFi 6 identifier (0-63) for spatial reuse</span>
+                                                                <span
+                                                                    class="capability-tooltip"
+                                                                    ><strong
+                                                                        >BSS
+                                                                        Color</strong
+                                                                    ><br />WiFi
+                                                                    6 identifier
+                                                                    (0-63) for
+                                                                    spatial
+                                                                    reuse</span
+                                                                >
                                                             </span>
                                                             <span
                                                                 class="value-pill value-neutral"
@@ -675,7 +890,16 @@
                                                             >
                                                                 OBSS PD (Spatial
                                                                 Reuse)
-                                                                <span class="capability-tooltip"><strong>OBSS PD</strong><br/>WiFi 6 spatial reuse for dense environments</span>
+                                                                <span
+                                                                    class="capability-tooltip"
+                                                                    ><strong
+                                                                        >OBSS PD</strong
+                                                                    ><br />WiFi
+                                                                    6 spatial
+                                                                    reuse for
+                                                                    dense
+                                                                    environments</span
+                                                                >
                                                             </span>
                                                             <span
                                                                 class="value-pill {getCapabilityStatusClass(
@@ -697,7 +921,16 @@
                                                             >
                                                                 Max QAM
                                                                 Modulation
-                                                                <span class="capability-tooltip"><strong>Max QAM</strong><br/>256: WiFi 5 | 1024: WiFi 6 | 4096: WiFi 7</span>
+                                                                <span
+                                                                    class="capability-tooltip"
+                                                                    ><strong
+                                                                        >Max QAM</strong
+                                                                    ><br />256:
+                                                                    WiFi 5 |
+                                                                    1024: WiFi 6
+                                                                    | 4096: WiFi
+                                                                    7</span
+                                                                >
                                                             </span>
                                                             <span
                                                                 class="value-pill value-neutral {getQamClass(
@@ -716,7 +949,16 @@
                                                                 class="capability-label"
                                                             >
                                                                 MU-MIMO
-                                                                <span class="capability-tooltip"><strong>MU-MIMO</strong><br/>Simultaneous transmission to multiple clients</span>
+                                                                <span
+                                                                    class="capability-tooltip"
+                                                                    ><strong
+                                                                        >MU-MIMO</strong
+                                                                    ><br
+                                                                    />Simultaneous
+                                                                    transmission
+                                                                    to multiple
+                                                                    clients</span
+                                                                >
                                                             </span>
                                                             <span
                                                                 class="value-pill {getCapabilityStatusClass(
@@ -738,7 +980,17 @@
                                                             >
                                                                 Neighbor Report
                                                                 (802.11k)
-                                                                <span class="capability-tooltip"><strong>802.11k</strong><br/>AP shares nearby AP info for smarter roaming</span>
+                                                                <span
+                                                                    class="capability-tooltip"
+                                                                    ><strong
+                                                                        >802.11k</strong
+                                                                    ><br />AP
+                                                                    shares
+                                                                    nearby AP
+                                                                    info for
+                                                                    smarter
+                                                                    roaming</span
+                                                                >
                                                             </span>
                                                             <span
                                                                 class="value-pill {getCapabilityStatusClass(
@@ -765,7 +1017,16 @@
                                                                 class="capability-label"
                                                             >
                                                                 QoS (WMM)
-                                                                <span class="capability-tooltip"><strong>WMM</strong><br/>Traffic prioritization for voice/video</span>
+                                                                <span
+                                                                    class="capability-tooltip"
+                                                                    ><strong
+                                                                        >WMM</strong
+                                                                    ><br
+                                                                    />Traffic
+                                                                    prioritization
+                                                                    for
+                                                                    voice/video</span
+                                                                >
                                                             </span>
                                                             <span
                                                                 class="value-pill {getCapabilityStatusClass(
@@ -786,7 +1047,17 @@
                                                                 class="capability-label"
                                                             >
                                                                 Country Code
-                                                                <span class="capability-tooltip"><strong>Country Code</strong><br/>Regulatory domain for TX power and channels</span>
+                                                                <span
+                                                                    class="capability-tooltip"
+                                                                    ><strong
+                                                                        >Country
+                                                                        Code</strong
+                                                                    ><br
+                                                                    />Regulatory
+                                                                    domain for
+                                                                    TX power and
+                                                                    channels</span
+                                                                >
                                                             </span>
                                                             <span
                                                                 class="value-pill value-neutral"
@@ -803,7 +1074,14 @@
                                                                 class="capability-label"
                                                             >
                                                                 AP Name
-                                                                <span class="capability-tooltip"><strong>AP Name</strong><br/>Admin-configured identifier</span>
+                                                                <span
+                                                                    class="capability-tooltip"
+                                                                    ><strong
+                                                                        >AP Name</strong
+                                                                    ><br
+                                                                    />Admin-configured
+                                                                    identifier</span
+                                                                >
                                                             </span>
                                                             <span
                                                                 class="value-pill value-neutral"
@@ -825,7 +1103,15 @@
                                                             class="capability-label"
                                                         >
                                                             DTIM Interval
-                                                            <span class="capability-tooltip"><strong>DTIM</strong><br/>Beacon interval. Lower = better for power save</span>
+                                                            <span
+                                                                class="capability-tooltip"
+                                                                ><strong
+                                                                    >DTIM</strong
+                                                                ><br />Beacon
+                                                                interval. Lower
+                                                                = better for
+                                                                power save</span
+                                                            >
                                                         </span>
                                                         <span
                                                             class="value-pill value-neutral"
@@ -841,7 +1127,17 @@
                                                                 class="capability-label"
                                                             >
                                                                 MIMO Streams
-                                                                <span class="capability-tooltip"><strong>MIMO</strong><br/>Spatial streams. More = higher throughput</span>
+                                                                <span
+                                                                    class="capability-tooltip"
+                                                                    ><strong
+                                                                        >MIMO</strong
+                                                                    ><br
+                                                                    />Spatial
+                                                                    streams.
+                                                                    More =
+                                                                    higher
+                                                                    throughput</span
+                                                                >
                                                             </span>
                                                             <span
                                                                 class="value-pill value-neutral"
@@ -859,7 +1155,17 @@
                                                             >
                                                                 Max Theoretical
                                                                 Speed
-                                                                <span class="capability-tooltip"><strong>Max Speed</strong><br/>PHY rate. Real-world is ~60-70% of this</span>
+                                                                <span
+                                                                    class="capability-tooltip"
+                                                                    ><strong
+                                                                        >Max
+                                                                        Speed</strong
+                                                                    ><br />PHY
+                                                                    rate.
+                                                                    Real-world
+                                                                    is ~60-70%
+                                                                    of this</span
+                                                                >
                                                             </span>
                                                             <span
                                                                 class="value-pill value-neutral"

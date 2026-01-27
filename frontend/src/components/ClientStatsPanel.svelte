@@ -1,4 +1,6 @@
 <script>
+  /** @typedef {import('../../wailsjs/go/models').main.ClientStats} ClientStats */
+  /** @type {ClientStats | null} */
   export let clientStats = null
 
   function getSignalClass(signal) {
@@ -52,19 +54,19 @@
       <h4>Connection</h4>
       <div class="info-grid">
         <div class="info-item">
-          <span class="label">SSID</span>
+          <span class="label" title="Service Set Identifier (Network Name)">SSID</span>
           <span class="value ssid">{clientStats.ssid || 'Unknown'}</span>
         </div>
         <div class="info-item">
-          <span class="label">BSSID</span>
+          <span class="label" title="Basic Service Set Identifier (MAC Address)">BSSID</span>
           <span class="value bssid">{clientStats.bssid || 'Unknown'}</span>
         </div>
         <div class="info-item">
-          <span class="label">Interface</span>
+          <span class="label" title="Network Interface Name">Interface</span>
           <span class="value">{clientStats.interface || 'Unknown'}</span>
         </div>
         <div class="info-item">
-          <span class="label">Duration</span>
+          <span class="label" title="Time since connection established">Duration</span>
           <span class="value">{formatDuration(clientStats.connectedTime || 0)}</span>
         </div>
       </div>
@@ -74,33 +76,33 @@
       <h4>Signal Quality</h4>
       <div class="info-grid">
         <div class="info-item full-width">
-          <span class="label">Current Signal</span>
+          <span class="label" title="Current signal strength in dBm">Current Signal</span>
           <span class="value {getSignalClass(clientStats.signal)}">
             {clientStats.signal} dBm
           </span>
-          <span class="quality-badge" style="background: {getSignalQuality(clientStats.signal).color}">
+          <span class="quality-badge" style="background: {getSignalQuality(clientStats.signal).color}" title="Signal quality rating">
             {getSignalQuality(clientStats.signal).text}
           </span>
         </div>
         <div class="info-item">
-          <span class="label">Average Signal</span>
+          <span class="label" title="Average signal strength over time">Average Signal</span>
           <span class="value {getSignalClass(clientStats.signalAvg || clientStats.signal)}">
             {clientStats.signalAvg || clientStats.signal} dBm
           </span>
         </div>
         <div class="info-item">
-          <span class="label">Noise</span>
+          <span class="label" title="Background noise level in dBm">Noise</span>
           <span class="value">{clientStats.noise} dBm</span>
         </div>
         <div class="info-item full-width">
-          <span class="label">SNR</span>
+          <span class="label" title="Signal-to-Noise Ratio. Higher is better.">SNR</span>
           <span class="value">{clientStats.snr} dB</span>
           <div class="snr-bar">
             <div class="snr-fill" style="width: {Math.min(Math.max(clientStats.snr, 0), 50) * 2}%"></div>
           </div>
         </div>
         <div class="info-item">
-          <span class="label">Last ACK Signal</span>
+          <span class="label" title="Signal strength of last acknowledgement packet">Last ACK Signal</span>
           <span class="value {getSignalClass(clientStats.lastAckSignal)}">
             {clientStats.lastAckSignal} dBm
           </span>
@@ -112,19 +114,19 @@
       <h4>Data Rates</h4>
       <div class="info-grid">
         <div class="info-item">
-          <span class="label">TX Rate</span>
+          <span class="label" title="Current transmission rate">TX Rate</span>
           <span class="value rate">{clientStats.txBitrate.toFixed(1)} Mbps</span>
         </div>
         <div class="info-item">
-          <span class="label">RX Rate</span>
+          <span class="label" title="Current reception rate">RX Rate</span>
           <span class="value rate">{clientStats.rxBitrate.toFixed(1)} Mbps</span>
         </div>
         <div class="info-item">
-          <span class="label">Channel</span>
+          <span class="label" title="Current operating channel and width">Channel</span>
           <span class="value">{clientStats.channel} ({clientStats.channelWidth}MHz)</span>
         </div>
         <div class="info-item">
-          <span class="label">Frequency</span>
+          <span class="label" title="Current operating frequency">Frequency</span>
           <span class="value">{(clientStats.frequency / 1000).toFixed(3)} GHz</span>
         </div>
       </div>
@@ -134,19 +136,19 @@
       <h4>Traffic Statistics</h4>
       <div class="info-grid">
         <div class="info-item">
-          <span class="label">TX Bytes</span>
+          <span class="label" title="Total bytes transmitted">TX Bytes</span>
           <span class="value">{formatBytes(clientStats.txBytes)}</span>
         </div>
         <div class="info-item">
-          <span class="label">RX Bytes</span>
+          <span class="label" title="Total bytes received">RX Bytes</span>
           <span class="value">{formatBytes(clientStats.rxBytes)}</span>
         </div>
         <div class="info-item">
-          <span class="label">TX Packets</span>
+          <span class="label" title="Total packets transmitted">TX Packets</span>
           <span class="value">{clientStats.txPackets.toLocaleString()}</span>
         </div>
         <div class="info-item">
-          <span class="label">RX Packets</span>
+          <span class="label" title="Total packets received">RX Packets</span>
           <span class="value">{clientStats.rxPackets.toLocaleString()}</span>
         </div>
       </div>
@@ -156,7 +158,7 @@
       <h4>Error Statistics</h4>
       <div class="info-grid">
         <div class="info-item full-width">
-          <span class="label">Retry Rate</span>
+          <span class="label" title="Percentage of packets requiring retransmission">Retry Rate</span>
           <span class="value {getRetryRateClass(clientStats.retryRate)}">
             {clientStats.retryRate.toFixed(1)}%
           </span>
@@ -168,11 +170,11 @@
           </div>
         </div>
         <div class="info-item">
-          <span class="label">TX Retries</span>
+          <span class="label" title="Number of packets retransmitted">TX Retries</span>
           <span class="value">{clientStats.txRetries.toLocaleString()}</span>
         </div>
         <div class="info-item">
-          <span class="label">TX Failed</span>
+          <span class="label" title="Number of packets failed to transmit">TX Failed</span>
           <span class="value">{clientStats.txFailed.toLocaleString()}</span>
         </div>
       </div>
@@ -213,11 +215,11 @@
         <h4>Signal History</h4>
         <div class="history-stats">
           <div class="history-item">
-            <span class="label">Data Points</span>
+            <span class="label" title="Number of signal samples collected">Data Points</span>
             <span class="value">{clientStats.signalHistory.length}</span>
           </div>
           <div class="history-item">
-            <span class="label">Roaming Events</span>
+            <span class="label" title="Count of recorded roam events">Roaming Events</span>
             <span class="value">{(clientStats.roamingHistory || []).length}</span>
           </div>
         </div>
