@@ -171,7 +171,8 @@
     }
 
     function getClientCountClass(count) {
-        if (count === undefined || count === null || count < 0) return "value-neutral";
+        if (count === undefined || count === null || count < 0)
+            return "value-neutral";
         if (count <= 10) return "value-good";
         if (count <= 25) return "value-neutral";
         return "value-bad";
@@ -205,21 +206,24 @@
 
     function getWiFiStandard(ap) {
         if (!ap || !ap.capabilities) return null;
-        
+
         const caps = ap.capabilities;
-        
+
         if (caps.includes("WiFi7") || caps.includes("EHT")) return "WiFi 7";
-        
+
         // Check for 6GHz band for WiFi 6E
         // Frequency > 5925 MHz is 6GHz band
-        if (ap.frequency > 5925 && (caps.includes("HE") || caps.includes("WiFi6"))) {
+        if (
+            ap.frequency > 5925 &&
+            (caps.includes("HE") || caps.includes("WiFi6"))
+        ) {
             return "WiFi 6E";
         }
-        
+
         if (caps.includes("HE") || caps.includes("WiFi6")) return "WiFi 6";
         if (caps.includes("VHT")) return "WiFi 5";
         if (caps.includes("HT")) return "WiFi 4";
-        
+
         return null;
     }
 
@@ -227,12 +231,18 @@
         if (!standard) return "";
         const base = "wifi-standard-badge";
         switch (standard) {
-            case "WiFi 7": return `${base} wifi-7`;
-            case "WiFi 6E": return `${base} wifi-6e`;
-            case "WiFi 6": return `${base} wifi-6`;
-            case "WiFi 5": return `${base} wifi-5`;
-            case "WiFi 4": return `${base} wifi-4`;
-            default: return base;
+            case "WiFi 7":
+                return `${base} wifi-7`;
+            case "WiFi 6E":
+                return `${base} wifi-6e`;
+            case "WiFi 6":
+                return `${base} wifi-6`;
+            case "WiFi 5":
+                return `${base} wifi-5`;
+            case "WiFi 4":
+                return `${base} wifi-4`;
+            default:
+                return base;
         }
     }
 </script>
@@ -290,7 +300,14 @@
                     <th
                         class="sortable"
                         on:click={() => toggleSort("ssid")}
-                        title="Service Set Identifier (Network Name)"
+                        title="Service Set Identifier (Network Name)
+
+Network name broadcast by APs.
+• Maximum 32 characters
+• Case sensitive
+• Hidden networks may not broadcast SSID
+• SSID clustering can cause roaming issues
+• Special characters may cause client compatibility issues"
                     >
                         SSID
                         {#if sortBy === "ssid"}
@@ -302,7 +319,14 @@
                     <th
                         class="sortable"
                         on:click={() => toggleSort("apCount")}
-                        title="Number of Access Points in this network"
+                        title="Number of Access Points in this network
+
+Count of APs broadcasting the same SSID.
+• Multiple APs enable roaming and coverage
+• More than 3-4 APs may indicate poor channel planning
+• APs should have coordinated channel assignments
+• Check for duplicate BSSIDs
+• High AP count with low signal may indicate coverage gaps"
                     >
                         APs
                         {#if sortBy === "apCount"}
@@ -314,7 +338,15 @@
                     <th
                         class="sortable"
                         on:click={() => toggleSort("channel")}
-                        title="Primary channel number"
+                        title="Primary channel number
+
+RF channel used by the AP.
+• 2.4GHz: Channels 1-11 (US), 1-13 (EU), 1-14 (JP)
+• 5GHz: Channels 36-165, non-overlapping 20MHz spacing
+• 6GHz: Channels 1-233, all 20MHz non-overlapping
+• Channel overlap causes interference in 2.4GHz band
+• DFS channels (52-144, 100-140) require radar detection
+• Check for proper channel planning in multi-AP environments"
                     >
                         Channel
                         {#if sortBy === "channel"}
@@ -326,7 +358,16 @@
                     <th
                         class="sortable"
                         on:click={() => toggleSort("signal")}
-                        title="Signal strength (dBm). Closer to 0 is better."
+                        title="Signal strength (dBm). Closer to 0 is better.
+
+Received signal strength indicator.
+• Excellent: > -50 dBm (near field)
+• Good: -50 to -65 dBm (optimal range)
+• Fair: -65 to -75 dBm (usable range)
+• Poor: < -75 dBm (connection issues)
+• Minimum viable: -85 to -90 dBm
+• SNR (Signal-to-Noise Ratio) more important than absolute signal
+• Check for signal fluctuations (interference sources)"
                     >
                         Signal
                         {#if sortBy === "signal"}
@@ -338,7 +379,17 @@
                     <th
                         class="sortable"
                         on:click={() => toggleSort("security")}
-                        title="Security protocol (e.g., WPA2, WPA3)"
+                        title="Security protocol (e.g., WPA2, WPA3)
+
+Authentication and encryption standard.
+• Open: No security (vulnerable)
+• WEP: Broken encryption (legacy, insecure)
+• WPA: TKIP encryption (deprecated, weak)
+• WPA2: CCMP/AES encryption (current standard)
+• WPA3: SAE encryption (enhanced security)
+• WPA2/WPA3 Mixed: Backwards compatibility mode
+• Check for deprecated protocols in enterprise environments
+• PMF (Protected Management Frames) adds deauth protection"
                     >
                         Security
                         {#if sortBy === "security"}
@@ -347,7 +398,18 @@
                             >
                         {/if}
                     </th>
-                    <th title="Connection status or detected issues">Status</th>
+                    <th
+                        title="Connection status or detected issues
+
+Network health and connection state.
+• Connected: Currently associated with this network
+• OK: Network available, no issues detected
+• Issues: Problems detected (click to expand details)
+• Issues may include: weak signal, channel overlap, security problems
+• Check expanded AP details for specific problem indicators
+• Status reflects real-time analysis of network conditions
+• Issues may trigger client connectivity or performance problems">Status</th
+                    >
                 </tr>
             </thead>
             <tbody>
@@ -361,13 +423,20 @@
                         <td
                             class="ssid-cell"
                             on:click={() => toggleNetwork(network.ssid)}
+                            on:keypress={() => toggleNetwork(network.ssid)}
                         >
                             <div class="ssid-content">
                                 <span class="ssid-text">{network.ssid}</span>
                                 {#if network.accessPoints && network.accessPoints.length > 0}
-                                    {@const standard = getWiFiStandard(network.accessPoints[0])}
+                                    {@const standard = getWiFiStandard(
+                                        network.accessPoints[0],
+                                    )}
                                     {#if standard}
-                                        <span class={getWiFiStandardClass(standard)}>{standard}</span>
+                                        <span
+                                            class={getWiFiStandardClass(
+                                                standard,
+                                            )}>{standard}</span
+                                        >
                                     {/if}
                                     <span class="vendor-hint"
                                         >{network.accessPoints[0].vendor}</span
@@ -428,37 +497,31 @@
                                             </div>
                                             <div class="ap-metrics">
                                                 <div class="ap-metric">
-                                                    <span class="metric-label"
-                                                        >Signal:</span
-                                                    >
                                                     <span
-                                                        class="metric-value-with-tooltip"
+                                                        class="metric-label"
+                                                        title="Signal Strength
+Closer to 0 = stronger signal
+&lt;-50: Excellent
+-50 to -65: Good
+&gt;-70: Poor">Signal:</span
                                                     >
+                                                    <span class="metric-value">
                                                         <span
                                                             class={getSignalClass(
                                                                 ap.signal,
                                                             )}
                                                             >{ap.signal} dBm</span
                                                         >
-                                                        <span
-                                                            class="capability-tooltip"
-                                                            ><strong
-                                                                >Signal Strength</strong
-                                                            ><br />Closer to 0 =
-                                                            stronger signal<br
-                                                            />&lt;-50: Excellent
-                                                            | -50 to -65: Good |
-                                                            &gt;-70: Poor</span
-                                                        >
                                                     </span>
                                                 </div>
                                                 <div class="ap-metric">
-                                                    <span class="metric-label"
-                                                        >Channel:</span
-                                                    >
                                                     <span
-                                                        class="metric-value-with-tooltip"
+                                                        class="metric-label"
+                                                        title="Channel {ap.channel}
+• {ap.channelWidth}MHz Width
+• Wider channels increase speed and interference">Channel:</span
                                                     >
+                                                    <span class="metric-value">
                                                         <span
                                                             >{ap.channel} ({ap.channelWidth}MHz){#if ap.dfs}
                                                                 <span
@@ -466,37 +529,17 @@
                                                                     >DFS</span
                                                                 >{/if}</span
                                                         >
-                                                        <span
-                                                            class="capability-tooltip"
-                                                            ><strong
-                                                                >Channel Info</strong
-                                                            ><br />Channel {ap.channel}
-                                                            • {ap.channelWidth}MHz
-                                                            Width{#if ap.dfs}<br
-                                                                />DFS (Radar
-                                                                Detection)
-                                                                Required{/if}</span
-                                                        >
                                                     </span>
                                                 </div>
                                                 <div class="ap-metric">
-                                                    <span class="metric-label"
-                                                        >TX Power:</span
-                                                    >
                                                     <span
-                                                        class="metric-value-with-tooltip"
+                                                        class="metric-label"
+                                                        title="Transmit power in dBm
+Higher = better range but more interference">TX Power:</span
                                                     >
+                                                    <span class="metric-value">
                                                         <span
                                                             >{ap.txPower} dBm</span
-                                                        >
-                                                        <span
-                                                            class="capability-tooltip"
-                                                            ><strong
-                                                                >Transmit Power</strong
-                                                            ><br />AP broadcast
-                                                            power. Higher =
-                                                            better range but
-                                                            more interference</span
                                                         >
                                                     </span>
                                                 </div>
@@ -508,14 +551,6 @@
                                                         class="metric-value-with-tooltip"
                                                     >
                                                         <span>{ap.vendor}</span>
-                                                        <span
-                                                            class="capability-tooltip"
-                                                            ><strong
-                                                                >Vendor</strong
-                                                            ><br />Identified
-                                                            from MAC address OUI
-                                                            prefix</span
-                                                        >
                                                     </span>
                                                 </div>
                                             </div>
@@ -529,21 +564,31 @@
                                                     >
                                                         <span
                                                             class="capability-label"
-                                                        >
-                                                            BSS Transition
+                                                            title="BSS Transition (802.11v) - Wireless Network Management for enhanced roaming.
+• Enables AP to assist client in finding better APs
+• Provides neighbor reports and transition guidance
+• Reduces scanning time and improves roaming decisions
+• Works with 802.11r for optimal fast roaming
+• Essential for large enterprise deployments
+• Helps prevent sticky client behavior
+
+COMPATIBILITY WARNINGS FOR MSP:
+• Requires WNM (Wireless Network Management) support
+• Windows 7/8: Partial support, may ignore transition requests
+• iOS devices: Good support in iOS 9+, older devices limited
+• Android: Mixed support, vendor-dependent implementation
+• UniFi 6/7: Supported, but may cause client disconnects on older devices
+• MSP Advice: Test thoroughly in lab before production deployment
+• Mixed device fleets: Consider separate SSID for devices lacking 802.11v
+• Enterprise vs BYOD: Disable in environments with uncontrolled devices
+
+NOT RECOMMENDED FOR:
+• Public hotspots with diverse device types
+• Healthcare environments with legacy medical equipment
+• Industrial settings with specialized wireless devices
+• Small offices without IT management resources"
+                                                            >BSS Transition
                                                             (802.11v)
-                                                            <span
-                                                                class="capability-tooltip"
-                                                                ><strong
-                                                                    >BSS
-                                                                    Transition
-                                                                    (802.11v)</strong
-                                                                ><br
-                                                                />AP-assisted
-                                                                roaming for
-                                                                better handoff
-                                                                between APs</span
-                                                            >
                                                         </span>
                                                         <span
                                                             class="value-pill {getCapabilityStatusClass(
@@ -560,6 +605,29 @@
                                                     >
                                                         <span
                                                             class="capability-label"
+                                                            title="Fast Roaming (802.11r)
+
+Fast BSS Transition for seamless roaming.
+• Reduces roaming time from 100-500ms to 50ms or less
+• Essential for voice/video applications and mobile devices
+• Uses pre-authentication and key caching
+• Works with 802.11v (BSS Transition) for optimal performance
+
+**COMPATIBILITY WARNINGS FOR MSP:**
+• Old devices may have issues with connecting, compatibility issues may arise
+• Windows 7/8 devices: May experience authentication failures
+• Older Android (<6.0): Limited or broken 802.11r support
+• Some IoT devices: Complete incompatibility, connection failures
+• UniFi 6/7 APs: Enable via &quot;Advanced Settings&quot; - test thoroughly
+• Mixed environments: Disable if client devices < 2 years old
+• MSP Advice: Only enable in enterprise environments with controlled device fleets
+• Legacy device fallback: May require separate SSID for older devices
+
+**NOT RECOMMENDED FOR:**
+• Public WiFi networks with unknown device types
+• Environments with legacy IoT or industrial equipment
+• Small offices with mixed BYOD policies
+• Residential deployments without device control"
                                                         >
                                                             Fast Roaming
                                                             (802.11r)
@@ -580,25 +648,33 @@
                                                         >
                                                             <span
                                                                 class="capability-label"
-                                                            >
-                                                                TWT Support
+                                                                title="Target Wake Time (WiFi 6)
+Advanced power scheduling for WiFi 6/6E/7 devices.
+• Allows clients to schedule specific wake times
+• Reduces power consumption by 60-80% for IoT devices
+• Enables predictable latency for real-time applications
+• Critical for battery-powered sensors and mobile devices
+• Improves network efficiency with many sleeping clients
+• Requires WiFi 6 (802.11ax) or later support
+**COMPATIBILITY WARNINGS FOR MSP:**
+• Limited client device support: Mostly high-end devices only
+• UniFi 6/7 APs: TWT enabled by default on supported firmware
+• iPhone 12+: Supports TWT, battery savings noticeable
+• Android 11+: Limited support, vendor-specific implementation
+• Windows 10/11: Minimal support, mostly experimental drivers
+• Legacy devices: No TWT support, may experience scheduling conflicts
+• MSP Advice: Enable only in IoT-heavy environments with compatible devices
+• Mixed fleets: No negative impact on non-TWT devices
+• Enterprise: Consider for sensor networks and smart building deployments
+**NOT RECOMMENDED FOR:**
+• Environments with predominantly legacy devices
+• High-density networks requiring maximum airtime utilization
+• Real-time voice networks where latency consistency is critical
+• Networks without WiFi 6/6E client penetration > 50%"
+                                                                >TWT Support
                                                                 (Target Wake
-                                                                Time)
-                                                                <span
-                                                                    class="capability-tooltip"
-                                                                    ><strong
-                                                                        >Target
-                                                                        Wake
-                                                                        Time
-                                                                        (WiFi 6)</strong
-                                                                    ><br
-                                                                    />Scheduled
-                                                                    wake times
-                                                                    for better
-                                                                    battery life
-                                                                    on clients</span
-                                                                >
-                                                            </span>
+                                                                Time)</span
+                                                            >
                                                             <span
                                                                 class="value-pill {getCapabilityStatusClass(
                                                                     ap.twtSupport,
@@ -615,6 +691,29 @@
                                                     >
                                                         <span
                                                             class="capability-label"
+                                                            title="UAPSD (Unscheduled Automatic Power Save Delivery)
+Power save mechanism for VoIP and real-time applications.
+• Allows clients to sleep and wake for specific traffic delivery
+• Reduces power consumption on mobile devices by 15-30%
+• Essential for VoIP handsets, tablets, and battery-powered devices
+• Requires QoS/WMM support for proper operation
+• Can improve voice call quality and battery life
+• Critical for enterprise VoWiFi deployments
+**COMPATIBILITY WARNINGS FOR MSP:**
+• May cause latency issues if not properly configured
+• VoIP phones: UAPSD mandatory for battery-powered handsets
+• UniFi 6/7: Supported, but requires WMM QoS enabled
+• iOS devices: Excellent UAPSD support, minimal issues
+• Android: Variable support, vendor-dependent implementation
+• Windows: Limited support, may cause VoIP quality degradation
+• Legacy devices: Poor UAPSD handling, connection instability
+• MSP Advice: Test VoIP devices thoroughly in lab environment
+• Enterprise phones: Enable only for certified VoIP endpoints
+• Mixed environments: Monitor for voice quality issues **NOT RECOMMENDED FOR:**
+• Gaming networks where latency is critical
+• High-frequency trading or real-time control systems
+• Networks with poor QoS implementation
+• Environments with predominantly non-VoIP clients"
                                                         >
                                                             UAPSD (U-APSD)
                                                         </span>
@@ -640,21 +739,18 @@
                                                         >
                                                             <span
                                                                 class="capability-label"
+                                                                title="SNR (Signal-to-Noise Ratio)
+Signal quality metric more important than absolute signal.
+• Signal strength divided by noise floor
+• >25dB: Excellent (high throughput, stable connection)
+• 15-25dB: Good (reliable performance, minor packet loss)
+• 10-15dB: Fair (usable, may experience performance issues)
+• &lt;10dB: Poor (connection instability, high error rate)
+• Critical for determining actual connection quality
+• High signal with low SNR indicates interference issues
+• Use SNR over signal strength for performance assessment"
                                                             >
                                                                 SNR
-                                                                <span
-                                                                    class="capability-tooltip"
-                                                                    ><strong
-                                                                        >SNR</strong
-                                                                    ><br
-                                                                    />Signal
-                                                                    minus noise.
-                                                                    &gt;25dB:
-                                                                    Excellent |
-                                                                    15-25: Good
-                                                                    | &lt;15:
-                                                                    Poor</span
-                                                                >
                                                             </span>
                                                             <span
                                                                 class="value-pill {getSNRStatusClass(
@@ -671,20 +767,9 @@
                                                         >
                                                             <span
                                                                 class="capability-label"
+                                                                title="Real-world Speed - ~60-70% of theoretical max accounting for overhead"
                                                             >
                                                                 Real-world Speed
-                                                                <span
-                                                                    class="capability-tooltip"
-                                                                    ><strong
-                                                                        >Real-world
-                                                                        Speed</strong
-                                                                    ><br
-                                                                    />~60-70% of
-                                                                    theoretical
-                                                                    max
-                                                                    accounting
-                                                                    for overhead</span
-                                                                >
                                                             </span>
                                                             <span
                                                                 class="value-pill {ap.realWorldSpeed >
@@ -703,20 +788,9 @@
                                                         >
                                                             <span
                                                                 class="capability-label"
+                                                                title="Estimated Range - Free-space estimate. Walls/obstacles reduce actual range"
                                                             >
                                                                 Estimated Range
-                                                                <span
-                                                                    class="capability-tooltip"
-                                                                    ><strong
-                                                                        >Estimated
-                                                                        Range</strong
-                                                                    ><br
-                                                                    />Free-space
-                                                                    estimate.
-                                                                    Walls/obstacles
-                                                                    reduce
-                                                                    actual range</span
-                                                                >
                                                             </span>
                                                             <span
                                                                 class="value-pill value-neutral"
@@ -733,23 +807,18 @@
                                                         >
                                                             <span
                                                                 class="capability-label"
+                                                                title="Channel Utilization (BSS Load) - Percentage of airtime occupied by this BSS.
+• Measures channel congestion and interference
+• <50%: Good (plenty of capacity available)
+• 50-80%: Busy (performance may degrade during peak times)
+• >80%: Congested (significant throughput reduction)
+• High utilization causes latency and packet loss
+• Consider channel changes or adding APs for relief
+• Critical for capacity planning in dense environments
+• Doesn't account for non-WiFi interference sources"
                                                             >
                                                                 Channel
                                                                 Utilization
-                                                                <span
-                                                                    class="capability-tooltip"
-                                                                    ><strong
-                                                                        >Channel
-                                                                        Utilization</strong
-                                                                    ><br
-                                                                    />Airtime in
-                                                                    use.
-                                                                    &lt;50%:
-                                                                    Good |
-                                                                    50-80%: Busy
-                                                                    | &gt;80%:
-                                                                    Congested</span
-                                                                >
                                                             </span>
                                                             <span
                                                                 class="value-pill {getUtilizationStatusClass(
@@ -770,23 +839,28 @@
                                                         >
                                                             <span
                                                                 class="capability-label"
+                                                                title="Connected Clients - Active devices associated with this AP.
+• Real-time count of connected stations
+• Critical for capacity planning and load balancing
+• High client count may indicate need for additional APs
+• Typical AP capacity: 25-50 active clients
+• Enterprise APs can handle 100+ but performance degrades
+• Correlates with channel utilization and throughput
+• Monitor for sudden changes (rogue client activity)
+• Helps identify over-subscribed access points"
                                                             >
-                                                                Connected Clients
-                                                                <span
-                                                                    class="capability-tooltip"
-                                                                    ><strong
-                                                                        >Connected Clients</strong
-                                                                    ><br
-                                                                    />Number of devices currently connected to this AP</span
-                                                                >
+                                                                Connected
+                                                                Clients
                                                             </span>
                                                             <span
                                                                 class="value-pill {getClientCountClass(
                                                                     ap.bssLoadStations,
                                                                 )}"
                                                             >
-                                                                {ap.bssLoadStations >= 0
-                                                                    ? ap.bssLoadStations + " clients"
+                                                                {ap.bssLoadStations >=
+                                                                0
+                                                                    ? ap.bssLoadStations +
+                                                                      " clients"
                                                                     : "N/A"}
                                                             </span>
                                                         </div>
@@ -802,21 +876,14 @@
                                                     >
                                                         <span
                                                             class="capability-label"
+                                                            title="PMF (802.11w)
+Protects against deauth attacks. Required for WPA3"
                                                         >
                                                             PMF (Protected
                                                             Management Frames)
-                                                            <span
-                                                                class="capability-tooltip"
-                                                                ><strong
-                                                                    >PMF
-                                                                    (802.11w)</strong
-                                                                ><br />Protects
-                                                                against deauth
-                                                                attacks.
-                                                                Required for
-                                                                WPA3</span
-                                                            >
+                                                            802.11w
                                                         </span>
+
                                                         <span
                                                             class="value-pill {getPMFStatusClass(
                                                                 ap.pmf,
@@ -832,19 +899,10 @@
                                                         >
                                                             <span
                                                                 class="capability-label"
+                                                                title="Ciphers - CCMP/GCMP: Good | TKIP: Weak | WEP: Broken"
                                                             >
                                                                 Encryption
                                                                 Ciphers
-                                                                <span
-                                                                    class="capability-tooltip"
-                                                                    ><strong
-                                                                        >Ciphers</strong
-                                                                    ><br
-                                                                    />CCMP/GCMP:
-                                                                    Good | TKIP:
-                                                                    Weak | WEP:
-                                                                    Broken</span
-                                                                >
                                                             </span>
                                                             <span
                                                                 class="value-pill {getCipherStatusClass(
@@ -863,19 +921,9 @@
                                                         >
                                                             <span
                                                                 class="capability-label"
+                                                                title="Auth Methods - SAE: WPA3 | PSK: WPA2 | 802.1X: Enterprise"
                                                             >
                                                                 Auth Methods
-                                                                <span
-                                                                    class="capability-tooltip"
-                                                                    ><strong
-                                                                        >Auth
-                                                                        Methods</strong
-                                                                    ><br />SAE:
-                                                                    WPA3 | PSK:
-                                                                    WPA2 |
-                                                                    802.1X:
-                                                                    Enterprise</span
-                                                                >
                                                             </span>
                                                             <span
                                                                 class="value-pill {getAuthStatusClass(
@@ -894,19 +942,17 @@
                                                         >
                                                             <span
                                                                 class="capability-label"
+                                                                title="WPS (WiFi Protected Setup) - Simplified connection method with security vulnerabilities.
+• Allows connection via PIN or push-button
+• Vulnerable to brute force attacks (PIN method)
+• Historically compromised (WPS flaw discovered 2011)
+• Enterprise environments should disable WPS
+• Home use acceptable but monitor for suspicious activity
+• Can be exploited for unauthorized network access
+• Disabling improves overall security posture
+• Consider alternative secure provisioning methods"
                                                             >
                                                                 WPS
-                                                                <span
-                                                                    class="capability-tooltip"
-                                                                    ><strong
-                                                                        >WPS</strong
-                                                                    ><br />Easy
-                                                                    setup but
-                                                                    security
-                                                                    risk.
-                                                                    Recommend
-                                                                    disabled</span
-                                                                >
                                                             </span>
                                                             <span
                                                                 class="value-pill {ap.wps
@@ -931,19 +977,11 @@
                                                         >
                                                             <span
                                                                 class="capability-label"
+                                                                title="BSS (Basic Service Set) Color is a unique identifier (0-63) for spatial reuse.
+It is used to distinguish between different BSSs in the same frequency band.
+This helps in managing multiple access points in the same frequency band without interference."
                                                             >
                                                                 BSS Color
-                                                                <span
-                                                                    class="capability-tooltip"
-                                                                    ><strong
-                                                                        >BSS
-                                                                        Color</strong
-                                                                    ><br />WiFi
-                                                                    6 identifier
-                                                                    (0-63) for
-                                                                    spatial
-                                                                    reuse</span
-                                                                >
                                                             </span>
                                                             <span
                                                                 class="value-pill value-neutral"
@@ -958,19 +996,35 @@
                                                         >
                                                             <span
                                                                 class="capability-label"
+                                                                title="OBSS PD (Overlapping BSS Packet Detect) - WiFi 6 spatial reuse for dense environments.
+• Allows APs to transmit on channels used by neighboring networks
+• Improves spectrum efficiency in crowded WiFi environments
+• Requires signal strength assessment before transmitting
+• Critical for dense deployments (apartments, offices, stadiums)
+• Can increase network capacity by 20-30% in busy areas
+• WiFi 6/6E feature for better coexistence
+• Helps mitigate interference in high-density deployments
+
+COMPATIBILITY WARNINGS FOR MSP:
+• Only WiFi 6/6E devices support OBSS PD spatial reuse
+• Legacy WiFi 5/4 devices don't benefit from this feature
+• Mixed environments may see limited improvement
+• UniFi 7 WAP implements OBSS PD differently than competitors
+
+NOT RECOMMENDED FOR:
+• Networks with mostly legacy devices (WiFi 5 or older)
+• Sparse deployments with minimal interference
+• Environments where all devices support WiFi 6/6E
+• Simple setups where complexity outweighs benefits
+
+UNIFI 7 CONSIDERATIONS:
+• UniFi 7 WAP has aggressive OBSS PD implementation
+• Can cause issues with non-UniFi neighboring networks
+• Enable only in truly dense multi-AP environments
+• Monitor for client connectivity issues after enabling"
                                                             >
                                                                 OBSS PD (Spatial
                                                                 Reuse)
-                                                                <span
-                                                                    class="capability-tooltip"
-                                                                    ><strong
-                                                                        >OBSS PD</strong
-                                                                    ><br />WiFi
-                                                                    6 spatial
-                                                                    reuse for
-                                                                    dense
-                                                                    environments</span
-                                                                >
                                                             </span>
                                                             <span
                                                                 class="value-pill {getCapabilityStatusClass(
@@ -989,19 +1043,19 @@
                                                         >
                                                             <span
                                                                 class="capability-label"
+                                                                title="Maximum Quadrature Amplitude Modulation (QAM) supported by the access point.
+Highest modulation scheme supported by the AP.
+• 256-QAM: WiFi 5 (ac) - 8 bits per symbol
+• 1024-QAM: WiFi 6 (ax) - 10 bits per symbol
+• 4096-QAM: WiFi 7 (be) - 12 bits per symbol
+• Higher QAM = higher data rates but requires better signal
+• Automatic modulation adaptation based on signal quality
+• Critical for determining maximum throughput capability
+• Real-world speeds depend on signal conditions and interference
+• Higher QAM more susceptible to noise and interference"
                                                             >
                                                                 Max QAM
                                                                 Modulation
-                                                                <span
-                                                                    class="capability-tooltip"
-                                                                    ><strong
-                                                                        >Max QAM</strong
-                                                                    ><br />256:
-                                                                    WiFi 5 |
-                                                                    1024: WiFi 6
-                                                                    | 4096: WiFi
-                                                                    7</span
-                                                                >
                                                             </span>
                                                             <span
                                                                 class="value-pill value-neutral {getQamClass(
@@ -1018,18 +1072,36 @@
                                                         >
                                                             <span
                                                                 class="capability-label"
+                                                                title="MU-MIMO (Multi-User MIMO) - Simultaneous transmission to multiple clients.
+• Allows AP to communicate with multiple devices simultaneously
+• Increases total network capacity by 2-4x in ideal conditions
+• Requires MU-MIMO support on both AP and client devices
+• Downlink MU-MIMO more common than uplink
+• Critical for dense environments with many active clients
+• WiFi 5 (ac) introduced 4x4 MU-MIMO
+• WiFi 6/6E improved efficiency with OFDMA
+• Limited benefit with few clients or low traffic
+
+COMPATIBILITY WARNINGS FOR MSP:
+• Many client devices have poor MU-MIMO implementation
+• iOS devices have limited MU-MIMO support compared to Android
+• Older WiFi 5 clients may not benefit significantly
+• Spatial streams limited by device antenna configurations
+• Mixed environments see reduced benefits
+
+NOT RECOMMENDED FOR:
+• Networks with mostly single-stream devices (phones, tablets)
+• Low-density deployments with few concurrent clients
+• Environments with many legacy WiFi 4/5 devices
+• Simple setups where complexity outweighs benefits
+
+UNIFI 7 CONSIDERATIONS:
+• UniFi 7 WAP has excellent 4x4 MU-MIMO implementation
+• Works best with UniFi 6/7 Pro clients and access points
+• Enable MU-MIMO only in high-density multi-client environments
+• Monitor client device capabilities for optimal MU-MIMO usage"
                                                             >
                                                                 MU-MIMO
-                                                                <span
-                                                                    class="capability-tooltip"
-                                                                    ><strong
-                                                                        >MU-MIMO</strong
-                                                                    ><br
-                                                                    />Simultaneous
-                                                                    transmission
-                                                                    to multiple
-                                                                    clients</span
-                                                                >
                                                             </span>
                                                             <span
                                                                 class="value-pill {getCapabilityStatusClass(
@@ -1048,20 +1120,11 @@
                                                         >
                                                             <span
                                                                 class="capability-label"
+                                                                title="Neighbor Report (802.11k) provides information about nearby access points and their capabilities.
+This feature is useful for roaming clients to find the best access point to connect to."
                                                             >
                                                                 Neighbor Report
                                                                 (802.11k)
-                                                                <span
-                                                                    class="capability-tooltip"
-                                                                    ><strong
-                                                                        >802.11k</strong
-                                                                    ><br />AP
-                                                                    shares
-                                                                    nearby AP
-                                                                    info for
-                                                                    smarter
-                                                                    roaming</span
-                                                                >
                                                             </span>
                                                             <span
                                                                 class="value-pill {getCapabilityStatusClass(
@@ -1086,18 +1149,36 @@
                                                         >
                                                             <span
                                                                 class="capability-label"
+                                                                title="WMM (Wi-Fi Multimedia) - Traffic prioritization for voice/video applications.
+• Prioritizes voice/video over data traffic
+• Required for 802.11e QoS compliance
+• Four access categories: Voice, Video, Best Effort, Background
+• Essential for VoIP and video streaming quality
+• Most modern devices support WMM by default
+• Can improve performance in congested networks
+• Standard feature in all WiFi 5/6/6E devices
+
+COMPATIBILITY WARNINGS FOR MSP:
+• Some legacy devices may have broken WMM implementations
+• Misconfigured QoS can cause network performance issues
+• WMM conflicts can lead to connection drops
+• Not all applications properly utilize QoS markings
+• Over-reliance on QoS can mask underlying network issues
+
+NOT RECOMMENDED FOR:
+• Networks with no real-time applications (voice/video)
+• Environments with many legacy devices
+• Simple setups where traffic prioritization adds complexity
+• Networks where all traffic has equal priority
+
+UNIFI 7 CONSIDERATIONS:
+• UniFi 7 WAP has advanced QoS with automatic traffic classification
+• Can prioritize UniFi Voice and Video products automatically
+• Enable WMM only when using real-time applications
+• Monitor QoS metrics in UniFi Network application
+• Consider disabling if no VoIP/video applications are present"
                                                             >
                                                                 QoS (WMM)
-                                                                <span
-                                                                    class="capability-tooltip"
-                                                                    ><strong
-                                                                        >WMM</strong
-                                                                    ><br
-                                                                    />Traffic
-                                                                    prioritization
-                                                                    for
-                                                                    voice/video</span
-                                                                >
                                                             </span>
                                                             <span
                                                                 class="value-pill {getCapabilityStatusClass(
@@ -1116,19 +1197,9 @@
                                                         >
                                                             <span
                                                                 class="capability-label"
+                                                                title="Regulatory countrydomain for TX power and channels"
                                                             >
                                                                 Country Code
-                                                                <span
-                                                                    class="capability-tooltip"
-                                                                    ><strong
-                                                                        >Country
-                                                                        Code</strong
-                                                                    ><br
-                                                                    />Regulatory
-                                                                    domain for
-                                                                    TX power and
-                                                                    channels</span
-                                                                >
                                                             </span>
                                                             <span
                                                                 class="value-pill value-neutral"
@@ -1143,16 +1214,9 @@
                                                         >
                                                             <span
                                                                 class="capability-label"
+                                                                title="Admin-configured identifier"
                                                             >
                                                                 AP Name
-                                                                <span
-                                                                    class="capability-tooltip"
-                                                                    ><strong
-                                                                        >AP Name</strong
-                                                                    ><br
-                                                                    />Admin-configured
-                                                                    identifier</span
-                                                                >
                                                             </span>
                                                             <span
                                                                 class="value-pill value-neutral"
@@ -1172,17 +1236,9 @@
                                                     >
                                                         <span
                                                             class="capability-label"
+                                                            title="Beacon interval. Lower = better for power save"
                                                         >
                                                             DTIM Interval
-                                                            <span
-                                                                class="capability-tooltip"
-                                                                ><strong
-                                                                    >DTIM</strong
-                                                                ><br />Beacon
-                                                                interval. Lower
-                                                                = better for
-                                                                power save</span
-                                                            >
                                                         </span>
                                                         <span
                                                             class="value-pill value-neutral"
@@ -1196,19 +1252,9 @@
                                                         >
                                                             <span
                                                                 class="capability-label"
+                                                                title=" MIMO Spatial streams. More = higher throughput"
                                                             >
                                                                 MIMO Streams
-                                                                <span
-                                                                    class="capability-tooltip"
-                                                                    ><strong
-                                                                        >MIMO</strong
-                                                                    ><br
-                                                                    />Spatial
-                                                                    streams.
-                                                                    More =
-                                                                    higher
-                                                                    throughput</span
-                                                                >
                                                             </span>
                                                             <span
                                                                 class="value-pill value-neutral"
@@ -1223,20 +1269,10 @@
                                                         >
                                                             <span
                                                                 class="capability-label"
+                                                                title="The maximum theoretical speed of the network in Mbps. PHY rate. Real-world is ~60-70% of this"
                                                             >
                                                                 Max Theoretical
                                                                 Speed
-                                                                <span
-                                                                    class="capability-tooltip"
-                                                                    ><strong
-                                                                        >Max
-                                                                        Speed</strong
-                                                                    ><br />PHY
-                                                                    rate.
-                                                                    Real-world
-                                                                    is ~60-70%
-                                                                    of this</span
-                                                                >
                                                             </span>
                                                             <span
                                                                 class="value-pill value-neutral"
