@@ -577,8 +577,7 @@ COMPATIBILITY WARNINGS FOR MSP:
 • Windows 7/8: Partial support, may ignore transition requests
 • iOS devices: Good support in iOS 9+, older devices limited
 • Android: Mixed support, vendor-dependent implementation
-• UniFi 6/7: Supported, but may cause client disconnects on older devices
-• MSP Advice: Test thoroughly in lab before production deployment
+• UniFi Supported, but may cause client disconnects on very old devices
 • Mixed device fleets: Consider separate SSID for devices lacking 802.11v
 • Enterprise vs BYOD: Disable in environments with uncontrolled devices
 
@@ -618,8 +617,7 @@ Fast BSS Transition for seamless roaming.
 • Windows 7/8 devices: May experience authentication failures
 • Older Android (<6.0): Limited or broken 802.11r support
 • Some IoT devices: Complete incompatibility, connection failures
-• UniFi 6/7 APs: Enable via &quot;Advanced Settings&quot; - test thoroughly
-• Mixed environments: Disable if client devices < 2 years old
+• Mixed environments: Disable if client devices < 3 years old
 • MSP Advice: Only enable in enterprise environments with controlled device fleets
 • Legacy device fallback: May require separate SSID for older devices
 
@@ -651,7 +649,7 @@ Fast BSS Transition for seamless roaming.
                                                                 title="Target Wake Time (WiFi 6)
 Advanced power scheduling for WiFi 6/6E/7 devices.
 • Allows clients to schedule specific wake times
-• Reduces power consumption by 60-80% for IoT devices
+• Reduces wifi power consumption by 60-80% for IoT devices
 • Enables predictable latency for real-time applications
 • Critical for battery-powered sensors and mobile devices
 • Improves network efficiency with many sleeping clients
@@ -694,7 +692,7 @@ Advanced power scheduling for WiFi 6/6E/7 devices.
                                                             title="UAPSD (Unscheduled Automatic Power Save Delivery)
 Power save mechanism for VoIP and real-time applications.
 • Allows clients to sleep and wake for specific traffic delivery
-• Reduces power consumption on mobile devices by 15-30%
+• Reduces WiFi power consumption on mobile devices by 15-30%
 • Essential for VoIP handsets, tablets, and battery-powered devices
 • Requires QoS/WMM support for proper operation
 • Can improve voice call quality and battery life
@@ -702,14 +700,15 @@ Power save mechanism for VoIP and real-time applications.
 **COMPATIBILITY WARNINGS FOR MSP:**
 • May cause latency issues if not properly configured
 • VoIP phones: UAPSD mandatory for battery-powered handsets
-• UniFi 6/7: Supported, but requires WMM QoS enabled
+• UniFi: Supported, but requires WMM QoS enabled
 • iOS devices: Excellent UAPSD support, minimal issues
 • Android: Variable support, vendor-dependent implementation
 • Windows: Limited support, may cause VoIP quality degradation
 • Legacy devices: Poor UAPSD handling, connection instability
 • MSP Advice: Test VoIP devices thoroughly in lab environment
 • Enterprise phones: Enable only for certified VoIP endpoints
-• Mixed environments: Monitor for voice quality issues **NOT RECOMMENDED FOR:**
+• Mixed environments: Monitor for voice quality issues
+**NOT RECOMMENDED FOR:**
 • Gaming networks where latency is critical
 • High-frequency trading or real-time control systems
 • Networks with poor QoS implementation
@@ -876,8 +875,29 @@ Signal quality metric more important than absolute signal.
                                                     >
                                                         <span
                                                             class="capability-label"
-                                                            title="PMF (802.11w)
-Protects against deauth attacks. Required for WPA3"
+                                                            title="PMF (Protected Management Frames – 802.11w)
+Protects management frames from spoofing and deauthentication attacks.
+• Prevents deauth/disassoc attack vectors
+• Mandatory for WPA3-Personal and WPA3-Enterprise
+• Improves overall wireless security posture
+• Required for modern compliance frameworks
+
+COMPATIBILITY WARNINGS FOR MSP:
+• Legacy clients may fail to connect when PMF is Required
+• Some IoT devices only support Optional or Disabled
+• Older printers, scanners, and VoIP phones often incompatible
+• Windows 7/8 and old Android versions may break
+
+UNIFI CONSIDERATIONS:
+• UniFi defaults to PMF Optional on WPA2/WPA3 mixed mode
+• PMF Required enforces WPA3-only behavior
+• Fast roaming (802.11r) + PMF can cause client auth loops if misconfigured
+• Always test IoT and voice devices before enforcing PMF Required
+
+MSP ADVICE:
+• Use PMF Optional in mixed environments
+• Use PMF Required only on WPA3-only SSIDs
+• Create separate SSIDs for legacy or IoT devices"
                                                         >
                                                             PMF (Protected
                                                             Management Frames)
@@ -899,7 +919,26 @@ Protects against deauth attacks. Required for WPA3"
                                                         >
                                                             <span
                                                                 class="capability-label"
-                                                                title="Ciphers - CCMP/GCMP: Good | TKIP: Weak | WEP: Broken"
+                                                                title="Encryption Ciphers used to protect wireless data in transit.
+• CCMP (AES): Secure and recommended
+• GCMP: Stronger, used with WiFi 6/6E/7
+• TKIP: Deprecated and insecure
+• WEP: Broken and unsafe (should never be used)
+
+COMPATIBILITY WARNINGS FOR MSP:
+• TKIP forces WiFi 4/5 legacy rates
+• Enabling TKIP disables 802.11n/ac/ax features
+• Mixed cipher environments reduce performance and security
+• Some legacy handhelds require TKIP (avoid if possible)
+
+UNIFI CONSIDERATIONS:
+• UniFi automatically prefers CCMP/GCMP when available
+• Presence of TKIP can drop entire SSID to legacy mode
+• WPA3 requires GCMP or CCMP only
+
+MSP ADVICE:
+• Enforce CCMP/GCMP only
+• Remove TKIP unless supporting unavoidable legacy hardware and use a new SSID"
                                                             >
                                                                 Encryption
                                                                 Ciphers
@@ -921,7 +960,27 @@ Protects against deauth attacks. Required for WPA3"
                                                         >
                                                             <span
                                                                 class="capability-label"
-                                                                title="Auth Methods - SAE: WPA3 | PSK: WPA2 | 802.1X: Enterprise"
+                                                                title="Authentication methods used to control network access.
+• SAE: WPA3-Personal (most secure)
+• PSK: WPA2-Personal (shared password)
+• 802.1X: Enterprise authentication using RADIUS
+
+COMPATIBILITY WARNINGS FOR MSP:
+• SAE not supported by older clients and IoT devices
+• PSK vulnerable to password sharing and brute-force attacks
+• 802.1X requires properly configured RADIUS infrastructure
+• Misconfigured RADIUS causes widespread client failures
+
+UNIFI CONSIDERATIONS:
+• UniFi supports WPA2/WPA3 mixed mode (transition mode)
+• Mixed mode may cause slow association or roaming delays
+• Fast roaming (802.11r) interacts heavily with auth methods
+• UniFi RADIUS outages impact all Enterprise SSIDs
+
+MSP ADVICE:
+• Use WPA3-SAE for modern user devices
+• Use WPA2-PSK only for legacy or guest access
+• Use 802.1X for enterprise, healthcare, or compliance environments"
                                                             >
                                                                 Auth Methods
                                                             </span>
@@ -977,9 +1036,25 @@ Protects against deauth attacks. Required for WPA3"
                                                         >
                                                             <span
                                                                 class="capability-label"
-                                                                title="BSS (Basic Service Set) Color is a unique identifier (0-63) for spatial reuse.
-It is used to distinguish between different BSSs in the same frequency band.
-This helps in managing multiple access points in the same frequency band without interference."
+                                                                title="BBSS Color (0–63) is a WiFi 6+ spatial reuse identifier.
+• Helps devices distinguish overlapping access points with the same SSID on same channel
+• Enables simultaneous transmissions in dense environments
+• Reduces contention and improves airtime efficiency
+
+COMPATIBILITY WARNINGS FOR MSP:
+• Only WiFi 6/6E/7 clients benefit
+• Legacy devices ignore BSS Color entirely
+• Misconfigured dense deployments may see minimal gains
+
+UNIFI CONSIDERATIONS:
+• UniFi auto-assigns BSS Color by default
+• Manual overrides rarely needed
+• Works best with OBSS PD enabled in dense AP layouts
+
+MSP ADVICE:
+• Leave enabled in high-density environments
+• No downside for legacy clients
+• Combine with proper channel planning for best results"
                                                             >
                                                                 BSS Color
                                                             </span>
@@ -1073,33 +1148,40 @@ Highest modulation scheme supported by the AP.
                                                             <span
                                                                 class="capability-label"
                                                                 title="MU-MIMO (Multi-User MIMO) - Simultaneous transmission to multiple clients.
-• Allows AP to communicate with multiple devices simultaneously
-• Increases total network capacity by 2-4x in ideal conditions
+Allows an access point to transmit data to multiple clients simultaneously.
+• Increases total network capacity in high-client environments
+• Uses spatial streams to serve multiple devices at once
 • Requires MU-MIMO support on both AP and client devices
-• Downlink MU-MIMO more common than uplink
-• Critical for dense environments with many active clients
-• WiFi 5 (ac) introduced 4x4 MU-MIMO
-• WiFi 6/6E improved efficiency with OFDMA
-• Limited benefit with few clients or low traffic
+• Downlink MU-MIMO is widely supported
+• Uplink MU-MIMO introduced with WiFi 6 (ax)
+• Most effective in dense, multi-client deployments
+• Limited benefit with few active clients or light traffic
 
 COMPATIBILITY WARNINGS FOR MSP:
-• Many client devices have poor MU-MIMO implementation
-• iOS devices have limited MU-MIMO support compared to Android
-• Older WiFi 5 clients may not benefit significantly
-• Spatial streams limited by device antenna configurations
-• Mixed environments see reduced benefits
+• Many client devices have limited or inconsistent MU-MIMO support
+• iOS devices primarily benefit from OFDMA, not MU-MIMO
+• Most phones and tablets are only 1x1 or 2x2
+• MU-MIMO efficiency depends heavily on client scheduling
+• Mixed client capabilities reduce overall MU-MIMO gains
 
 NOT RECOMMENDED FOR:
-• Networks with mostly single-stream devices (phones, tablets)
-• Low-density deployments with few concurrent clients
-• Environments with many legacy WiFi 4/5 devices
-• Simple setups where complexity outweighs benefits
+• Low-density networks with few concurrent clients
+• Environments dominated by single-stream or legacy devices
+• Expecting higher single-client speed test results
+• Small deployments where OFDMA provides greater benefit
 
-UNIFI 7 CONSIDERATIONS:
-• UniFi 7 WAP has excellent 4x4 MU-MIMO implementation
-• Works best with UniFi 6/7 Pro clients and access points
-• Enable MU-MIMO only in high-density multi-client environments
-• Monitor client device capabilities for optimal MU-MIMO usage"
+UNIFI CONSIDERATIONS:
+• UniFi APs dynamically manage MU-MIMO per client
+• WiFi 6/7 UniFi APs rely more on OFDMA than MU-MIMO
+• 4x4 and higher APs benefit dense office and classroom layouts
+• MU-MIMO works best when paired with proper channel planning
+• Client capability visibility in UniFi is essential for tuning
+
+MSP ADVICE:
+• Treat MU-MIMO as a capacity feature, not a speed feature
+• Prioritize OFDMA and airtime fairness in mixed environments
+• Use higher-stream APs for conference rooms and dense areas
+• Validate real client capabilities before expecting gains"
                                                             >
                                                                 MU-MIMO
                                                             </span>
@@ -1120,8 +1202,26 @@ UNIFI 7 CONSIDERATIONS:
                                                         >
                                                             <span
                                                                 class="capability-label"
-                                                                title="Neighbor Report (802.11k) provides information about nearby access points and their capabilities.
-This feature is useful for roaming clients to find the best access point to connect to."
+                                                                title="Neighbor Report (802.11k) assists client roaming decisions.
+• Provides list of nearby APs and their capabilities
+• Reduces roaming scan time
+• Improves handoff speed between access points
+• Critical for voice and real-time applications
+
+COMPATIBILITY WARNINGS FOR MSP:
+• Some legacy clients ignore or mishandle 802.11k
+• Poor roaming clients may still stick to weak APs
+• Works best when paired with 802.11v and 802.11r
+
+UNIFI CONSIDERATIONS:
+• UniFi enables 802.11k by default
+• Essential for UniFi fast roaming performance
+• Voice and WiFi calling benefit significantly
+
+MSP ADVICE:
+• Keep enabled for multi-AP environments
+• Disable only if troubleshooting specific roaming bugs
+• Essential for VoIP, WiFi calling, and mobile devices"
                                                             >
                                                                 Neighbor Report
                                                                 (802.11k)
@@ -1162,8 +1262,8 @@ COMPATIBILITY WARNINGS FOR MSP:
 • Some legacy devices may have broken WMM implementations
 • Misconfigured QoS can cause network performance issues
 • WMM conflicts can lead to connection drops
-• Not all applications properly utilize QoS markings
-• Over-reliance on QoS can mask underlying network issues
+• Poorly behaving IoT devices may abuse high-priority queues
+• WMM does not fix insufficient airtime, interference, or bad RF design
 
 NOT RECOMMENDED FOR:
 • Networks with no real-time applications (voice/video)
@@ -1172,11 +1272,15 @@ NOT RECOMMENDED FOR:
 • Networks where all traffic has equal priority
 
 UNIFI 7 CONSIDERATIONS:
-• UniFi 7 WAP has advanced QoS with automatic traffic classification
-• Can prioritize UniFi Voice and Video products automatically
-• Enable WMM only when using real-time applications
-• Monitor QoS metrics in UniFi Network application
-• Consider disabling if no VoIP/video applications are present"
+• UniFi enables WMM by default on most SSIDs
+• Disabling WMM breaks VoIP, WiFi calling, and UAPSD
+• Required for proper operation of UniFi Talk and voice endpoints
+• UniFi does not expose deep per-client QoS tuning
+• Fast roaming (802.11r) assumes WMM is enabled
+
+MSP ADVICE:
+• Leave WMM enabled in almost all modern networks
+• Mandatory for VoIP, Teams, Zoom, WiFi calling, and SIP phones"
                                                             >
                                                                 QoS (WMM)
                                                             </span>
@@ -1197,7 +1301,13 @@ UNIFI 7 CONSIDERATIONS:
                                                         >
                                                             <span
                                                                 class="capability-label"
-                                                                title="Regulatory countrydomain for TX power and channels"
+                                                                title="Country Code (Regulatory Domain)
+Defines legal transmit power limits and allowed WiFi channels.
+• Controls maximum TX power per band and frequencies (2.4 / 5 / 6 GHz)
+• Determines available channels and DFS requirements
+• Enforced by local regulatory authorities (FCC, ETSI, etc.)
+• Critical for legal compliance and RF performance
+• Affects roaming behavior and channel planning"
                                                             >
                                                                 Country Code
                                                             </span>
@@ -1236,7 +1346,34 @@ UNIFI 7 CONSIDERATIONS:
                                                     >
                                                         <span
                                                             class="capability-label"
-                                                            title="Beacon interval. Lower = better for power save"
+                                                            title="DTIM Interval (Delivery Traffic Indication Message)
+Controls how often buffered broadcast and multicast traffic is delivered.
+• Measured in beacon intervals (DTIM = every N beacons)
+• Lower DTIM = more frequent wake-ups for clients
+• Higher DTIM = better battery life, higher latency for multicast
+• Critical for power-saving behavior on mobile devices
+• Directly impacts VoIP, push notifications, and IoT responsiveness
+
+COMPATIBILITY WARNINGS FOR MSP:
+• Too low DTIM increases battery drain on phones and tablets
+• Too high DTIM delays multicast, mDNS, and ARP traffic
+• Can break push notifications on iOS and Android
+• VoIP and WiFi calling may suffer at high DTIM values
+• IoT devices often require specific DTIM behavior
+
+UNIFI CONSIDERATIONS:
+• UniFi defaults: 2.4 GHz = DTIM 1, 5 GHz = DTIM 3
+• UniFi applies DTIM per SSID, not per AP
+• UniFi Talk and VoIP endpoints prefer lower DTIM
+• High DTIM can cause perceived 'slow wake' on mobile devices
+• DTIM interacts closely with WMM and UAPSD
+
+MSP ADVICE:
+• Use defaults unless there is an issue
+• Use lower DTIM (1–2) for VoIP and real-time SSIDs
+• Use higher DTIM (3–5) for guest or battery-focused SSIDs
+• Separate SSIDs for voice, user, and IoT devices when possible
+• Always test iOS and Android push behavior after changes"
                                                         >
                                                             DTIM Interval
                                                         </span>
@@ -1252,7 +1389,27 @@ UNIFI 7 CONSIDERATIONS:
                                                         >
                                                             <span
                                                                 class="capability-label"
-                                                                title=" MIMO Spatial streams. More = higher throughput"
+                                                                title="MIMO Spatial Streams
+Number of independent data streams the access point can transmit and receive.
+• More spatial streams increase potential throughput
+• Expressed as NxN (e.g., 2x2, 4x4, 8x8)
+• Requires matching client antenna and radio support
+• Each stream adds capacity, not guaranteed speed per client
+• Critical for aggregate performance in multi-client environments
+
+COMPATIBILITY WARNINGS FOR MSP:
+• Most phones and tablets are only 1x1 or 2x2
+• Laptops commonly support 2x2 or 3x3
+• Single-stream clients cannot benefit from higher stream counts
+• High-stream APs do not improve range
+• Poor SNR prevents effective use of multiple streams
+
+UNIFI CONSIDERATIONS:
+• UniFi reports maximum supported spatial streams per band
+• UniFi APs dynamically allocate streams per client
+• MU-MIMO required to use multiple streams across clients simultaneously
+• OFDMA (WiFi 6/7) often provides more benefit than extra streams
+• 8x8 APs mainly benefit very high-density environments"
                                                             >
                                                                 MIMO Streams
                                                             </span>
