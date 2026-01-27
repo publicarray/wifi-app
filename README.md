@@ -2,8 +2,6 @@
 
 ## About
 
-This is the official Wails Svelte template.
-
 ## Live Development
 
 To run in live development mode, run `wails dev` in the project directory. This will run a Vite development
@@ -14,3 +12,8 @@ to this in your browser, and you can call your Go code from devtools.
 ## Building
 
 To build a redistributable, production mode package, use `wails build`.
+
+```
+wails build -debug && sudo build/bin/wifi-app
+GOOS=windows GOARCH=amd64 wails build
+```
