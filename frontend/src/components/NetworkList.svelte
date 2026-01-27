@@ -683,7 +683,7 @@
                                                             </span>
                                                         </div>
                                                     {/if}
-                                                    {#if ap.channelUtilization !== undefined && ap.channelUtilization !== null}
+                                                    {#if ap.bssLoadUtilization !== undefined && ap.bssLoadUtilization !== null}
                                                         <div
                                                             class="capability-item"
                                                         >
@@ -709,12 +709,12 @@
                                                             </span>
                                                             <span
                                                                 class="value-pill {getUtilizationStatusClass(
-                                                                    ap.channelUtilization,
+                                                                    ap.bssLoadUtilization,
                                                                 )}"
                                                             >
-                                                                {ap.channelUtilization >=
+                                                                {ap.bssLoadUtilization >=
                                                                 0
-                                                                    ? ap.channelUtilization +
+                                                                    ? ap.bssLoadUtilization +
                                                                       "%"
                                                                     : "N/A"}
                                                             </span>
@@ -786,7 +786,7 @@
                                                             </span>
                                                         </div>
                                                     {/if}
-                                                    {#if ap.securityAuth && ap.securityAuth.length > 0}
+                                                    {#if ap.authMethods && ap.authMethods.length > 0}
                                                         <div
                                                             class="capability-item"
                                                         >
@@ -808,10 +808,10 @@
                                                             </span>
                                                             <span
                                                                 class="value-pill {getAuthStatusClass(
-                                                                    ap.securityAuth,
+                                                                    ap.authMethods,
                                                                 )}"
                                                             >
-                                                                {ap.securityAuth.join(
+                                                                {ap.authMethods.join(
                                                                     ", ",
                                                                 )}
                                                             </span>
