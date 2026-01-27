@@ -485,6 +485,11 @@ func (s *windowsScanner) parseInformationElements(ap *AccessPoint, entry *WLAN_B
 				ap.CountryCode = string(data[0:2])
 			}
 
+		case 38: // TPC Report
+			if length >= 1 {
+				ap.TxPower = int(int8(data[0]))
+			}
+
 		case 11: // BSS Load
 			if length >= 5 {
 				// Byte 0-1: Station Count (little-endian)

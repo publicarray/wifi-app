@@ -170,6 +170,13 @@
         return "value-bad";
     }
 
+    function getClientCountClass(count) {
+        if (count === undefined || count === null || count < 0) return "value-neutral";
+        if (count <= 10) return "value-good";
+        if (count <= 25) return "value-neutral";
+        return "value-bad";
+    }
+
     function getCipherStatusClass(ciphers) {
         if (!ciphers || ciphers.length === 0) return "value-neutral";
         for (let c of ciphers) {
@@ -753,6 +760,33 @@
                                                                 0
                                                                     ? ap.bssLoadUtilization +
                                                                       "%"
+                                                                    : "N/A"}
+                                                            </span>
+                                                        </div>
+                                                    {/if}
+                                                    {#if ap.bssLoadStations !== undefined && ap.bssLoadStations !== null}
+                                                        <div
+                                                            class="capability-item"
+                                                        >
+                                                            <span
+                                                                class="capability-label"
+                                                            >
+                                                                Connected Clients
+                                                                <span
+                                                                    class="capability-tooltip"
+                                                                    ><strong
+                                                                        >Connected Clients</strong
+                                                                    ><br
+                                                                    />Number of devices currently connected to this AP</span
+                                                                >
+                                                            </span>
+                                                            <span
+                                                                class="value-pill {getClientCountClass(
+                                                                    ap.bssLoadStations,
+                                                                )}"
+                                                            >
+                                                                {ap.bssLoadStations >= 0
+                                                                    ? ap.bssLoadStations + " clients"
                                                                     : "N/A"}
                                                             </span>
                                                         </div>

@@ -406,6 +406,7 @@ func parseVHTCapabilities(data []byte, ap *AccessPoint) {
 	}
 
 	ap.Capabilities = appendUnique(ap.Capabilities, "VHT")
+	ap.Capabilities = appendUnique(ap.Capabilities, "WiFi5")
 
 	// VHT Capabilities Info (bytes 0-3)
 	// Bits 2-3: Supported Channel Width Set
@@ -448,10 +449,15 @@ func parseHECapabilities(data []byte, ap *AccessPoint) {
 	}
 
 	extID := data[0]
-	if extID == 35 {
+	switch extID {
+	case 35:
 		parseHECapabilitiesElement(data[1:], ap)
-	} else if extID == 36 {
+	case 36:
 		parseHEOperation(data[1:], ap)
+	case 106: // EHT Capabilities (WiFi 7)
+		parseEHTCapabilitiesElement(data[1:], ap)
+	case 107: // EHT Operation (WiFi 7)
+		parseEHTOperation(data[1:], ap)
 	}
 }
 
@@ -463,6 +469,7 @@ func parseHECapabilitiesElement(data []byte, ap *AccessPoint) {
 	}
 
 	ap.Capabilities = appendUnique(ap.Capabilities, "HE")
+	ap.Capabilities = appendUnique(ap.Capabilities, "WiFi6")
 
 	// HE MAC Capabilities (bytes 0-5)
 	// Bit 11: TWT Responder Support
@@ -518,6 +525,24 @@ func parseHEOperation(data []byte, ap *AccessPoint) {
 	// BSS Color Information is at byte 3
 	// Bits 0-5: BSS Color (0-63)
 	ap.BSSColor = int(data[3] & 0x3F)
+}
+
+func parseEHTCapabilitiesElement(data []byte, ap *AccessPoint) {
+	ap.Capabilities = appendUnique(ap.Capabilities, "WiFi7")
+
+	if ap.QAMSupport < 4096 {
+		ap.QAMSupport = 4096
+	}
+
+	// EHT PHY Capabilities: byte 1, bit 1 indicates 320MHz support
+	if len(data) >= 2 && (data[1]&0x02) != 0 && ap.ChannelWidth < 320 {
+		ap.ChannelWidth = 320
+	}
+}
+
+func parseEHTOperation(data []byte, ap *AccessPoint) {
+	_ = data
+	_ = ap
 }
 
 func parseTPCReport(data []byte, ap *AccessPoint) {
