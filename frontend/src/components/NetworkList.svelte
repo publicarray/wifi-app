@@ -606,28 +606,39 @@ NOT RECOMMENDED FOR:
                                                             class="capability-label"
                                                             title="Fast Roaming (802.11r)
 
-Fast BSS Transition for seamless roaming.
+Enables rapid re-authentication when clients move between access points.
 • Reduces roaming time from 100-500ms to 50ms or less
-• Essential for voice/video applications and mobile devices
-• Uses pre-authentication and key caching
-• Works with 802.11v (BSS Transition) for optimal performance
+• Critical for VoIP, WiFi calling, and real-time applications
+• Uses Fast BSS Transition (FT) key negotiation
+• Works best when combined with 802.11k (Neighbor Reports) and 802.11v (BSS Transition)
 
-**COMPATIBILITY WARNINGS FOR MSP:**
-• Old devices may have issues with connecting, compatibility issues may arise
-• Windows 7/8 devices: May experience authentication failures
-• Older Android (<6.0): Limited or broken 802.11r support
-• Some IoT devices: Complete incompatibility, connection failures
-• Mixed environments: Disable if client devices < 3 years old
-• MSP Advice: Only enable in enterprise environments with controlled device fleets
+COMPATIBILITY WARNINGS FOR MSP:
+• Some legacy clients do not support 802.11r and may fail to connect
+• Windows 7/8: Known authentication and association issues
+• Older Android devices (< Android 6): Partial or broken 802.11r support
+• Many IoT devices do not support 802.11r (printers, TVs, speakers)
+• WPA3 and PMF settings can increase compatibility risk
 • Legacy device fallback: May require separate SSID for older devices
 
-**NOT RECOMMENDED FOR:**
+UNIFI CONSIDERATIONS:
+• UniFi labels 802.11r as 'Fast Roaming'
+• Best used on user-only SSIDs with modern clients
+• Enabling 802.11r does not force clients to use it
+• Roaming behavior still depends on client decisions
+
+NOT RECOMMENDED FOR:
 • Public WiFi networks with unknown device types
 • Environments with legacy IoT or industrial equipment
-• Small offices with mixed BYOD policies
-• Residential deployments without device control"
+• Small offices with unmanaged BYOD and legacy devices
+• Residential or home-office deployments without testing
+
+MSP ADVICE:
+• Enable only on user SSIDs with controlled device fleets
+• Pair with 802.11k and 802.11v for best results
+• Always test legacy and IoT devices before rollout
+• Use separate SSIDs for modern vs legacy clients when needed"
                                                         >
-                                                            Fast Roaming
+                                                            Fast BSS Transition
                                                             (802.11r)
                                                         </span>
                                                         <span
@@ -648,13 +659,14 @@ Fast BSS Transition for seamless roaming.
                                                                 class="capability-label"
                                                                 title="Target Wake Time (WiFi 6)
 Advanced power scheduling for WiFi 6/6E/7 devices.
-• Allows clients to schedule specific wake times
-• Reduces wifi power consumption by 60-80% for IoT devices
+• Allows clients and APs to negotiate specific wake and sleep times
+• Significantly reduces power consumption for supported devices
 • Enables predictable latency for real-time applications
 • Critical for battery-powered sensors and mobile devices
 • Improves network efficiency with many sleeping clients
 • Requires WiFi 6 (802.11ax) or later support
-**COMPATIBILITY WARNINGS FOR MSP:**
+
+COMPATIBILITY WARNINGS FOR MSP:
 • Limited client device support: Mostly high-end devices only
 • UniFi 6/7 APs: TWT enabled by default on supported firmware
 • iPhone 12+: Supports TWT, battery savings noticeable
@@ -664,7 +676,13 @@ Advanced power scheduling for WiFi 6/6E/7 devices.
 • MSP Advice: Enable only in IoT-heavy environments with compatible devices
 • Mixed fleets: No negative impact on non-TWT devices
 • Enterprise: Consider for sensor networks and smart building deployments
-**NOT RECOMMENDED FOR:**
+
+UNIFI CONSIDERATIONS:
+• UniFi 6/7 APs advertise TWT capability automatically
+• UniFi does not provide granular per-client TWT tuning
+• Benefits depend entirely on client adoption
+
+NOT RECOMMENDED FOR:
 • Environments with predominantly legacy devices
 • High-density networks requiring maximum airtime utilization
 • Real-time voice networks where latency consistency is critical
@@ -697,7 +715,8 @@ Power save mechanism for VoIP and real-time applications.
 • Requires QoS/WMM support for proper operation
 • Can improve voice call quality and battery life
 • Critical for enterprise VoWiFi deployments
-**COMPATIBILITY WARNINGS FOR MSP:**
+
+COMPATIBILITY WARNINGS FOR MSP:
 • May cause latency issues if not properly configured
 • VoIP phones: UAPSD mandatory for battery-powered handsets
 • UniFi: Supported, but requires WMM QoS enabled
@@ -708,11 +727,12 @@ Power save mechanism for VoIP and real-time applications.
 • MSP Advice: Test VoIP devices thoroughly in lab environment
 • Enterprise phones: Enable only for certified VoIP endpoints
 • Mixed environments: Monitor for voice quality issues
-**NOT RECOMMENDED FOR:**
+
+NOT RECOMMENDED FOR:
 • Gaming networks where latency is critical
 • High-frequency trading or real-time control systems
 • Networks with poor QoS implementation
-• Environments with predominantly non-VoIP clients"
+• Environments with predominantly non-VoIP clients• Significantly reduces power consumption for supported devices"
                                                         >
                                                             UAPSD (U-APSD)
                                                         </span>
@@ -1149,13 +1169,15 @@ Highest modulation scheme supported by the AP.
                                                                 class="capability-label"
                                                                 title="MU-MIMO (Multi-User MIMO) - Simultaneous transmission to multiple clients.
 Allows an access point to transmit data to multiple clients simultaneously.
-• Increases total network capacity in high-client environments
+• Increases total network capacity with many active clients
 • Uses spatial streams to serve multiple devices at once
 • Requires MU-MIMO support on both AP and client devices
 • Downlink MU-MIMO is widely supported
 • Uplink MU-MIMO introduced with WiFi 6 (ax)
 • Most effective in dense, multi-client deployments
 • Limited benefit with few active clients or light traffic
+• WiFi 5 (ac) introduced 4x4 MU-MIMO
+• WiFi 6/6E improved efficiency with OFDMA
 
 COMPATIBILITY WARNINGS FOR MSP:
 • Many client devices have limited or inconsistent MU-MIMO support
