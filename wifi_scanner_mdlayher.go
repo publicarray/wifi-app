@@ -128,13 +128,12 @@ func (s *WiFiScannerMDLayher) ScanNetworks(iface string) ([]AccessPoint, error) 
 
 func (s *WiFiScannerMDLayher) convertBSSToAccessPoint(bss *wifi.BSS) []AccessPoint {
 	ap := AccessPoint{
-		SSID:         bss.BSSID.String(),
+		SSID:         bss.SSID,
+		BSSID:        bss.BSSID.String(),
 		Vendor:       s.ouiLookup.LookupVendor(bss.BSSID.String()),
 		LastSeen:     time.Now().Add(-bss.LastSeen),
 		Capabilities: []string{},
 	}
-
-	ap.SSID = bss.SSID
 
 	ap.Frequency = bss.Frequency
 	ap.Channel = frequencyToChannel(ap.Frequency)
