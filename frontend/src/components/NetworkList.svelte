@@ -195,6 +195,39 @@
 
     // Get unique security types for filter dropdown
     $: availableSecurityTypes = [...new Set(networks.map((n) => n.security))];
+
+    function getWiFiStandard(ap) {
+        if (!ap || !ap.capabilities) return null;
+        
+        const caps = ap.capabilities;
+        
+        if (caps.includes("WiFi7") || caps.includes("EHT")) return "WiFi 7";
+        
+        // Check for 6GHz band for WiFi 6E
+        // Frequency > 5925 MHz is 6GHz band
+        if (ap.frequency > 5925 && (caps.includes("HE") || caps.includes("WiFi6"))) {
+            return "WiFi 6E";
+        }
+        
+        if (caps.includes("HE") || caps.includes("WiFi6")) return "WiFi 6";
+        if (caps.includes("VHT")) return "WiFi 5";
+        if (caps.includes("HT")) return "WiFi 4";
+        
+        return null;
+    }
+
+    function getWiFiStandardClass(standard) {
+        if (!standard) return "";
+        const base = "wifi-standard-badge";
+        switch (standard) {
+            case "WiFi 7": return `${base} wifi-7`;
+            case "WiFi 6E": return `${base} wifi-6e`;
+            case "WiFi 6": return `${base} wifi-6`;
+            case "WiFi 5": return `${base} wifi-5`;
+            case "WiFi 4": return `${base} wifi-4`;
+            default: return base;
+        }
+    }
 </script>
 
 <div class="network-list-container">
@@ -325,6 +358,10 @@
                             <div class="ssid-content">
                                 <span class="ssid-text">{network.ssid}</span>
                                 {#if network.accessPoints && network.accessPoints.length > 0}
+                                    {@const standard = getWiFiStandard(network.accessPoints[0])}
+                                    {#if standard}
+                                        <span class={getWiFiStandardClass(standard)}>{standard}</span>
+                                    {/if}
                                     <span class="vendor-hint"
                                         >{network.accessPoints[0].vendor}</span
                                     >
@@ -1563,6 +1600,47 @@
         border: 1px solid rgba(255, 152, 0, 0.4);
         margin-left: 4px;
         vertical-align: middle;
+    }
+
+    .wifi-standard-badge {
+        display: inline-block;
+        padding: 1px 5px;
+        border-radius: 3px;
+        font-size: 9px;
+        font-weight: 600;
+        margin-left: 6px;
+        vertical-align: middle;
+        border: 1px solid rgba(255, 255, 255, 0.1);
+    }
+
+    .wifi-7 {
+        background: rgba(156, 39, 176, 0.2);
+        color: #e040fb;
+        border-color: rgba(156, 39, 176, 0.4);
+    }
+
+    .wifi-6e {
+        background: rgba(33, 150, 243, 0.2);
+        color: #448aff;
+        border-color: rgba(33, 150, 243, 0.4);
+    }
+
+    .wifi-6 {
+        background: rgba(76, 175, 80, 0.2);
+        color: #69f0ae;
+        border-color: rgba(76, 175, 80, 0.4);
+    }
+
+    .wifi-5 {
+        background: rgba(136, 136, 136, 0.2);
+        color: #bdbdbd;
+        border-color: rgba(136, 136, 136, 0.4);
+    }
+
+    .wifi-4 {
+        background: rgba(100, 100, 100, 0.2);
+        color: #9e9e9e;
+        border-color: rgba(100, 100, 100, 0.4);
     }
 
     .capability-tooltip {
