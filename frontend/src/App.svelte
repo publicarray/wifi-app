@@ -59,20 +59,8 @@
       console.warn('Client warning:', warning)
     })
 
-    EventsOn('scan:debug', (message) => {
-      console.log('Scan debug:', message)
-    })
-
-    EventsOn('client:warning', (warning) => {
-      console.warn('Client warning:', warning)
-    })
-
     EventsOn('roaming:detected', (event) => {
       console.log('Roaming detected:', event)
-    })
-
-    EventsOn('client:warning', (warning) => {
-      console.log('Client warning:', warning)
     })
   })
 
@@ -80,6 +68,8 @@
     EventsOff('networks:updated')
     EventsOff('client:updated')
     EventsOff('scan:error')
+    EventsOff('scan:debug')
+    EventsOff('scan:status')
     EventsOff('roaming:detected')
     EventsOff('client:warning')
     if (scanning) {
