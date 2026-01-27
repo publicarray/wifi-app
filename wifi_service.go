@@ -443,39 +443,90 @@ func (ws *WiFiService) AnalyzeRoamingQuality() map[string]interface{} {
 	result := make(map[string]interface{})
 
 	if len(ws.roamingHistory) == 0 {
-		result["roaming_events"] = 0
-		result["status"] = "no_data"
+		result["totalRoams"] = 0
+		result["goodRoams"] = 0
+		result["badRoams"] = 0
+		result["avgSignalChange"] = 0
+		result["excessiveRoaming"] = false
+		result["stickyClient"] = false
+		result["roamingAdvice"] = "No roaming data available yet. Connect to a network with multiple APs to see roaming analysis."
 		return result
 	}
 
-	result["roaming_events"] = len(ws.roamingHistory)
-	result["status"] = "active"
-
-	// Calculate average signal change
+	totalRoams := len(ws.roamingHistory)
+	goodRoams := 0
+	badRoams := 0
 	totalSignalChange := 0
-	for _, event := range ws.roamingHistory {
-		totalSignalChange += event.NewSignal - event.PreviousSignal
-	}
-	avgSignalChange := 0
-	if len(ws.roamingHistory) > 0 {
-		avgSignalChange = totalSignalChange / len(ws.roamingHistory)
-	}
-	result["avg_signal_change"] = avgSignalChange
 
-	// Analyze roaming quality
-	if avgSignalChange > 10 {
-		result["quality"] = "excellent"
-		result["description"] = "Roaming is improving signal quality significantly"
-	} else if avgSignalChange > 0 {
-		result["quality"] = "good"
-		result["description"] = "Roaming is improving signal quality"
-	} else if avgSignalChange > -10 {
-		result["quality"] = "fair"
-		result["description"] = "Roaming maintains similar signal quality"
-	} else {
-		result["quality"] = "poor"
-		result["description"] = "Roaming is degrading signal quality"
+	for _, event := range ws.roamingHistory {
+		signalChange := event.NewSignal - event.PreviousSignal
+		totalSignalChange += signalChange
+		if signalChange >= 0 {
+			goodRoams++
+		} else {
+			badRoams++
+		}
 	}
+
+	avgSignalChange := 0
+	if totalRoams > 0 {
+		avgSignalChange = totalSignalChange / totalRoams
+	}
+
+	result["totalRoams"] = totalRoams
+	result["goodRoams"] = goodRoams
+	result["badRoams"] = badRoams
+	result["avgSignalChange"] = avgSignalChange
+
+	// Detect excessive roaming
+	excessiveRoaming := totalRoams > 10 && len(ws.signalHistory) > 0 &&
+		float64(totalRoams)/float64(len(ws.signalHistory))*100 > 5
+
+	// Detect sticky client
+	stickyClient := false
+	if ws.clientStats.Connected && ws.clientStats.Signal < -75 && totalRoams == 0 {
+		for _, network := range ws.networks {
+			if network.SSID == ws.clientStats.SSID && len(network.AccessPoints) > 1 {
+				for _, ap := range network.AccessPoints {
+					if ap.BSSID != ws.clientStats.BSSID && ap.Signal > ws.clientStats.Signal+10 {
+						stickyClient = true
+						break
+					}
+				}
+			}
+		}
+	}
+
+	result["excessiveRoaming"] = excessiveRoaming
+	result["stickyClient"] = stickyClient
+
+	// Time since last roam
+	if len(ws.roamingHistory) > 0 {
+		lastRoam := ws.roamingHistory[len(ws.roamingHistory)-1]
+		timeSince := time.Since(lastRoam.Timestamp)
+		if timeSince < time.Minute {
+			result["timeSinceLastRoam"] = fmt.Sprintf("%ds ago", int(timeSince.Seconds()))
+		} else if timeSince < time.Hour {
+			result["timeSinceLastRoam"] = fmt.Sprintf("%dm ago", int(timeSince.Minutes()))
+		} else {
+			result["timeSinceLastRoam"] = fmt.Sprintf("%dh %dm ago", int(timeSince.Hours()), int(timeSince.Minutes())%60)
+		}
+	}
+
+	// Generate advice
+	var advice string
+	if excessiveRoaming {
+		advice = "Your device is roaming excessively. This may indicate overlapping AP coverage or unstable connections. Consider adjusting AP placement or roaming aggressiveness settings."
+	} else if stickyClient {
+		advice = "Your device appears to be a 'sticky client' - it's staying connected to a weak AP when better options are available. Consider enabling 802.11k/v/r on your network or adjusting client roaming settings."
+	} else if avgSignalChange > 5 {
+		advice = "Roaming is working well! Your device is successfully moving to stronger access points."
+	} else if avgSignalChange < -5 {
+		advice = "Roaming decisions may not be optimal. Your device sometimes roams to weaker APs. This could indicate AP coverage overlap issues."
+	} else {
+		advice = "Roaming behavior appears normal. Signal quality is maintained during transitions."
+	}
+	result["roamingAdvice"] = advice
 
 	return result
 }
