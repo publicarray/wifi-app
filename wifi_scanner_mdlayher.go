@@ -267,6 +267,19 @@ func (s *WiFiScannerMDLayher) GetLinkInfo(iface string) (map[string]string, erro
 	}
 
 	station := stations[0]
+
+	// Lookup SSID and frequency from BSS scan results
+	bssList, err := s.client.AccessPoints(targetIface)
+	if err == nil && len(bssList) > 0 {
+		for _, bss := range bssList {
+			if bss.BSSID.String() == station.HardwareAddr.String() {
+				info["ssid"] = bss.SSID
+				info["frequency"] = fmt.Sprintf("%d", bss.Frequency)
+				break
+			}
+		}
+	}
+
 	info["connected"] = "true"
 	info["bssid"] = station.HardwareAddr.String()
 	info["signal"] = fmt.Sprintf("%d", station.Signal)
