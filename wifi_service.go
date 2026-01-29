@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/wailsapp/wails/v2/pkg/runtime"
@@ -26,6 +27,7 @@ type WiFiService struct {
 	scanning         bool
 	cancelFunc       context.CancelFunc
 	currentInterface string
+	scanInFlight     atomic.Bool
 
 	// Aggregated data
 	networks       []Network
@@ -100,21 +102,36 @@ func (ws *WiFiService) StopScanning() {
 
 // scanLoop runs the periodic scanning loop
 func (ws *WiFiService) scanLoop(ctx context.Context, iface string) {
-	ticker := time.NewTicker(scanInterval)
-	defer ticker.Stop()
-
 	for {
 		select {
 		case <-ctx.Done():
 			return
-		case <-ticker.C:
-			ws.performScan(iface)
+		default:
+		}
+
+		start := time.Now()
+		ws.performScan(iface)
+		elapsed := time.Since(start)
+		sleepFor := scanInterval - elapsed
+		if sleepFor < 0 {
+			sleepFor = 0
+		}
+
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(sleepFor):
 		}
 	}
 }
 
 // performScan executes a single scan operation
 func (ws *WiFiService) performScan(iface string) {
+	if !ws.scanInFlight.CompareAndSwap(false, true) {
+		return
+	}
+	defer ws.scanInFlight.Store(false)
+
 	aps, err := ws.scanner.ScanNetworks(iface)
 	if err != nil {
 		runtime.EventsEmit(ws.ctx, "scan:error", err.Error())

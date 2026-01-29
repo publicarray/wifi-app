@@ -14,7 +14,10 @@ import (
 type WiFiScannerMDLayher struct {
 	client    *wifi.Client
 	ouiLookup *OUILookup
+	lastScan  time.Time
 }
+
+const activeScanTimeout = 20 * time.Second
 
 func NewWiFiScanner(cacheFile string) WiFiBackend {
 	ouiLookup := NewOUILookup(cacheFile)
@@ -65,15 +68,17 @@ func (s *WiFiScannerMDLayher) ScanNetworks(iface string) ([]AccessPoint, error) 
 		return nil, fmt.Errorf("interface %s not found", iface)
 	}
 
-	// active scanning wifi networks
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), activeScanTimeout)
 	defer cancel()
-	err = s.client.Scan(ctx, targetInterface)
-	if err != nil {
+	if err := s.client.Scan(ctx, targetInterface); err != nil {
 		return nil, fmt.Errorf("failed to initiate scan: %w", err)
 	}
 
 	bssList, err := s.client.AccessPoints(targetInterface)
+	if err != nil && isTransientScanError(err) {
+		time.Sleep(2 * time.Second)
+		bssList, err = s.client.AccessPoints(targetInterface)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to scan BSS: %w", err)
 	}
@@ -124,6 +129,16 @@ func (s *WiFiScannerMDLayher) ScanNetworks(iface string) ([]AccessPoint, error) 
 		accessPoints[i].DFS = isDFSChannel(accessPoints[i].Channel)
 	}
 	return accessPoints, nil
+}
+
+func isTransientScanError(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "device or resource busy") ||
+		strings.Contains(msg, "i/o timeout") ||
+		strings.Contains(msg, "timeout")
 }
 
 func (s *WiFiScannerMDLayher) convertBSSToAccessPoint(bss *wifi.BSS) []AccessPoint {

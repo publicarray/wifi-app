@@ -1554,6 +1554,12 @@ UNIFI CONSIDERATIONS:
         border-radius: 4px;
         font-size: 14px;
         min-width: 120px;
+        color-scheme: dark;
+    }
+
+    .filter-select option {
+        background: #1a1a1a;
+        color: #e0e0e0;
     }
 
     .checkbox-label {
