@@ -102,6 +102,71 @@ func appendUnique(slice []string, item string) []string {
 	return append(slice, item)
 }
 
+// NormalizeAccessPoint applies consistent defaults and derived values across platforms.
+func NormalizeAccessPoint(ap *AccessPoint) {
+	if ap == nil {
+		return
+	}
+
+	if ap.Frequency > 0 && ap.Channel == 0 {
+		ap.Channel = frequencyToChannel(ap.Frequency)
+	}
+	if ap.Band == "" && ap.Frequency > 0 {
+		if ap.Frequency > 5900 {
+			ap.Band = "6GHz"
+		} else if ap.Frequency > 5000 {
+			ap.Band = "5GHz"
+		} else {
+			ap.Band = "2.4GHz"
+		}
+	}
+	if ap.Signal != 0 && ap.SignalQuality == 0 {
+		ap.SignalQuality = signalToQuality(ap.Signal)
+	}
+	if ap.ChannelWidth == 0 {
+		ap.ChannelWidth = 20
+	}
+	if ap.Security == "" {
+		ap.Security = "Open"
+	}
+	if ap.PMF == "" {
+		ap.PMF = "Disabled"
+	}
+	if ap.MIMOStreams == 0 {
+		ap.MIMOStreams = 1
+	}
+	if ap.BSSLoadStations == 0 && ap.BSSLoadUtilization == 0 {
+		ap.BSSLoadStations = -1
+		ap.BSSLoadUtilization = -1
+	}
+	if ap.Noise != 0 {
+		ap.SNR = ap.Signal - ap.Noise
+	}
+	ap.DFS = isDFSChannel(ap.Channel)
+}
+
+// NormalizeClientStats applies consistent defaults across platforms.
+func NormalizeClientStats(stats *ClientStats) {
+	if stats == nil {
+		return
+	}
+	if stats.SignalAvg == 0 && stats.Signal != 0 {
+		stats.SignalAvg = stats.Signal
+	}
+	if stats.ChannelWidth == 0 {
+		stats.ChannelWidth = 20
+	}
+	if stats.WiFiStandard == "" {
+		stats.WiFiStandard = "Unknown"
+	}
+	if stats.MIMOConfig == "" {
+		stats.MIMOConfig = "1x1"
+	}
+	if stats.SNR == 0 && stats.Noise != 0 {
+		stats.SNR = stats.Signal - stats.Noise
+	}
+}
+
 func channelToFrequency(channel int) int {
 	if channel >= 1 && channel <= 14 {
 		if channel == 14 {
@@ -144,7 +209,11 @@ func parseBitrateInfo(bitrateInfo string) (wifiStandard, channelWidth, mimoConfi
 	channelWidth = "20"
 	mimoConfig = "1x1"
 
-	if strings.Contains(bitrateInfo, "HE") {
+	if strings.Contains(bitrateInfo, "UHR") {
+		wifiStandard = "WiFi 8 (802.11bn)"
+	} else if strings.Contains(bitrateInfo, "EHT") {
+		wifiStandard = "WiFi 7 (802.11be)"
+	} else if strings.Contains(bitrateInfo, "HE") {
 		wifiStandard = "WiFi 6 (802.11ax)"
 	} else if strings.Contains(bitrateInfo, "VHT") {
 		wifiStandard = "WiFi 5 (802.11ac)"

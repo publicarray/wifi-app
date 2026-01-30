@@ -226,6 +226,11 @@ type windowsScanner struct {
 	interfaceCache  map[string]interfaceCacheEntry
 	baselineStats   map[string]trafficStats
 	connectionStart map[string]time.Time
+	parser          *windowsParser
+}
+
+type windowsParser struct {
+	ouiLookup *OUILookup
 }
 
 type interfaceCacheEntry struct {
@@ -250,6 +255,7 @@ func NewWiFiScanner(cacheFile string) WiFiBackend {
 		interfaceCache:  make(map[string]interfaceCacheEntry),
 		baselineStats:   make(map[string]trafficStats),
 		connectionStart: make(map[string]time.Time),
+		parser:          &windowsParser{ouiLookup: ouiLookup},
 	}
 
 	if err := scanner.openHandle(); err != nil {
@@ -395,14 +401,17 @@ func (s *windowsScanner) ScanNetworks(iface string) ([]AccessPoint, error) {
 		entryPtr := unsafe.Add(unsafe.Pointer(&bssList.WlanBssEntries[0]), uintptr(i)*entrySize)
 		entry := (*WLAN_BSS_ENTRY)(entryPtr)
 
-		ap := s.bssEntryToAccessPoint(entry)
+		if s.parser == nil {
+			continue
+		}
+		ap := s.parser.bssEntryToAccessPoint(entry)
 		aps = append(aps, ap)
 	}
 
 	return aps, nil
 }
 
-func (s *windowsScanner) bssEntryToAccessPoint(entry *WLAN_BSS_ENTRY) AccessPoint {
+func (p *windowsParser) bssEntryToAccessPoint(entry *WLAN_BSS_ENTRY) AccessPoint {
 	ssid := formatSSID(entry.Dot11SSID)
 	bssid := formatMACAddress(entry.Dot11BSSID)
 
@@ -431,7 +440,7 @@ func (s *windowsScanner) bssEntryToAccessPoint(entry *WLAN_BSS_ENTRY) AccessPoin
 	ap := AccessPoint{
 		SSID:          ssid,
 		BSSID:         bssid,
-		Vendor:        s.ouiLookup.LookupVendor(bssid),
+		Vendor:        p.ouiLookup.LookupVendor(bssid),
 		Frequency:     frequency,
 		Channel:       channel,
 		ChannelWidth:  20,
@@ -446,13 +455,13 @@ func (s *windowsScanner) bssEntryToAccessPoint(entry *WLAN_BSS_ENTRY) AccessPoin
 	}
 
 	if entry.IESize > 0 && entry.IEOffset > 0 {
-		s.parseInformationElements(&ap, entry)
+		p.parseInformationElements(&ap, entry)
 	}
 
 	return ap
 }
 
-func (s *windowsScanner) parseInformationElements(ap *AccessPoint, entry *WLAN_BSS_ENTRY) {
+func (p *windowsParser) parseInformationElements(ap *AccessPoint, entry *WLAN_BSS_ENTRY) {
 	iePtr := unsafe.Add(unsafe.Pointer(entry), uintptr(entry.IEOffset))
 	ieData := unsafe.Slice((*byte)(iePtr), entry.IESize)
 
@@ -515,7 +524,7 @@ func (s *windowsScanner) parseInformationElements(ap *AccessPoint, entry *WLAN_B
 			}
 
 		case 48: // RSN
-			s.parseRSNElement(ap, data)
+			p.parseRSNElement(ap, data)
 
 		case 54: // Mobility Domain (802.11r)
 			if length >= 2 {
@@ -664,7 +673,7 @@ func (s *windowsScanner) parseInformationElements(ap *AccessPoint, entry *WLAN_B
 	ap.SNR = ap.Signal - ap.Noise
 }
 
-func (s *windowsScanner) parseRSNElement(ap *AccessPoint, data []byte) {
+func (p *windowsParser) parseRSNElement(ap *AccessPoint, data []byte) {
 	if len(data) < 8 {
 		ap.Security = "WPA2"
 		return

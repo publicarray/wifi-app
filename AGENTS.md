@@ -16,11 +16,11 @@ wifi-app/
 ├── app.go                     # App struct, Wails bindings (exports to frontend)
 ├── wifi_service.go            # Core service: polling, aggregation, events
 ├── wifi_scanner_interface.go  # WiFiBackend interface (all platforms implement)
-├── wifi_scanner_*.go          # Platform implementations (_iw, _mdlayher, _darwin, _windows)
+├── wifi_scanner_*.go          # Platform implementations (_iw, _nl80211, _darwin, _windows)
 ├── models.go                  # Data structures (AccessPoint, Network, ClientStats, etc.)
 ├── oui_lookup.go              # MAC vendor lookup
 ├── wifi_utils.go              # Shared utilities
-├── vendor-patch/              # Forked github.com/mdlayher/wifi (Linux netlink)
+├── vendor-patch/              # Forked github.com/mdlayher/wifi (Linux nl80211)
 ├── frontend/
 │   ├── src/App.svelte         # Main app, tab routing, Wails events
 │   └── src/components/        # UI components (NetworkList, SignalChart, etc.)
@@ -33,7 +33,7 @@ wifi-app/
 |------|----------|-------|
 | Add Wails binding | `app.go` | Method on App struct → auto-exposed |
 | WiFi data models | `models.go` | AccessPoint, Network, ClientStats, ChannelInfo |
-| Scan logic (Linux) | `wifi_scanner_iw.go` or `wifi_scanner_mdlayher.go` | iw = exec, mdlayher = netlink |
+| Scan logic (Linux) | `wifi_scanner_iw.go` or `wifi_scanner_mdlayher.go` | iw = exec, nl80211 = netlink |
 | Scan logic (macOS) | `wifi_scanner_darwin.go` | CoreWLAN via cgo |
 | Scan logic (Windows) | `wifi_scanner_windows.go` | Native WiFi API |
 | Real-time events | `wifi_service.go` | runtime.EventsEmit for networks:updated, client:updated |
@@ -68,7 +68,7 @@ wifi-app/
 ## CONVENTIONS
 
 ### Go
-- Platform-specific files: `*_darwin.go`, `*_windows.go`, `*_iw.go` (Linux exec), `*_mdlayher.go` (Linux netlink)
+- Platform-specific files: `*_darwin.go`, `*_windows.go`, `*_iw.go` (Linux exec), `*_mdlayher.go` (Linux nl80211)
 - All WiFi backends implement `WiFiBackend` interface
 - Wails bindings: public methods on `App` struct auto-exposed
 - Events: `runtime.EventsEmit(ctx, "event:name", data)`
@@ -88,7 +88,7 @@ wifi-app/
 ## UNIQUE STYLES
 
 - `mdlayher/wifi` is FORKED in `vendor-patch/` - local modifications, not upstream
-- Linux has TWO scanner backends: `iw` (shell exec) and `mdlayher` (netlink) - mdlayher preferred
+- Linux has TWO scanner backends: `iw` (shell exec) and `nl80211` (netlink) - nl80211 preferred
 - WiFi standard detection via capability parsing, not explicit API
 
 ## COMMANDS

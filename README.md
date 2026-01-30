@@ -73,7 +73,7 @@ GOOS=windows GOARCH=amd64 wails build
 - WiFi scanning typically requires elevated privileges.
 - Linux has two backends:
   - `iw` (shell exec)
-  - `mdlayher` (netlink, preferred)
+  - `nl80211` (netlink, preferred)
 - macOS uses CoreWLAN via cgo.
 - Windows uses the native WiFi API.
 

@@ -19,7 +19,7 @@
     import ClientStatsPanel from "./components/ClientStatsPanel.svelte";
     import RoamingAnalysis from "./components/RoamingAnalysis.svelte";
     import Toolbar from "./components/Toolbar.svelte";
-    import ExportControls from "./components/ExportControls.svelte";
+    import ReportWindow from "./components/ReportWindow.svelte";
 
     let interfaces = [];
     let selectedInterface = "";
@@ -31,6 +31,7 @@
     let activeTab = "networks";
     let roamingMetrics = null;
     let placementRecommendations = [];
+    let reportOpen = false;
 
     onMount(async () => {
         try {
@@ -153,9 +154,11 @@
         {scanning}
         {errorMessage}
         {clientStats}
+        {reportOpen}
         on:selectInterface={(e) => selectInterface(e.detail)}
         on:startScanning={startScanning}
         on:stopScanning={stopScanning}
+        on:openReport={() => (reportOpen = true)}
     />
 
     <div class="main-tabs">
@@ -189,7 +192,6 @@
         {:else if activeTab === "stats"}
             <div class="content-panel stats-panel">
                 <ClientStatsPanel {clientStats} />
-                <ExportControls {networks} {clientStats} />
             </div>
         {:else if activeTab === "roaming"}
             <div class="content-panel channel-panel">
@@ -198,6 +200,14 @@
         {/if}
     </div>
 </div>
+
+{#if reportOpen}
+    <ReportWindow
+        {networks}
+        {clientStats}
+        on:close={() => (reportOpen = false)}
+    />
+{/if}
 
 <style>
     :global(:root) {

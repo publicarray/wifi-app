@@ -4,6 +4,7 @@
     export let scanning = false;
     export let errorMessage = "";
     export let clientStats = null;
+    export let reportOpen = false;
 
     function handleInterfaceChange(event) {
         const newInterface = event.target.value;
@@ -53,6 +54,13 @@
                 {clientStats.signal} dBm
             </div>
         {/if}
+        <button
+            class="btn btn-secondary"
+            on:click={() => dispatch("openReport")}
+            aria-pressed={reportOpen}
+        >
+            Reports
+        </button>
         <div class="scan-controls">
             {#if !scanning}
                 <button class="btn btn-primary" on:click={handleStartScanning}>
@@ -172,6 +180,17 @@
 
     .btn-primary:hover {
         background: var(--accent);
+    }
+
+    .btn-secondary {
+        background: var(--panel-strong);
+        color: var(--text);
+        border: 1px solid var(--border);
+    }
+
+    .btn-secondary:hover {
+        border-color: var(--border-strong);
+        color: var(--accent);
     }
 
     .btn-danger {

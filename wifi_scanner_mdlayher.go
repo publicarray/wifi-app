@@ -11,10 +11,11 @@ import (
 	"github.com/mdlayher/wifi"
 )
 
-type WiFiScannerMDLayher struct {
+type WiFiScannerNL80211 struct {
 	client    *wifi.Client
 	ouiLookup *OUILookup
 	lastScan  time.Time
+	parser    *mdlayherParser
 }
 
 const activeScanTimeout = 20 * time.Second
@@ -28,13 +29,14 @@ func NewWiFiScanner(cacheFile string) WiFiBackend {
 		panic(fmt.Sprintf("failed to create wifi client: %v", err))
 	}
 
-	return &WiFiScannerMDLayher{
+	return &WiFiScannerNL80211{
 		client:    client,
 		ouiLookup: ouiLookup,
+		parser:    &mdlayherParser{ouiLookup: ouiLookup},
 	}
 }
 
-func (s *WiFiScannerMDLayher) GetInterfaces() ([]string, error) {
+func (s *WiFiScannerNL80211) GetInterfaces() ([]string, error) {
 	interfaces, err := s.client.Interfaces()
 	if err != nil {
 		return nil, fmt.Errorf("failed to get interfaces: %w", err)
@@ -52,7 +54,7 @@ func (s *WiFiScannerMDLayher) GetInterfaces() ([]string, error) {
 	return ifaces, nil
 }
 
-func (s *WiFiScannerMDLayher) ScanNetworks(iface string) ([]AccessPoint, error) {
+func (s *WiFiScannerNL80211) ScanNetworks(iface string) ([]AccessPoint, error) {
 	interfaces, err := s.client.Interfaces()
 	if err != nil {
 		return nil, fmt.Errorf("failed to get interfaces: %w", err)
@@ -87,7 +89,10 @@ func (s *WiFiScannerMDLayher) ScanNetworks(iface string) ([]AccessPoint, error) 
 	}
 	var accessPoints []AccessPoint
 	for _, bss := range bssList {
-		ap := s.convertBSSToAccessPoint(bss)
+		if s.parser == nil {
+			continue
+		}
+		ap := s.parser.convertBSSToAccessPoint(bss)
 		if len(ap) > 0 {
 			accessPoints = append(accessPoints, ap[0])
 		}
@@ -141,11 +146,15 @@ func isTransientScanError(err error) bool {
 		strings.Contains(msg, "timeout")
 }
 
-func (s *WiFiScannerMDLayher) convertBSSToAccessPoint(bss *wifi.BSS) []AccessPoint {
+type mdlayherParser struct {
+	ouiLookup *OUILookup
+}
+
+func (p *mdlayherParser) convertBSSToAccessPoint(bss *wifi.BSS) []AccessPoint {
 	ap := AccessPoint{
 		SSID:         bss.SSID,
 		BSSID:        bss.BSSID.String(),
-		Vendor:       s.ouiLookup.LookupVendor(bss.BSSID.String()),
+		Vendor:       p.ouiLookup.LookupVendor(bss.BSSID.String()),
 		LastSeen:     time.Now().Add(-bss.LastSeen),
 		Capabilities: []string{},
 	}
@@ -177,19 +186,19 @@ func (s *WiFiScannerMDLayher) convertBSSToAccessPoint(bss *wifi.BSS) []AccessPoi
 	}
 
 	if bss.RSN.IsInitialized() {
-		s.parseSecurityFromRSN(bss.RSN, &ap)
+		p.parseSecurityFromRSN(bss.RSN, &ap)
 	} else {
 		if ap.Security == "" {
 			ap.Security = "Open"
 		}
 	}
 
-	s.parseCapabilitiesIEs(bss.InformationElements, &ap)
+	p.parseCapabilitiesIEs(bss.InformationElements, &ap)
 
 	return []AccessPoint{ap}
 }
 
-func (s *WiFiScannerMDLayher) parseSecurityFromRSN(rsn wifi.RSNInfo, ap *AccessPoint) {
+func (p *mdlayherParser) parseSecurityFromRSN(rsn wifi.RSNInfo, ap *AccessPoint) {
 	for _, cipher := range rsn.PairwiseCiphers {
 		ap.SecurityCiphers = append(ap.SecurityCiphers, cipher.String())
 	}
@@ -248,7 +257,7 @@ func (s *WiFiScannerMDLayher) parseSecurityFromRSN(rsn wifi.RSNInfo, ap *AccessP
 	}
 }
 
-func (s *WiFiScannerMDLayher) GetLinkInfo(iface string) (map[string]string, error) {
+func (s *WiFiScannerNL80211) GetLinkInfo(iface string) (map[string]string, error) {
 	info := make(map[string]string)
 
 	interfaces, err := s.client.Interfaces()
@@ -320,11 +329,11 @@ func (s *WiFiScannerMDLayher) GetLinkInfo(iface string) (map[string]string, erro
 	return info, nil
 }
 
-func (s *WiFiScannerMDLayher) GetStationStats(iface string) (map[string]string, error) {
+func (s *WiFiScannerNL80211) GetStationStats(iface string) (map[string]string, error) {
 	return s.GetLinkInfo(iface)
 }
 
-func (s *WiFiScannerMDLayher) Close() error {
+func (s *WiFiScannerNL80211) Close() error {
 	return s.client.Close()
 }
 
@@ -350,7 +359,7 @@ func parseIEs(b []byte) []wifi.IE {
 	return ies
 }
 
-func (s *WiFiScannerMDLayher) parseCapabilitiesIEs(ies []wifi.IE, ap *AccessPoint) {
+func (p *mdlayherParser) parseCapabilitiesIEs(ies []wifi.IE, ap *AccessPoint) {
 	for _, ie := range ies {
 		switch ie.ID {
 		case 45:

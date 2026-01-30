@@ -137,6 +137,9 @@ func (ws *WiFiService) performScan(iface string) {
 		runtime.EventsEmit(ws.ctx, "scan:error", err.Error())
 		return
 	}
+	for i := range aps {
+		NormalizeAccessPoint(&aps[i])
+	}
 
 	// Aggregate data
 	result := ws.aggregateData(aps, iface)
@@ -379,6 +382,7 @@ func (ws *WiFiService) updateClientStats(iface string) {
 	}
 
 	ws.updateSignalHistory()
+	NormalizeClientStats(&ws.clientStats)
 }
 
 // updateSignalHistory updates the signal history and detects roaming events
