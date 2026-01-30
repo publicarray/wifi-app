@@ -27,16 +27,15 @@ type AccessPoint struct {
 	DTIM          int    `json:"dtim"`          // DTIM (Delivery Traffic Indication Message) interval
 	PMF           string `json:"pmf"`           // Protected Management Frames (Required, Optional, Disabled)
 	// Additional advanced metrics
-	WPS                 bool    `json:"wps"`                 // WPS (WiFi Protected Setup) status
-	BSSLoadStations     int     `json:"bssLoadStations"`     // Number of connected stations
-	BSSLoadUtilization  int     `json:"bssLoadUtilization"`  // Channel utilization percentage (0-255)
-	MaxTheoreticalSpeed int     `json:"maxTheoreticalSpeed"` // Max theoretical throughput in Mbps
-	TWTSupport          bool    `json:"twtSupport"`          // Target Wake Time support (WiFi 6)
-	NeighborReport      bool    `json:"neighborReport"`      // 802.11k Neighbor Report support
-	MIMOStreams         int     `json:"mimoStreams"`         // Number of MIMO spatial streams (1-4)
-	RealWorldSpeed      int     `json:"realWorldSpeed"`      // Expected real-world throughput in Mbps (~60-70% of theoretical)
-	EstimatedRange      float64 `json:"estimatedRange"`      // Estimated range in meters based on TX power and signal
-	SNR                 int     `json:"snr"`                 // Signal-to-noise ratio
+	WPS                bool    `json:"wps"`                // WPS (WiFi Protected Setup) status
+	BSSLoadStations    int     `json:"bssLoadStations"`    // Number of connected stations
+	BSSLoadUtilization int     `json:"bssLoadUtilization"` // Channel utilization percentage (0-255)
+	MaxPhyRate         int     `json:"maxPhyRate"`         // Max PHY rate in Mbps
+	TWTSupport         bool    `json:"twtSupport"`         // Target Wake Time support (WiFi 6)
+	NeighborReport     bool    `json:"neighborReport"`     // 802.11k Neighbor Report support
+	MIMOStreams        int     `json:"mimoStreams"`        // Number of MIMO spatial streams (1-4)
+	EstimatedRange     float64 `json:"estimatedRange"`     // Estimated range in meters based on TX power and signal
+	SNR                int     `json:"snr"`                // Signal-to-noise ratio
 	// Security details
 	SecurityCiphers []string `json:"securityCiphers"` // Encryption ciphers (CCMP, GCMP, TKIP, etc.)
 	AuthMethods     []string `json:"authMethods"`     // Authentication methods (PSK, SAE, EAP, etc.)

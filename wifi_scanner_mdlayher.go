@@ -469,6 +469,16 @@ func parseVHTCapabilities(data []byte, ap *AccessPoint) {
 	if maxStream > ap.MIMOStreams {
 		ap.MIMOStreams = maxStream
 	}
+
+	// Bytes 6-7: RX highest, Bytes 10-11: TX highest
+	rxHighest := int(uint16(data[6]) | uint16(data[7])<<8)
+	txHighest := int(uint16(data[10]) | uint16(data[11])<<8)
+	if rxHighest > ap.MaxPhyRate {
+		ap.MaxPhyRate = rxHighest
+	}
+	if txHighest > ap.MaxPhyRate {
+		ap.MaxPhyRate = txHighest
+	}
 }
 
 func parseHECapabilities(data []byte, ap *AccessPoint) {
@@ -543,6 +553,9 @@ func parseHECapabilitiesElement(data []byte, ap *AccessPoint) {
 		if maxStream > ap.MIMOStreams {
 			ap.MIMOStreams = maxStream
 		}
+		if rate := maxPhyRateFromHEMCS(ap.ChannelWidth, maxHEMCSFromMap(rxMcsMap), maxStream); rate > ap.MaxPhyRate {
+			ap.MaxPhyRate = rate
+		}
 	}
 }
 
@@ -568,11 +581,34 @@ func parseEHTCapabilitiesElement(data []byte, ap *AccessPoint) {
 	if len(data) >= 2 && (data[1]&0x02) != 0 && ap.ChannelWidth < 320 {
 		ap.ChannelWidth = 320
 	}
+
+	if maxMcs := parseEHTMaxMCS(data); maxMcs > 0 {
+		streams := ap.MIMOStreams
+		if streams <= 0 {
+			streams = 1
+		}
+		if rate := maxPhyRateFromHEMCS(ap.ChannelWidth, maxMcs, streams); rate > ap.MaxPhyRate {
+			ap.MaxPhyRate = rate
+		}
+	}
 }
 
 func parseEHTOperation(data []byte, ap *AccessPoint) {
 	_ = data
 	_ = ap
+}
+
+func parseEHTMaxMCS(data []byte) int {
+	// Attempt to locate an EHT MCS map by scanning for a 2-byte map where
+	// at least one stream is supported (value != 0x3).
+	// This is a best-effort parse since EHT MCS map layout depends on band/width.
+	for i := 2; i+1 < len(data); i++ {
+		mcsMap := uint16(data[i]) | uint16(data[i+1])<<8
+		if max := maxHEMCSFromMap(mcsMap); max > 0 {
+			return max
+		}
+	}
+	return 0
 }
 
 func parseTPCReport(data []byte, ap *AccessPoint) {

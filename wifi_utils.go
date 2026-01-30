@@ -1,6 +1,9 @@
 package main
 
-import "strings"
+import (
+	"math"
+	"strings"
+)
 
 // WiFi frequency ranges and channel constants
 const (
@@ -132,8 +135,40 @@ func NormalizeAccessPoint(ap *AccessPoint) {
 	if ap.PMF == "" {
 		ap.PMF = "Disabled"
 	}
+	if ap.CountryCode != "" {
+		ap.CountryCode = strings.ToUpper(strings.TrimSpace(ap.CountryCode))
+	}
+	if len(ap.SecurityCiphers) > 0 {
+		normalized := make([]string, 0, len(ap.SecurityCiphers))
+		for _, cipher := range ap.SecurityCiphers {
+			c := normalizeToken(cipher)
+			switch strings.ToUpper(c) {
+			case "CCMP-128", "CCMP":
+				c = "CCMP"
+			case "GCMP-128", "GCMP":
+				c = "GCMP"
+			}
+			if c != "" {
+				normalized = appendUnique(normalized, c)
+			}
+		}
+		ap.SecurityCiphers = normalized
+	}
+	if len(ap.AuthMethods) > 0 {
+		normalized := make([]string, 0, len(ap.AuthMethods))
+		for _, method := range ap.AuthMethods {
+			m := normalizeToken(method)
+			if m != "" {
+				normalized = appendUnique(normalized, m)
+			}
+		}
+		ap.AuthMethods = normalized
+	}
 	if ap.MIMOStreams == 0 {
 		ap.MIMOStreams = 1
+	}
+	if ap.MaxPhyRate == 0 {
+		ap.MaxPhyRate = estimateMaxPhyRate(ap)
 	}
 	if ap.BSSLoadStations == 0 && ap.BSSLoadUtilization == 0 {
 		ap.BSSLoadStations = -1
@@ -143,6 +178,169 @@ func NormalizeAccessPoint(ap *AccessPoint) {
 		ap.SNR = ap.Signal - ap.Noise
 	}
 	ap.DFS = isDFSChannel(ap.Channel)
+}
+
+func normalizeToken(value string) string {
+	replacer := strings.NewReplacer(
+		"\u2010", "-",
+		"\u2011", "-",
+		"\u2012", "-",
+		"\u2013", "-",
+		"\u2212", "-",
+	)
+	return strings.TrimSpace(replacer.Replace(value))
+}
+
+func maxPhyRateFromHEMCS(width int, maxMcs int, streams int) int {
+	if maxMcs <= 0 || streams <= 0 {
+		return 0
+	}
+	if width <= 0 {
+		width = 20
+	}
+	base := heMcsRate20(maxMcs)
+	if base == 0 {
+		return 0
+	}
+	rate := base * (float64(width) / 20.0) * float64(streams)
+	return int(math.Round(rate))
+}
+
+func heMcsRate20(maxMcs int) float64 {
+	switch maxMcs {
+	case 0:
+		return 8.6
+	case 1:
+		return 17.2
+	case 2:
+		return 25.8
+	case 3:
+		return 34.4
+	case 4:
+		return 51.6
+	case 5:
+		return 68.8
+	case 6:
+		return 77.4
+	case 7:
+		return 86.0
+	case 8:
+		return 103.2
+	case 9:
+		return 120.1
+	case 10:
+		return 129.0
+	case 11:
+		return 143.4
+	case 12:
+		return 154.4
+	case 13:
+		return 172.1
+	default:
+		return 0
+	}
+}
+
+func maxHEMCSFromMap(mcsMap uint16) int {
+	maxMcs := 0
+	for ss := 0; ss < 8; ss++ {
+		mcsVal := (mcsMap >> (ss * 2)) & 0x03
+		if mcsVal == 3 {
+			continue
+		}
+		mcs := 7
+		switch mcsVal {
+		case 1:
+			mcs = 9
+		case 2:
+			mcs = 11
+		}
+		if mcs > maxMcs {
+			maxMcs = mcs
+		}
+	}
+	return maxMcs
+}
+
+func estimateMaxPhyRate(ap *AccessPoint) int {
+	if ap == nil {
+		return 0
+	}
+
+	streams := ap.MIMOStreams
+	if streams <= 0 {
+		streams = 1
+	}
+
+	width := ap.ChannelWidth
+	if width == 0 {
+		width = 20
+	}
+
+	hasCap := func(key string) bool {
+		for _, c := range ap.Capabilities {
+			if strings.EqualFold(c, key) {
+				return true
+			}
+		}
+		return false
+	}
+
+	var perStream int
+	switch {
+	case hasCap("WiFi7") || hasCap("EHT"):
+		perStream = basePhyRateHE(width)
+	case hasCap("HE") || hasCap("WiFi6"):
+		perStream = basePhyRateHE(width)
+	case hasCap("VHT") || hasCap("WiFi5"):
+		perStream = basePhyRateVHT(width)
+	case hasCap("HT") || hasCap("WiFi4"):
+		perStream = basePhyRateHT(width)
+	default:
+		perStream = 0
+	}
+
+	if perStream == 0 {
+		return 0
+	}
+	return perStream * streams
+}
+
+func basePhyRateHT(width int) int {
+	switch width {
+	case 40:
+		return 150
+	default:
+		return 72
+	}
+}
+
+func basePhyRateVHT(width int) int {
+	switch width {
+	case 160:
+		return 867
+	case 80:
+		return 433
+	case 40:
+		return 200
+	default:
+		return 87
+	}
+}
+
+func basePhyRateHE(width int) int {
+	switch width {
+	case 320:
+		return 2402
+	case 160:
+		return 1201
+	case 80:
+		return 600
+	case 40:
+		return 287
+	default:
+		return 143
+	}
 }
 
 // NormalizeClientStats applies consistent defaults across platforms.

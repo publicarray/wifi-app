@@ -526,6 +526,21 @@ func (p *windowsParser) parseInformationElements(ap *AccessPoint, entry *WLAN_BS
 		case 48: // RSN
 			p.parseRSNElement(ap, data)
 
+		case 61: // HT Operation
+			if length >= 2 {
+				if ap.Channel == 0 {
+					ap.Channel = int(data[0])
+				}
+				htOpInfo := data[1]
+				secondaryOffset := htOpInfo & 0x03
+				staWidth := (htOpInfo & 0x04) != 0
+				if staWidth && secondaryOffset != 0 {
+					ap.ChannelWidth = 40
+				} else if ap.ChannelWidth == 0 {
+					ap.ChannelWidth = 20
+				}
+			}
+
 		case 54: // Mobility Domain (802.11r)
 			if length >= 2 {
 				ap.FastRoaming = true
@@ -549,19 +564,11 @@ func (p *windowsParser) parseInformationElements(ap *AccessPoint, entry *WLAN_BS
 			hasVHT = true
 			if length >= 4 {
 				vhtCaps := uint32(data[0]) | uint32(data[1])<<8 | uint32(data[2])<<16 | uint32(data[3])<<24
-				switch (vhtCaps >> 2) & 0x03 {
-				case 1, 2:
-					ap.ChannelWidth = 160
-				default:
-					if ap.ChannelWidth < 80 {
-						ap.ChannelWidth = 80
-					}
-				}
 				if vhtCaps&(1<<19) != 0 {
 					ap.MUMIMO = true
 				}
 			}
-			// VHT MCS Map at bytes 4-5 (RX) and 6-7 (TX) - we use RX
+			// VHT MCS Map starts at byte 4 (RX map), then RX highest, TX map, TX highest.
 			if length >= 8 {
 				vhtMCSMap = uint16(data[4]) | uint16(data[5])<<8
 				streams := countVHTStreams(vhtMCSMap)
@@ -572,6 +579,31 @@ func (p *windowsParser) parseInformationElements(ap *AccessPoint, entry *WLAN_BS
 				qam := getVHTQAM(vhtMCSMap)
 				if qam > ap.QAMSupport {
 					ap.QAMSupport = qam
+				}
+			}
+			if length >= 12 {
+				rxHighest := int(uint16(data[6]) | uint16(data[7])<<8)
+				txHighest := int(uint16(data[10]) | uint16(data[11])<<8)
+				if rxHighest > ap.MaxPhyRate {
+					ap.MaxPhyRate = rxHighest
+				}
+				if txHighest > ap.MaxPhyRate {
+					ap.MaxPhyRate = txHighest
+				}
+			}
+		case 192: // VHT Operation
+			if length >= 3 {
+				switch data[0] {
+				case 0: // 20/40 MHz (keep HT operation if present)
+					if ap.ChannelWidth == 0 {
+						ap.ChannelWidth = 20
+					}
+				case 1: // 80 MHz
+					ap.ChannelWidth = 80
+				case 2: // 160 MHz
+					ap.ChannelWidth = 160
+				case 3: // 80+80 MHz
+					ap.ChannelWidth = 160
 				}
 			}
 
@@ -607,16 +639,17 @@ func (p *windowsParser) parseInformationElements(ap *AccessPoint, entry *WLAN_BS
 					if len(extData) >= 6 {
 						ap.TWTSupport = (extData[0] & 0x04) != 0
 						ap.UAPSD = (extData[0] & 0x08) != 0
-						ap.BSSColor = int(extData[4] & 0x3F)
-						ap.OBSSPD = (extData[4] & 0x40) != 0
 					}
-					// HE MCS Map starts at byte 6 (after MAC caps and PHY caps)
-					// Structure varies but typically at fixed offset
-					if len(extData) >= 11 {
-						heMCSMap = uint16(extData[9]) | uint16(extData[10])<<8
+					// HE MCS/NSS map starts after MAC (6) + PHY (11) = 17 bytes.
+					// The first 2 bytes are RX MCS for <= 80 MHz.
+					if len(extData) >= 19 {
+						heMCSMap = uint16(extData[17]) | uint16(extData[18])<<8
 						streams := countHEStreams(heMCSMap)
 						if streams > ap.MIMOStreams {
 							ap.MIMOStreams = streams
+						}
+						if rate := maxPhyRateFromHEMCS(ap.ChannelWidth, maxHEMCSFromMap(heMCSMap), streams); rate > ap.MaxPhyRate {
+							ap.MaxPhyRate = rate
 						}
 						// HE supports 1024-QAM
 						if ap.QAMSupport < 1024 {
@@ -625,10 +658,10 @@ func (p *windowsParser) parseInformationElements(ap *AccessPoint, entry *WLAN_BS
 					}
 
 				case 36: // HE Operation
-					if len(extData) >= 5 {
+					if len(extData) >= 4 {
 						heOp := extData[0]
 						if heOp&0x04 != 0 {
-							ap.BSSColor = int(extData[4] & 0x3F)
+							ap.BSSColor = int(extData[3] & 0x3F)
 						}
 					}
 
@@ -643,6 +676,15 @@ func (p *windowsParser) parseInformationElements(ap *AccessPoint, entry *WLAN_BS
 					// EHT supports 4096-QAM
 					if ap.QAMSupport < 4096 {
 						ap.QAMSupport = 4096
+					}
+					if maxMcs := parseEHTMaxMCS(extData); maxMcs > 0 {
+						streams := ap.MIMOStreams
+						if streams <= 0 {
+							streams = 1
+						}
+						if rate := maxPhyRateFromHEMCS(ap.ChannelWidth, maxMcs, streams); rate > ap.MaxPhyRate {
+							ap.MaxPhyRate = rate
+						}
 					}
 				}
 			}
@@ -1261,6 +1303,17 @@ func getVHTQAM(mcsMap uint16) int {
 		}
 	}
 	return 64
+}
+
+func parseEHTMaxMCS(data []byte) int {
+	// Best-effort parse: scan for a 2-byte MCS map where at least one stream is supported.
+	for i := 2; i+1 < len(data); i++ {
+		mcsMap := uint16(data[i]) | uint16(data[i+1])<<8
+		if max := maxHEMCSFromMap(mcsMap); max > 0 {
+			return max
+		}
+	}
+	return 0
 }
 
 func calculateRetryRate(retries, totalPackets uint64) float64 {

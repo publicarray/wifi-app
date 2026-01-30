@@ -19,6 +19,59 @@
     let filterSecurity = "";
     let showHidden = false;
 
+    function collectAPs(source) {
+        return (source || []).flatMap((network) => network.accessPoints || []);
+    }
+
+    function hasAnyAPValue(aps, predicate) {
+        return aps.some((ap) => ap && predicate(ap));
+    }
+
+    function isNonEmptyString(value) {
+        return typeof value === "string" && value.trim().length > 0;
+    }
+
+    function isNonEmptyArray(value) {
+        return Array.isArray(value) && value.length > 0;
+    }
+
+    function isNumberDefined(value) {
+        return typeof value === "number" && !Number.isNaN(value);
+    }
+
+    $: apList = collectAPs(networks);
+
+    $: capabilityMap = {
+        securityCiphers: hasAnyAPValue(apList, (ap) =>
+            isNonEmptyArray(ap.securityCiphers),
+        ),
+        authMethods: hasAnyAPValue(apList, (ap) =>
+            isNonEmptyArray(ap.authMethods),
+        ),
+        pmf: hasAnyAPValue(apList, (ap) => isNonEmptyString(ap.pmf)),
+        uapsd: hasAnyAPValue(apList, (ap) => ap.uapsd !== undefined),
+        qosSupport: hasAnyAPValue(apList, (ap) => ap.qosSupport !== undefined),
+        qamSupport: hasAnyAPValue(apList, (ap) =>
+            isNumberDefined(ap.qamSupport),
+        ),
+        bssColor: hasAnyAPValue(
+            apList,
+            (ap) => ap.bssColor !== undefined && ap.bssColor !== null,
+        ),
+        obssPD: hasAnyAPValue(apList, (ap) => ap.obssPD !== undefined),
+        countryCode: hasAnyAPValue(apList, (ap) =>
+            isNonEmptyString(ap.countryCode),
+        ),
+        mimoStreams: hasAnyAPValue(
+            apList,
+            (ap) => isNumberDefined(ap.mimoStreams) && ap.mimoStreams > 0,
+        ),
+        maxPhyRate: hasAnyAPValue(
+            apList,
+            (ap) => isNumberDefined(ap.maxPhyRate) && ap.maxPhyRate > 0,
+        ),
+    };
+
     $: filteredNetworks = filterNetworks(
         networks,
         filterText,
@@ -532,18 +585,6 @@ Closer to 0 = stronger signal
                                                     </span>
                                                 </div>
                                                 <div class="ap-metric">
-                                                    <span
-                                                        class="metric-label"
-                                                        title="Transmit power in dBm
-Higher = better range but more interference">TX Power:</span
-                                                    >
-                                                    <span class="metric-value">
-                                                        <span
-                                                            >{ap.txPower} dBm</span
-                                                        >
-                                                    </span>
-                                                </div>
-                                                <div class="ap-metric">
                                                     <span class="metric-label"
                                                         >Vendor:</span
                                                     >
@@ -737,13 +778,21 @@ NOT RECOMMENDED FOR:
                                                             UAPSD (U-APSD)
                                                         </span>
                                                         <span
-                                                            class="value-pill {getCapabilityStatusClass(
-                                                                ap.uapsd,
-                                                            )}"
+                                                            class="value-pill {capabilityMap.uapsd &&
+                                                            ap.uapsd !==
+                                                                undefined
+                                                                ? getCapabilityStatusClass(
+                                                                      ap.uapsd,
+                                                                  )
+                                                                : 'value-unknown'}"
                                                         >
-                                                            {ap.uapsd
-                                                                ? "Supported"
-                                                                : "Not supported"}
+                                                            {capabilityMap.uapsd &&
+                                                            ap.uapsd !==
+                                                                undefined
+                                                                ? ap.uapsd
+                                                                    ? "Supported"
+                                                                    : "Not supported"
+                                                                : "N/A"}
                                                         </span>
                                                     </div>
                                                 </div>
@@ -777,27 +826,6 @@ Signal quality metric more important than absolute signal.
                                                                 )}"
                                                             >
                                                                 {ap.snr} dB
-                                                            </span>
-                                                        </div>
-                                                    {/if}
-                                                    {#if ap.realWorldSpeed}
-                                                        <div
-                                                            class="capability-item"
-                                                        >
-                                                            <span
-                                                                class="capability-label"
-                                                                title="Real-world Speed - ~60-70% of theoretical max accounting for overhead"
-                                                            >
-                                                                Real-world Speed
-                                                            </span>
-                                                            <span
-                                                                class="value-pill {ap.realWorldSpeed >
-                                                                100
-                                                                    ? 'value-good'
-                                                                    : 'value-neutral'}"
-                                                            >
-                                                                {ap.realWorldSpeed}
-                                                                Mbps
                                                             </span>
                                                         </div>
                                                     {/if}
@@ -925,21 +953,29 @@ MSP ADVICE:
                                                         </span>
 
                                                         <span
-                                                            class="value-pill {getPMFStatusClass(
+                                                            class="value-pill {capabilityMap.pmf &&
+                                                            isNonEmptyString(
                                                                 ap.pmf,
-                                                            )}"
+                                                            )
+                                                                ? getPMFStatusClass(
+                                                                      ap.pmf,
+                                                                  )
+                                                                : 'value-unknown'}"
                                                         >
-                                                            {ap.pmf ||
-                                                                "Disabled"}
+                                                            {capabilityMap.pmf &&
+                                                            isNonEmptyString(
+                                                                ap.pmf,
+                                                            )
+                                                                ? ap.pmf
+                                                                : "N/A"}
                                                         </span>
                                                     </div>
-                                                    {#if ap.securityCiphers && ap.securityCiphers.length > 0}
-                                                        <div
-                                                            class="capability-item"
-                                                        >
-                                                            <span
-                                                                class="capability-label"
-                                                                title="Encryption Ciphers used to protect wireless data in transit.
+                                                    <div
+                                                        class="capability-item"
+                                                    >
+                                                        <span
+                                                            class="capability-label"
+                                                            title="Encryption Ciphers used to protect wireless data in transit.
 • CCMP (AES): Secure and recommended
 • GCMP: Stronger, used with WiFi 6/6E/7
 • TKIP: Deprecated and insecure
@@ -959,28 +995,35 @@ UNIFI CONSIDERATIONS:
 MSP ADVICE:
 • Enforce CCMP/GCMP only
 • Remove TKIP unless supporting unavoidable legacy hardware and use a new SSID"
-                                                            >
-                                                                Encryption
-                                                                Ciphers
-                                                            </span>
-                                                            <span
-                                                                class="value-pill {getCipherStatusClass(
-                                                                    ap.securityCiphers,
-                                                                )}"
-                                                            >
-                                                                {ap.securityCiphers.join(
-                                                                    ", ",
-                                                                )}
-                                                            </span>
-                                                        </div>
-                                                    {/if}
-                                                    {#if ap.authMethods && ap.authMethods.length > 0}
-                                                        <div
-                                                            class="capability-item"
                                                         >
-                                                            <span
-                                                                class="capability-label"
-                                                                title="Authentication methods used to control network access.
+                                                            Encryption Ciphers
+                                                        </span>
+                                                        <span
+                                                            class="value-pill {capabilityMap.securityCiphers &&
+                                                            isNonEmptyArray(
+                                                                ap.securityCiphers,
+                                                            )
+                                                                ? getCipherStatusClass(
+                                                                      ap.securityCiphers,
+                                                                  )
+                                                                : 'value-unknown'}"
+                                                        >
+                                                            {capabilityMap.securityCiphers &&
+                                                            isNonEmptyArray(
+                                                                ap.securityCiphers,
+                                                            )
+                                                                ? ap.securityCiphers.join(
+                                                                      ", ",
+                                                                  )
+                                                                : "N/A"}
+                                                        </span>
+                                                    </div>
+                                                    <div
+                                                        class="capability-item"
+                                                    >
+                                                        <span
+                                                            class="capability-label"
+                                                            title="Authentication methods used to control network access.
 • SAE: WPA3-Personal (most secure)
 • PSK: WPA2-Personal (shared password)
 • 802.1X: Enterprise authentication using RADIUS
@@ -1001,20 +1044,29 @@ MSP ADVICE:
 • Use WPA3-SAE for modern user devices
 • Use WPA2-PSK only for legacy or guest access
 • Use 802.1X for enterprise, healthcare, or compliance environments"
-                                                            >
-                                                                Auth Methods
-                                                            </span>
-                                                            <span
-                                                                class="value-pill {getAuthStatusClass(
-                                                                    ap.authMethods,
-                                                                )}"
-                                                            >
-                                                                {ap.authMethods.join(
-                                                                    ", ",
-                                                                )}
-                                                            </span>
-                                                        </div>
-                                                    {/if}
+                                                        >
+                                                            Auth Methods
+                                                        </span>
+                                                        <span
+                                                            class="value-pill {capabilityMap.authMethods &&
+                                                            isNonEmptyArray(
+                                                                ap.authMethods,
+                                                            )
+                                                                ? getAuthStatusClass(
+                                                                      ap.authMethods,
+                                                                  )
+                                                                : 'value-unknown'}"
+                                                        >
+                                                            {capabilityMap.authMethods &&
+                                                            isNonEmptyArray(
+                                                                ap.authMethods,
+                                                            )
+                                                                ? ap.authMethods.join(
+                                                                      ", ",
+                                                                  )
+                                                                : "N/A"}
+                                                        </span>
+                                                    </div>
                                                     {#if ap.wps !== undefined}
                                                         <div
                                                             class="capability-item"
@@ -1050,13 +1102,12 @@ MSP ADVICE:
                                                     WiFi 6/7 Features
                                                 </div>
                                                 <div class="capability-grid">
-                                                    {#if ap.bssColor !== undefined && ap.bssColor !== null}
-                                                        <div
-                                                            class="capability-item"
-                                                        >
-                                                            <span
-                                                                class="capability-label"
-                                                                title="BBSS Color (0–63) is a WiFi 6+ spatial reuse identifier.
+                                                    <div
+                                                        class="capability-item"
+                                                    >
+                                                        <span
+                                                            class="capability-label"
+                                                            title="BBSS Color (0–63) is a WiFi 6+ spatial reuse identifier.
 • Helps devices distinguish overlapping access points with the same SSID on same channel
 • Enables simultaneous transmissions in dense environments
 • Reduces contention and improves airtime efficiency
@@ -1075,23 +1126,31 @@ MSP ADVICE:
 • Leave enabled in high-density environments
 • No downside for legacy clients
 • Combine with proper channel planning for best results"
-                                                            >
-                                                                BSS Color
-                                                            </span>
-                                                            <span
-                                                                class="value-pill value-neutral"
-                                                            >
-                                                                {ap.bssColor}
-                                                            </span>
-                                                        </div>
-                                                    {/if}
-                                                    {#if ap.obssPD}
-                                                        <div
-                                                            class="capability-item"
                                                         >
-                                                            <span
-                                                                class="capability-label"
-                                                                title="OBSS PD (Overlapping BSS Packet Detect) - WiFi 6 spatial reuse for dense environments.
+                                                            BSS Color
+                                                        </span>
+                                                        <span
+                                                            class="value-pill {capabilityMap.bssColor &&
+                                                            ap.bssColor !==
+                                                                undefined &&
+                                                            ap.bssColor !== null
+                                                                ? 'value-neutral'
+                                                                : 'value-unknown'}"
+                                                        >
+                                                            {capabilityMap.bssColor &&
+                                                            ap.bssColor !==
+                                                                undefined &&
+                                                            ap.bssColor !== null
+                                                                ? ap.bssColor
+                                                                : "N/A"}
+                                                        </span>
+                                                    </div>
+                                                    <div
+                                                        class="capability-item"
+                                                    >
+                                                        <span
+                                                            class="capability-label"
+                                                            title="OBSS PD (Overlapping BSS Packet Detect) - WiFi 6 spatial reuse for dense environments.
 • Allows APs to transmit on channels used by neighboring networks
 • Improves spectrum efficiency in crowded WiFi environments
 • Requires signal strength assessment before transmitting
@@ -1117,28 +1176,34 @@ UNIFI 7 CONSIDERATIONS:
 • Can cause issues with non-UniFi neighboring networks
 • Enable only in truly dense multi-AP environments
 • Monitor for client connectivity issues after enabling"
-                                                            >
-                                                                OBSS PD (Spatial
-                                                                Reuse)
-                                                            </span>
-                                                            <span
-                                                                class="value-pill {getCapabilityStatusClass(
-                                                                    ap.obssPD,
-                                                                )}"
-                                                            >
-                                                                {ap.obssPD
-                                                                    ? "Supported"
-                                                                    : "Not supported"}
-                                                            </span>
-                                                        </div>
-                                                    {/if}
-                                                    {#if ap.qamSupport}
-                                                        <div
-                                                            class="capability-item"
                                                         >
-                                                            <span
-                                                                class="capability-label"
-                                                                title="Maximum Quadrature Amplitude Modulation (QAM) supported by the access point.
+                                                            OBSS PD (Spatial
+                                                            Reuse)
+                                                        </span>
+                                                        <span
+                                                            class="value-pill {capabilityMap.obssPD &&
+                                                            ap.obssPD !==
+                                                                undefined
+                                                                ? getCapabilityStatusClass(
+                                                                      ap.obssPD,
+                                                                  )
+                                                                : 'value-unknown'}"
+                                                        >
+                                                            {capabilityMap.obssPD &&
+                                                            ap.obssPD !==
+                                                                undefined
+                                                                ? ap.obssPD
+                                                                    ? "Supported"
+                                                                    : "Not supported"
+                                                                : "N/A"}
+                                                        </span>
+                                                    </div>
+                                                    <div
+                                                        class="capability-item"
+                                                    >
+                                                        <span
+                                                            class="capability-label"
+                                                            title="Maximum Quadrature Amplitude Modulation (QAM) supported by the access point.
 Highest modulation scheme supported by the AP.
 • 256-QAM: WiFi 5 (ac) - 8 bits per symbol
 • 1024-QAM: WiFi 6 (ax) - 10 bits per symbol
@@ -1148,19 +1213,27 @@ Highest modulation scheme supported by the AP.
 • Critical for determining maximum throughput capability
 • Real-world speeds depend on signal conditions and interference
 • Higher QAM more susceptible to noise and interference"
-                                                            >
-                                                                Max QAM
-                                                                Modulation
-                                                            </span>
-                                                            <span
-                                                                class="value-pill value-neutral {getQamClass(
-                                                                    ap.qamSupport,
-                                                                )}"
-                                                            >
-                                                                {ap.qamSupport}-QAM
-                                                            </span>
-                                                        </div>
-                                                    {/if}
+                                                        >
+                                                            Max QAM Modulation
+                                                        </span>
+                                                        <span
+                                                            class="value-pill {capabilityMap.qamSupport &&
+                                                            isNumberDefined(
+                                                                ap.qamSupport,
+                                                            )
+                                                                ? `value-neutral ${getQamClass(
+                                                                      ap.qamSupport,
+                                                                  )}`
+                                                                : 'value-unknown'}"
+                                                        >
+                                                            {capabilityMap.qamSupport &&
+                                                            isNumberDefined(
+                                                                ap.qamSupport,
+                                                            )
+                                                                ? `${ap.qamSupport}-QAM`
+                                                                : "N/A"}
+                                                        </span>
+                                                    </div>
                                                     {#if ap.mumimo}
                                                         <div
                                                             class="capability-item"
@@ -1265,13 +1338,12 @@ MSP ADVICE:
                                                     Management & QoS
                                                 </div>
                                                 <div class="capability-grid">
-                                                    {#if ap.qosSupport}
-                                                        <div
-                                                            class="capability-item"
-                                                        >
-                                                            <span
-                                                                class="capability-label"
-                                                                title="WMM (Wi-Fi Multimedia) - Traffic prioritization for voice/video applications.
+                                                    <div
+                                                        class="capability-item"
+                                                    >
+                                                        <span
+                                                            class="capability-label"
+                                                            title="WMM (Wi-Fi Multimedia) - Traffic prioritization for voice/video applications.
 • Prioritizes voice/video over data traffic
 • Required for 802.11e QoS compliance
 • Four access categories: Voice, Video, Best Effort, Background
@@ -1303,60 +1375,58 @@ UNIFI 7 CONSIDERATIONS:
 MSP ADVICE:
 • Leave WMM enabled in almost all modern networks
 • Mandatory for VoIP, Teams, Zoom, WiFi calling, and SIP phones"
-                                                            >
-                                                                QoS (WMM)
-                                                            </span>
-                                                            <span
-                                                                class="value-pill {getCapabilityStatusClass(
-                                                                    ap.qosSupport,
-                                                                )}"
-                                                            >
-                                                                {ap.qosSupport
-                                                                    ? "Supported"
-                                                                    : "Not supported"}
-                                                            </span>
-                                                        </div>
-                                                    {/if}
-                                                    {#if ap.countryCode}
-                                                        <div
-                                                            class="capability-item"
                                                         >
-                                                            <span
-                                                                class="capability-label"
-                                                                title="Country Code (Regulatory Domain)
+                                                            QoS (WMM)
+                                                        </span>
+                                                        <span
+                                                            class="value-pill {capabilityMap.qosSupport &&
+                                                            ap.qosSupport !==
+                                                                undefined
+                                                                ? getCapabilityStatusClass(
+                                                                      ap.qosSupport,
+                                                                  )
+                                                                : 'value-unknown'}"
+                                                        >
+                                                            {capabilityMap.qosSupport &&
+                                                            ap.qosSupport !==
+                                                                undefined
+                                                                ? ap.qosSupport
+                                                                    ? "Supported"
+                                                                    : "Not supported"
+                                                                : "N/A"}
+                                                        </span>
+                                                    </div>
+                                                    <div
+                                                        class="capability-item"
+                                                    >
+                                                        <span
+                                                            class="capability-label"
+                                                            title="Country Code (Regulatory Domain)
 Defines legal transmit power limits and allowed WiFi channels.
 • Controls maximum TX power per band and frequencies (2.4 / 5 / 6 GHz)
 • Determines available channels and DFS requirements
 • Enforced by local regulatory authorities (FCC, ETSI, etc.)
 • Critical for legal compliance and RF performance
 • Affects roaming behavior and channel planning"
-                                                            >
-                                                                Country Code
-                                                            </span>
-                                                            <span
-                                                                class="value-pill value-neutral"
-                                                            >
-                                                                {ap.countryCode}
-                                                            </span>
-                                                        </div>
-                                                    {/if}
-                                                    {#if ap.apName}
-                                                        <div
-                                                            class="capability-item"
                                                         >
-                                                            <span
-                                                                class="capability-label"
-                                                                title="Admin-configured identifier"
-                                                            >
-                                                                AP Name
-                                                            </span>
-                                                            <span
-                                                                class="value-pill value-neutral"
-                                                            >
-                                                                {ap.apName}
-                                                            </span>
-                                                        </div>
-                                                    {/if}
+                                                            Country Code
+                                                        </span>
+                                                        <span
+                                                            class="value-pill {capabilityMap.countryCode &&
+                                                            isNonEmptyString(
+                                                                ap.countryCode,
+                                                            )
+                                                                ? 'value-neutral'
+                                                                : 'value-unknown'}"
+                                                        >
+                                                            {capabilityMap.countryCode &&
+                                                            isNonEmptyString(
+                                                                ap.countryCode,
+                                                            )
+                                                                ? ap.countryCode
+                                                                : "N/A"}
+                                                        </span>
+                                                    </div>
                                                 </div>
 
                                                 <div class="capability-title">
@@ -1405,13 +1475,12 @@ MSP ADVICE:
                                                             {ap.dtim}
                                                         </span>
                                                     </div>
-                                                    {#if ap.mimoStreams}
-                                                        <div
-                                                            class="capability-item"
-                                                        >
-                                                            <span
-                                                                class="capability-label"
-                                                                title="MIMO Spatial Streams
+                                                    <div
+                                                        class="capability-item"
+                                                    >
+                                                        <span
+                                                            class="capability-label"
+                                                            title="MIMO Spatial Streams
 Number of independent data streams the access point can transmit and receive.
 • More spatial streams increase potential throughput
 • Expressed as NxN (e.g., 2x2, 4x4, 8x8)
@@ -1432,35 +1501,54 @@ UNIFI CONSIDERATIONS:
 • MU-MIMO required to use multiple streams across clients simultaneously
 • OFDMA (WiFi 6/7) often provides more benefit than extra streams
 • 8x8 APs mainly benefit very high-density environments"
-                                                            >
-                                                                MIMO Streams
-                                                            </span>
-                                                            <span
-                                                                class="value-pill value-neutral"
-                                                            >
-                                                                {ap.mimoStreams}×{ap.mimoStreams}
-                                                            </span>
-                                                        </div>
-                                                    {/if}
-                                                    {#if ap.maxTheoreticalSpeed}
-                                                        <div
-                                                            class="capability-item"
                                                         >
-                                                            <span
-                                                                class="capability-label"
-                                                                title="The maximum theoretical speed of the network in Mbps. PHY rate. Real-world is ~60-70% of this"
-                                                            >
-                                                                Max Theoretical
-                                                                Speed
-                                                            </span>
-                                                            <span
-                                                                class="value-pill value-neutral"
-                                                            >
-                                                                {ap.maxTheoreticalSpeed}
-                                                                Mbps
-                                                            </span>
-                                                        </div>
-                                                    {/if}
+                                                            MIMO Streams
+                                                        </span>
+                                                        <span
+                                                            class="value-pill {capabilityMap.mimoStreams &&
+                                                            isNumberDefined(
+                                                                ap.mimoStreams,
+                                                            ) &&
+                                                            ap.mimoStreams > 0
+                                                                ? 'value-neutral'
+                                                                : 'value-unknown'}"
+                                                        >
+                                                            {capabilityMap.mimoStreams &&
+                                                            isNumberDefined(
+                                                                ap.mimoStreams,
+                                                            ) &&
+                                                            ap.mimoStreams > 0
+                                                                ? `${ap.mimoStreams}×${ap.mimoStreams}`
+                                                                : "N/A"}
+                                                        </span>
+                                                    </div>
+                                                    <div
+                                                        class="capability-item"
+                                                    >
+                                                        <span
+                                                            class="capability-label"
+                                                            title="Maximum PHY rate in Mbps (theoretical peak). Real-world throughput is lower."
+                                                        >
+                                                            Max PHY Rate
+                                                        </span>
+                                                        <span
+                                                            class="value-pill {capabilityMap.maxPhyRate &&
+                                                            isNumberDefined(
+                                                                ap.maxPhyRate,
+                                                            ) &&
+                                                            ap.maxPhyRate > 0
+                                                                ? 'value-neutral'
+                                                                : 'value-unknown'}"
+                                                        >
+                                                            {capabilityMap.maxPhyRate &&
+                                                            isNumberDefined(
+                                                                ap.maxPhyRate,
+                                                            ) &&
+                                                            ap.maxPhyRate > 0
+                                                                ? `${ap.maxPhyRate} Mbps`
+                                                                : "N/A"}
+                                                        </span>
+                                                    </div>
                                                 </div>
                                             </div>
                                         </div>
@@ -1842,6 +1930,12 @@ UNIFI CONSIDERATIONS:
         background: color-mix(in srgb, var(--muted-2) 18%, transparent);
         color: var(--text);
         border: 1px solid color-mix(in srgb, var(--muted-2) 35%, transparent);
+    }
+
+    .value-unknown {
+        background: color-mix(in srgb, var(--panel-soft) 70%, transparent);
+        color: var(--muted-2);
+        border: 1px dashed color-mix(in srgb, var(--muted-2) 35%, transparent);
     }
 
     .dfs-badge {

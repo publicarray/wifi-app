@@ -42,6 +42,34 @@
             .replaceAll("'", "&#39;");
     }
 
+    function sanitizeAccessPoint(ap) {
+        if (!ap) return ap;
+        const { noise, txPower, ...rest } = ap;
+        return rest;
+    }
+
+    function sanitizeNetworks(data) {
+        if (!Array.isArray(data)) return data;
+        return data.map((network) => {
+            const accessPoints = (network.accessPoints || []).map(
+                sanitizeAccessPoint,
+            );
+            return {
+                ...network,
+                accessPoints,
+            };
+        });
+    }
+
+    function sanitizeClientStats(stats) {
+        if (!stats) return stats;
+        const { noise, snr, ...rest } = stats;
+        return {
+            ...rest,
+            snr: typeof snr === "number" && snr > 0 ? snr : null,
+        };
+    }
+
     function buildNetworkCsv() {
         if (!networks || networks.length === 0) return "";
         const headers = [
@@ -54,8 +82,6 @@
             "ChannelWidthMHz",
             "SignalDbm",
             "SignalQuality",
-            "NoiseDbm",
-            "TxPowerDbm",
             "Security",
             "Capabilities",
             "DFS",
@@ -63,8 +89,7 @@
             "APName",
             "BSSLoadStations",
             "BSSLoadUtilization",
-            "MaxTheoreticalSpeedMbps",
-            "RealWorldSpeedMbps",
+            "MaxPhyRateMbps",
             "MIMOStreams",
             "QoSSupport",
             "PMF",
@@ -100,8 +125,6 @@
                         ap.channelWidth,
                         ap.signal,
                         ap.signalQuality,
-                        ap.noise,
-                        ap.txPower,
                         ap.security,
                         (ap.capabilities || []).join("|"),
                         ap.dfs,
@@ -109,8 +132,7 @@
                         ap.apName,
                         ap.bssLoadStations,
                         ap.bssLoadUtilization,
-                        ap.maxTheoreticalSpeed,
-                        ap.realWorldSpeed,
+                        ap.maxPhyRate > 0 ? ap.maxPhyRate : "",
                         ap.mimoStreams,
                         ap.qosSupport,
                         ap.pmf,
@@ -133,13 +155,20 @@
                     "",
                     "",
                     "",
+                    "",
                     network.channel,
                     "",
                     "",
                     "",
-                    "",
-                    "",
                     network.security,
+                    "",
+                    "",
+                    "",
+                    "",
+                    "",
+                    "",
+                    "",
+                    "",
                     "",
                     "",
                     "",
@@ -185,8 +214,8 @@
                 connectedSSID: clientStats?.ssid || null,
                 connectedBSSID: clientStats?.bssid || null,
             },
-            clientStats: clientStats || null,
-            networks: networks || [],
+            clientStats: sanitizeClientStats(clientStats) || null,
+            networks: sanitizeNetworks(networks) || [],
         };
     }
 
@@ -201,13 +230,17 @@
                     <td>—</td>
                     <td>—</td>
                     <td>—</td>
+                    <td>—</td>
                     <td>${escapeHtml(network.channel ?? "—")}</td>
                     <td>—</td>
                     <td>—</td>
                     <td>—</td>
-                    <td>—</td>
-                    <td>—</td>
                     <td>${escapeHtml(network.security ?? "—")}</td>
+                    <td>—</td>
+                    <td>—</td>
+                    <td>—</td>
+                    <td>—</td>
+                    <td>—</td>
                     <td>—</td>
                     <td>—</td>
                     <td>—</td>
@@ -240,8 +273,6 @@
                     <td>${escapeHtml(ap.channelWidth)}</td>
                     <td>${escapeHtml(ap.signal)}</td>
                     <td>${escapeHtml(ap.signalQuality)}</td>
-                    <td>${escapeHtml(ap.noise)}</td>
-                    <td>${escapeHtml(ap.txPower)}</td>
                     <td>${escapeHtml(ap.security)}</td>
                     <td>${escapeHtml((ap.capabilities || []).join(" | "))}</td>
                     <td>${escapeHtml(ap.dfs)}</td>
@@ -249,8 +280,7 @@
                     <td>${escapeHtml(ap.apName)}</td>
                     <td>${escapeHtml(ap.bssLoadStations)}</td>
                     <td>${escapeHtml(ap.bssLoadUtilization)}</td>
-                    <td>${escapeHtml(ap.maxTheoreticalSpeed)}</td>
-                    <td>${escapeHtml(ap.realWorldSpeed)}</td>
+                    <td>${escapeHtml(ap.maxPhyRate > 0 ? ap.maxPhyRate : "")}</td>
                     <td>${escapeHtml(ap.mimoStreams)}</td>
                     <td>${escapeHtml(ap.qosSupport)}</td>
                     <td>${escapeHtml(ap.pmf)}</td>
@@ -312,8 +342,6 @@
         <th>Width</th>
         <th>Signal</th>
         <th>Quality</th>
-        <th>Noise</th>
-        <th>Tx Power</th>
         <th>Security</th>
         <th>Capabilities</th>
         <th>DFS</th>
@@ -321,8 +349,7 @@
         <th>AP Name</th>
         <th>BSS Stations</th>
         <th>BSS Utilization</th>
-        <th>Max Speed</th>
-        <th>Real Speed</th>
+        <th>Max PHY Rate</th>
         <th>MIMO</th>
         <th>QoS</th>
         <th>PMF</th>
@@ -364,7 +391,7 @@
                 class="export-btn btn-json"
                 on:click={() =>
                     saveFile(
-                        JSON.stringify(networks, null, 2),
+                        JSON.stringify(sanitizeNetworks(networks), null, 2),
                         "networks.json",
                         "application/json",
                     )}
@@ -382,7 +409,11 @@
                 class="export-btn btn-json"
                 on:click={() =>
                     saveFile(
-                        JSON.stringify(clientStats, null, 2),
+                        JSON.stringify(
+                            sanitizeClientStats(clientStats),
+                            null,
+                            2,
+                        ),
                         "client-stats.json",
                         "application/json",
                     )}

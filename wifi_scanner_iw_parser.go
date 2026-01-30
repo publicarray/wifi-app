@@ -24,6 +24,12 @@ func (p *iwParser) ParseScan(output []byte) ([]AccessPoint, error) {
 
 	var currentAP *AccessPoint
 	inSecurityBlock := false
+	inHEMcsSection := false
+	inEHTMcsSection := false
+	heMaxMcs := 0
+	heMaxStreams := 0
+	ehtMaxMcs := 0
+	ehtMaxStreams := 0
 	bssRegex := regexp.MustCompile(`^BSS\s+([0-9a-f:]+)`)
 	freqRegex := regexp.MustCompile(`^\s+freq:\s+(\d+)`)
 	signalRegex := regexp.MustCompile(`^\s+signal:\s+([-\d.]+)\s+dBm`)
@@ -37,6 +43,10 @@ func (p *iwParser) ParseScan(output []byte) ([]AccessPoint, error) {
 	bssStationCountRegex := regexp.MustCompile(`station count:\s+(\d+)`)
 	bssUtilizationRegex := regexp.MustCompile(`channel utilisation:\s+(\d+)/255`)
 	mimoStreamsRegex := regexp.MustCompile(`(\d+) streams:\s+MCS`)
+	heMcsSectionRegex := regexp.MustCompile(`HE RX MCS and NSS set`)
+	heMcsEntryRegex := regexp.MustCompile(`^\s*(\d+)\s+streams:\s+MCS 0-(\d+)`)
+	vhtRxHighestRegex := regexp.MustCompile(`VHT RX highest supported:\s+(\d+)\s+Mbps`)
+	vhtTxHighestRegex := regexp.MustCompile(`VHT TX highest supported:\s+(\d+)\s+Mbps`)
 	twtRegex := regexp.MustCompile(`TWT|BSR`)
 	neighborReportRegex := regexp.MustCompile(`Neighbor Report`)
 	cipherRegex := regexp.MustCompile(`Pairwise ciphers: (.+)|Group cipher: (.+)`)
@@ -52,6 +62,11 @@ func (p *iwParser) ParseScan(output []byte) ([]AccessPoint, error) {
 	for _, line := range lines {
 		if matches := bssRegex.FindStringSubmatch(line); matches != nil {
 			if currentAP != nil {
+				if heMaxMcs > 0 && heMaxStreams > 0 {
+					if rate := maxPhyRateFromHEMCS(currentAP.ChannelWidth, heMaxMcs, heMaxStreams); rate > currentAP.MaxPhyRate {
+						currentAP.MaxPhyRate = rate
+					}
+				}
 				aps = append(aps, *currentAP)
 			}
 			bssid := matches[1]
@@ -64,6 +79,11 @@ func (p *iwParser) ParseScan(output []byte) ([]AccessPoint, error) {
 				BSSLoadUtilization: -1,
 			}
 			inSecurityBlock = false
+			inHEMcsSection = false
+			heMaxMcs = 0
+			heMaxStreams = 0
+			ehtMaxMcs = 0
+			ehtMaxStreams = 0
 		} else if currentAP != nil {
 			trimmed := strings.TrimSpace(line)
 			if strings.HasPrefix(trimmed, "RSN:") || strings.HasPrefix(trimmed, "WPA:") {
@@ -198,6 +218,78 @@ func (p *iwParser) ParseScan(output []byte) ([]AccessPoint, error) {
 				}
 			}
 
+			if heMcsSectionRegex.MatchString(line) {
+				inHEMcsSection = true
+			}
+
+			if inHEMcsSection {
+				if matches := heMcsEntryRegex.FindStringSubmatch(line); matches != nil {
+					streams, _ := strconv.Atoi(matches[1])
+					mcs, _ := strconv.Atoi(matches[2])
+					if streams > heMaxStreams {
+						heMaxStreams = streams
+					}
+					if mcs > heMaxMcs {
+						heMaxMcs = mcs
+					}
+				}
+				if trimmed == "" ||
+					strings.HasPrefix(trimmed, "HE Operation") ||
+					strings.HasPrefix(trimmed, "VHT ") ||
+					strings.HasPrefix(trimmed, "BSS ") ||
+					strings.HasPrefix(trimmed, "RSN:") {
+					inHEMcsSection = false
+					if heMaxMcs > 0 && heMaxStreams > 0 {
+						if rate := maxPhyRateFromHEMCS(currentAP.ChannelWidth, heMaxMcs, heMaxStreams); rate > currentAP.MaxPhyRate {
+							currentAP.MaxPhyRate = rate
+						}
+					}
+				}
+			}
+
+			if strings.HasPrefix(trimmed, "EHT RX MCS and NSS set") ||
+				strings.HasPrefix(trimmed, "EHT MCS") {
+				inEHTMcsSection = true
+			}
+
+			if inEHTMcsSection {
+				if matches := heMcsEntryRegex.FindStringSubmatch(line); matches != nil {
+					streams, _ := strconv.Atoi(matches[1])
+					mcs, _ := strconv.Atoi(matches[2])
+					if streams > ehtMaxStreams {
+						ehtMaxStreams = streams
+					}
+					if mcs > ehtMaxMcs {
+						ehtMaxMcs = mcs
+					}
+				}
+				if trimmed == "" ||
+					strings.HasPrefix(trimmed, "EHT Operation") ||
+					strings.HasPrefix(trimmed, "HE ") ||
+					strings.HasPrefix(trimmed, "BSS ") {
+					inEHTMcsSection = false
+					if ehtMaxMcs > 0 && ehtMaxStreams > 0 {
+						if rate := maxPhyRateFromHEMCS(currentAP.ChannelWidth, ehtMaxMcs, ehtMaxStreams); rate > currentAP.MaxPhyRate {
+							currentAP.MaxPhyRate = rate
+						}
+					}
+				}
+			}
+
+			if matches := vhtRxHighestRegex.FindStringSubmatch(line); matches != nil {
+				rate, _ := strconv.Atoi(matches[1])
+				if rate > currentAP.MaxPhyRate {
+					currentAP.MaxPhyRate = rate
+				}
+			}
+
+			if matches := vhtTxHighestRegex.FindStringSubmatch(line); matches != nil {
+				rate, _ := strconv.Atoi(matches[1])
+				if rate > currentAP.MaxPhyRate {
+					currentAP.MaxPhyRate = rate
+				}
+			}
+
 			if twtRegex.MatchString(line) {
 				currentAP.TWTSupport = true
 			}
@@ -271,6 +363,16 @@ func (p *iwParser) ParseScan(output []byte) ([]AccessPoint, error) {
 	}
 
 	if currentAP != nil {
+		if heMaxMcs > 0 && heMaxStreams > 0 {
+			if rate := maxPhyRateFromHEMCS(currentAP.ChannelWidth, heMaxMcs, heMaxStreams); rate > currentAP.MaxPhyRate {
+				currentAP.MaxPhyRate = rate
+			}
+		}
+		if ehtMaxMcs > 0 && ehtMaxStreams > 0 {
+			if rate := maxPhyRateFromHEMCS(currentAP.ChannelWidth, ehtMaxMcs, ehtMaxStreams); rate > currentAP.MaxPhyRate {
+				currentAP.MaxPhyRate = rate
+			}
+		}
 		aps = append(aps, *currentAP)
 	}
 

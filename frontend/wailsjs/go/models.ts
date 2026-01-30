@@ -26,11 +26,10 @@ export namespace main {
 	    wps: boolean;
 	    bssLoadStations: number;
 	    bssLoadUtilization: number;
-	    maxTheoreticalSpeed: number;
+	    maxPhyRate: number;
 	    twtSupport: boolean;
 	    neighborReport: boolean;
 	    mimoStreams: number;
-	    realWorldSpeed: number;
 	    estimatedRange: number;
 	    snr: number;
 	    securityCiphers: string[];
@@ -73,11 +72,10 @@ export namespace main {
 	        this.wps = source["wps"];
 	        this.bssLoadStations = source["bssLoadStations"];
 	        this.bssLoadUtilization = source["bssLoadUtilization"];
-	        this.maxTheoreticalSpeed = source["maxTheoreticalSpeed"];
+	        this.maxPhyRate = source["maxPhyRate"];
 	        this.twtSupport = source["twtSupport"];
 	        this.neighborReport = source["neighborReport"];
 	        this.mimoStreams = source["mimoStreams"];
-	        this.realWorldSpeed = source["realWorldSpeed"];
 	        this.estimatedRange = source["estimatedRange"];
 	        this.snr = source["snr"];
 	        this.securityCiphers = source["securityCiphers"];

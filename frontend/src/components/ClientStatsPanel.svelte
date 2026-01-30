@@ -18,6 +18,7 @@
 
     function formatBytes(bytes) {
         if (bytes === 0) return "0 B";
+        if (!isNumber(bytes)) return "N/A";
         const k = 1024;
         const sizes = ["B", "KB", "MB", "GB"];
         const i = Math.floor(Math.log(bytes) / Math.log(k));
@@ -25,6 +26,7 @@
     }
 
     function formatDuration(seconds) {
+        if (!isNumber(seconds)) return "N/A";
         const hours = Math.floor(seconds / 3600);
         const minutes = Math.floor((seconds % 3600) / 60);
         const secs = seconds % 60;
@@ -35,6 +37,22 @@
             return `${minutes}m ${secs}s`;
         }
         return `${secs}s`;
+    }
+
+    function isNumber(value) {
+        return typeof value === "number" && !Number.isNaN(value);
+    }
+
+    function formatDbm(value) {
+        return isNumber(value) ? `${value} dBm` : "N/A";
+    }
+
+    function formatMbps(value) {
+        return isNumber(value) ? `${value.toFixed(1)} Mbps` : "N/A";
+    }
+
+    function formatFrequency(value) {
+        return isNumber(value) ? `${(value / 1000).toFixed(3)} GHz` : "N/A";
     }
 
     function getRetryRateClass(retryRate) {
@@ -76,9 +94,7 @@
                     <span class="label" title="Network Interface Name"
                         >Interface</span
                     >
-                    <span class="value"
-                        >{clientStats.interface || "Unknown"}</span
-                    >
+                    <span class="value">{clientStats.interface || "N/A"}</span>
                 </div>
                 <div class="info-item">
                     <span
@@ -86,7 +102,7 @@
                         title="Time since connection established">Duration</span
                     >
                     <span class="value"
-                        >{formatDuration(clientStats.connectedTime || 0)}</span
+                        >{formatDuration(clientStats.connectedTime)}</span
                     >
                 </div>
             </div>
@@ -99,17 +115,24 @@
                     <span class="label" title="Current signal strength in dBm"
                         >Current Signal</span
                     >
-                    <span class="value {getSignalClass(clientStats.signal)}">
-                        {clientStats.signal} dBm
-                    </span>
-                    <span
-                        class="quality-badge"
-                        style="background: {getSignalQuality(clientStats.signal)
-                            .color}"
-                        title="Signal quality rating"
-                    >
-                        {getSignalQuality(clientStats.signal).text}
-                    </span>
+                    {#if isNumber(clientStats.signal)}
+                        <span
+                            class="value {getSignalClass(clientStats.signal)}"
+                        >
+                            {formatDbm(clientStats.signal)}
+                        </span>
+                        <span
+                            class="quality-badge"
+                            style="background: {getSignalQuality(
+                                clientStats.signal,
+                            ).color}"
+                            title="Signal quality rating"
+                        >
+                            {getSignalQuality(clientStats.signal).text}
+                        </span>
+                    {:else}
+                        <span class="value value-na">N/A</span>
+                    {/if}
                 </div>
                 <div class="info-item">
                     <span
@@ -117,19 +140,19 @@
                         title="Average signal strength over time"
                         >Average Signal</span
                     >
-                    <span
-                        class="value {getSignalClass(
-                            clientStats.signalAvg || clientStats.signal,
-                        )}"
-                    >
-                        {clientStats.signalAvg || clientStats.signal} dBm
-                    </span>
-                </div>
-                <div class="info-item">
-                    <span class="label" title="Background noise level in dBm"
-                        >Noise</span
-                    >
-                    <span class="value">{clientStats.noise} dBm</span>
+                    {#if isNumber(clientStats.signalAvg) || isNumber(clientStats.signal)}
+                        <span
+                            class="value {getSignalClass(
+                                clientStats.signalAvg ?? clientStats.signal,
+                            )}"
+                        >
+                            {formatDbm(
+                                clientStats.signalAvg ?? clientStats.signal,
+                            )}
+                        </span>
+                    {:else}
+                        <span class="value value-na">N/A</span>
+                    {/if}
                 </div>
                 <div class="info-item full-width">
                     <span
@@ -137,16 +160,20 @@
                         title="Signal-to-Noise Ratio. Higher is better."
                         >SNR</span
                     >
-                    <span class="value">{clientStats.snr} dB</span>
-                    <div class="snr-bar">
-                        <div
-                            class="snr-fill"
-                            style="width: {Math.min(
-                                Math.max(clientStats.snr, 0),
-                                50,
-                            ) * 2}%"
-                        ></div>
-                    </div>
+                    {#if isNumber(clientStats.snr) && clientStats.snr > 0}
+                        <span class="value">{clientStats.snr} dB</span>
+                        <div class="snr-bar">
+                            <div
+                                class="snr-fill"
+                                style="width: {Math.min(
+                                    Math.max(clientStats.snr, 0),
+                                    50,
+                                ) * 2}%"
+                            ></div>
+                        </div>
+                    {:else}
+                        <span class="value value-na">N/A</span>
+                    {/if}
                 </div>
                 <div class="info-item">
                     <span
@@ -154,13 +181,17 @@
                         title="Signal strength of last acknowledgement packet"
                         >Last ACK Signal</span
                     >
-                    <span
-                        class="value {getSignalClass(
-                            clientStats.lastAckSignal,
-                        )}"
-                    >
-                        {clientStats.lastAckSignal} dBm
-                    </span>
+                    {#if isNumber(clientStats.lastAckSignal)}
+                        <span
+                            class="value {getSignalClass(
+                                clientStats.lastAckSignal,
+                            )}"
+                        >
+                            {formatDbm(clientStats.lastAckSignal)}
+                        </span>
+                    {:else}
+                        <span class="value value-na">N/A</span>
+                    {/if}
                 </div>
             </div>
         </div>
@@ -172,16 +203,22 @@
                     <span class="label" title="Current transmission rate"
                         >TX Rate</span
                     >
-                    <span class="value rate"
-                        >{clientStats.txBitrate.toFixed(1)} Mbps</span
+                    <span
+                        class="value {isNumber(clientStats.txBitrate)
+                            ? 'rate'
+                            : 'value-na'}"
+                        >{formatMbps(clientStats.txBitrate)}</span
                     >
                 </div>
                 <div class="info-item">
                     <span class="label" title="Current reception rate"
                         >RX Rate</span
                     >
-                    <span class="value rate"
-                        >{clientStats.rxBitrate.toFixed(1)} Mbps</span
+                    <span
+                        class="value {isNumber(clientStats.rxBitrate)
+                            ? 'rate'
+                            : 'value-na'}"
+                        >{formatMbps(clientStats.rxBitrate)}</span
                     >
                 </div>
                 <div class="info-item">
@@ -190,16 +227,20 @@
                         title="Current operating channel and width"
                         >Channel</span
                     >
-                    <span class="value"
-                        >{clientStats.channel} ({clientStats.channelWidth}MHz)</span
-                    >
+                    <span class="value">
+                        {#if isNumber(clientStats.channel) && isNumber(clientStats.channelWidth)}
+                            {clientStats.channel} ({clientStats.channelWidth}MHz)
+                        {:else}
+                            N/A
+                        {/if}
+                    </span>
                 </div>
                 <div class="info-item">
                     <span class="label" title="Current operating frequency"
                         >Frequency</span
                     >
                     <span class="value"
-                        >{(clientStats.frequency / 1000).toFixed(3)} GHz</span
+                        >{formatFrequency(clientStats.frequency)}</span
                     >
                 </div>
             </div>
@@ -226,17 +267,25 @@
                     <span class="label" title="Total packets transmitted"
                         >TX Packets</span
                     >
-                    <span class="value"
-                        >{clientStats.txPackets.toLocaleString()}</span
-                    >
+                    <span class="value">
+                        {#if isNumber(clientStats.txPackets)}
+                            {clientStats.txPackets.toLocaleString()}
+                        {:else}
+                            N/A
+                        {/if}
+                    </span>
                 </div>
                 <div class="info-item">
                     <span class="label" title="Total packets received"
                         >RX Packets</span
                     >
-                    <span class="value"
-                        >{clientStats.rxPackets.toLocaleString()}</span
-                    >
+                    <span class="value">
+                        {#if isNumber(clientStats.rxPackets)}
+                            {clientStats.rxPackets.toLocaleString()}
+                        {:else}
+                            N/A
+                        {/if}
+                    </span>
                 </div>
             </div>
         </div>
@@ -250,30 +299,40 @@
                         title="Percentage of packets requiring retransmission"
                         >Retry Rate</span
                     >
-                    <span
-                        class="value {getRetryRateClass(clientStats.retryRate)}"
-                    >
-                        {clientStats.retryRate.toFixed(1)}%
-                    </span>
-                    <div class="retry-bar">
-                        <div
-                            class="retry-fill {getRetryRateClass(
+                    {#if isNumber(clientStats.retryRate)}
+                        <span
+                            class="value {getRetryRateClass(
                                 clientStats.retryRate,
                             )}"
-                            style="width: {Math.min(
-                                clientStats.retryRate,
-                                100,
-                            )}%"
-                        ></div>
-                    </div>
+                        >
+                            {clientStats.retryRate.toFixed(1)}%
+                        </span>
+                        <div class="retry-bar">
+                            <div
+                                class="retry-fill {getRetryRateClass(
+                                    clientStats.retryRate,
+                                )}"
+                                style="width: {Math.min(
+                                    clientStats.retryRate,
+                                    100,
+                                )}%"
+                            ></div>
+                        </div>
+                    {:else}
+                        <span class="value value-na">N/A</span>
+                    {/if}
                 </div>
                 <div class="info-item">
                     <span class="label" title="Number of packets retransmitted"
                         >TX Retries</span
                     >
-                    <span class="value"
-                        >{clientStats.txRetries.toLocaleString()}</span
-                    >
+                    <span class="value">
+                        {#if isNumber(clientStats.txRetries)}
+                            {clientStats.txRetries.toLocaleString()}
+                        {:else}
+                            N/A
+                        {/if}
+                    </span>
                 </div>
                 <div class="info-item">
                     <span
@@ -281,9 +340,13 @@
                         title="Number of packets failed to transmit"
                         >TX Failed</span
                     >
-                    <span class="value"
-                        >{clientStats.txFailed.toLocaleString()}</span
-                    >
+                    <span class="value">
+                        {#if isNumber(clientStats.txFailed)}
+                            {clientStats.txFailed.toLocaleString()}
+                        {:else}
+                            N/A
+                        {/if}
+                    </span>
                 </div>
             </div>
         </div>
@@ -440,6 +503,10 @@
     .value.rate {
         font-weight: 600;
         color: var(--success);
+    }
+
+    .value.value-na {
+        color: var(--muted-2);
     }
 
     /* Signal quality indicators */

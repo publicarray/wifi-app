@@ -16,7 +16,7 @@ import (
 
 const (
 	maxSignalHistory = 600 // Keep 10 minutes at 1 second intervals
-	scanInterval     = 3 * time.Second
+	scanInterval     = 4 * time.Second
 )
 
 // WiFiService manages WiFi scanning and data aggregation
