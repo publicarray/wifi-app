@@ -177,8 +177,8 @@
                 <NetworkList {networks} {clientStats} />
             </div>
         {:else if activeTab === "signal"}
-            <div class="content-panel">
-                <SignalChart {clientStats} />
+            <div class="content-panel signal-panel">
+                <SignalChart {clientStats} {networks} />
             </div>
         {:else if activeTab === "channels"}
             <div class="content-panel channel-panel">
@@ -230,6 +230,16 @@
         --channel-band-bg: rgba(255, 255, 255, 0.08);
         --channel-divider: rgba(255, 255, 255, 0.06);
         --text-on-accent: #0f172a;
+        --series-1: #60a5fa;
+        --series-2: #34d399;
+        --series-3: #fbbf24;
+        --series-4: #f87171;
+        --series-5: #a78bfa;
+        --series-6: #22d3ee;
+        --series-7: #f472b6;
+        --series-8: #fb923c;
+        --series-9: #94a3b8;
+        --series-10: #38bdf8;
         --field-bg: #15181d;
         --border: rgba(255, 255, 255, 0.08);
         --border-strong: rgba(255, 255, 255, 0.16);
@@ -281,6 +291,16 @@
             --channel-band-bg: rgba(15, 23, 42, 0.08);
             --channel-divider: rgba(15, 23, 42, 0.08);
             --text-on-accent: #0f172a;
+            --series-1: #2563eb;
+            --series-2: #16a34a;
+            --series-3: #d97706;
+            --series-4: #dc2626;
+            --series-5: #7c3aed;
+            --series-6: #0891b2;
+            --series-7: #db2777;
+            --series-8: #b45309;
+            --series-9: #475569;
+            --series-10: #0ea5e9;
             --field-bg: #ffffff;
             --border: rgba(15, 23, 42, 0.12);
             --border-strong: rgba(15, 23, 42, 0.2);
@@ -373,6 +393,13 @@
         height: 100%;
         overflow: hidden;
         min-height: 0;
+    }
+
+    .signal-panel {
+        overflow-y: auto;
+        scrollbar-gutter: stable;
+        -webkit-overflow-scrolling: touch;
+        scroll-padding-bottom: 72px;
     }
 
     .channel-panel {

@@ -2,15 +2,24 @@
     import { onMount, onDestroy } from "svelte";
     import { Chart, registerables } from "chart.js";
     import "chartjs-adapter-date-fns";
+    import zoomPlugin from "chartjs-plugin-zoom";
 
     export let clientStats = null;
+    export let networks = [];
 
-    let chartElement;
-    let chart = null;
+    let connectedChartElement;
+    let othersChartElement;
+    let connectedChart = null;
+    let othersChart = null;
     let themeMedia = null;
+    let apHistory = new Map();
+    let historyPoints = 0;
+    let historyAPs = 0;
+    const HISTORY_WINDOW_MS = 30 * 60 * 1000;
+    const HISTORY_MAX_POINTS = 300;
 
     onMount(() => {
-        Chart.register(...registerables);
+        Chart.register(...registerables, zoomPlugin);
         initializeChart();
 
         themeMedia = window.matchMedia("(prefers-color-scheme: dark)");
@@ -23,16 +32,13 @@
     });
 
     onDestroy(() => {
-        if (chart) {
-            chart.destroy();
-        }
+        connectedChart?.destroy();
+        othersChart?.destroy();
     });
 
-    function initializeChart() {
-        const ctx = chartElement.getContext("2d");
+    function buildChart(ctx, titleText) {
         const theme = getThemeColors();
-
-        chart = new Chart(ctx, {
+        return new Chart(ctx, {
             type: "line",
             data: {
                 datasets: [],
@@ -44,10 +50,18 @@
                     mode: "index",
                     intersect: false,
                 },
+                layout: {
+                    padding: {
+                        top: 8,
+                        right: 12,
+                        bottom: 8,
+                        left: 8,
+                    },
+                },
                 plugins: {
                     title: {
                         display: true,
-                        text: "Signal Strength Over Time",
+                        text: titleText,
                         color: theme.text,
                         font: {
                             size: 16,
@@ -60,6 +74,8 @@
                         labels: {
                             color: theme.text,
                             usePointStyle: true,
+                            boxWidth: 8,
+                            boxHeight: 8,
                             padding: 20,
                         },
                     },
@@ -69,6 +85,9 @@
                         bodyColor: theme.text,
                         borderColor: theme.border,
                         borderWidth: 1,
+                        titleMarginBottom: 6,
+                        bodySpacing: 6,
+                        boxPadding: 6,
                         padding: 12,
                         displayColors: true,
                         callbacks: {
@@ -79,6 +98,27 @@
                             },
                             label: function (context) {
                                 return `${context.dataset.label}: ${context.parsed.y} dBm`;
+                            },
+                        },
+                    },
+                    zoom: {
+                        pan: {
+                            enabled: true,
+                            mode: "x",
+                        },
+                        zoom: {
+                            wheel: {
+                                enabled: true,
+                            },
+                            pinch: {
+                                enabled: true,
+                            },
+                            mode: "x",
+                        },
+                        limits: {
+                            x: {
+                                min: "original",
+                                max: "original",
                             },
                         },
                     },
@@ -130,13 +170,28 @@
         });
     }
 
-    // Update chart when clientStats changes
-    $: if (chart && clientStats && clientStats.signalHistory) {
+    function initializeChart() {
+        const connectedCtx = connectedChartElement.getContext("2d");
+        const othersCtx = othersChartElement.getContext("2d");
+        connectedChart = buildChart(connectedCtx, "Connected AP Signal");
+        othersChart = buildChart(othersCtx, "Other APs in Range");
+    }
+
+    // Update chart when clientStats or networks change
+    $: if (connectedChart && othersChart) {
+        networks;
+        clientStats;
+        recordNetworkSignals();
         updateChart();
     }
 
     function getThemeColors() {
         const styles = getComputedStyle(document.documentElement);
+        const series = [];
+        for (let i = 1; i <= 10; i++) {
+            const value = styles.getPropertyValue(`--series-${i}`).trim();
+            if (value) series.push(value);
+        }
         return {
             text: styles.getPropertyValue("--text").trim() || "#e0e0e0",
             muted: styles.getPropertyValue("--muted").trim() || "#aaa",
@@ -150,37 +205,161 @@
                 styles.getPropertyValue("--tooltip-bg").trim() ||
                 "rgba(42,42,42,0.9)",
             warning: styles.getPropertyValue("--warning").trim() || "#ff9800",
+            accent: styles.getPropertyValue("--accent").trim() || "#3b82f6",
+            accentStrong:
+                styles.getPropertyValue("--accent-strong").trim() || "#2563eb",
+            series: series.length
+                ? series
+                : [
+                      "#0066cc",
+                      "#4caf50",
+                      "#ff9800",
+                      "#f44336",
+                      "#9c27b0",
+                      "#00bcd4",
+                      "#8bc34a",
+                      "#ffc107",
+                      "#795548",
+                      "#607d8b",
+                  ],
         };
     }
 
     function applyChartTheme() {
-        if (!chart) return;
+        if (!connectedChart || !othersChart) return;
         const theme = getThemeColors();
-        chart.options.plugins.title.color = theme.text;
-        chart.options.plugins.legend.labels.color = theme.text;
-        chart.options.plugins.tooltip.backgroundColor = theme.tooltipBg;
-        chart.options.plugins.tooltip.titleColor = theme.text;
-        chart.options.plugins.tooltip.bodyColor = theme.text;
-        chart.options.plugins.tooltip.borderColor = theme.border;
-        chart.options.scales.x.title.color = theme.muted;
-        chart.options.scales.x.ticks.color = theme.muted;
-        chart.options.scales.x.grid.color = theme.grid;
-        chart.options.scales.x.grid.borderColor = theme.borderStrong;
-        chart.options.scales.y.title.color = theme.muted;
-        chart.options.scales.y.ticks.color = theme.muted;
-        chart.options.scales.y.grid.color = theme.grid;
-        chart.options.scales.y.grid.borderColor = theme.borderStrong;
-        chart.update("none");
+        [connectedChart, othersChart].forEach((chart) => {
+            chart.options.plugins.title.color = theme.text;
+            chart.options.plugins.legend.labels.color = theme.text;
+            chart.options.plugins.tooltip.backgroundColor = theme.tooltipBg;
+            chart.options.plugins.tooltip.titleColor = theme.text;
+            chart.options.plugins.tooltip.bodyColor = theme.text;
+            chart.options.plugins.tooltip.borderColor = theme.border;
+            chart.options.scales.x.title.color = theme.muted;
+            chart.options.scales.x.ticks.color = theme.muted;
+            chart.options.scales.x.grid.color = theme.grid;
+            chart.options.scales.x.grid.borderColor = theme.borderStrong;
+            chart.options.scales.y.title.color = theme.muted;
+            chart.options.scales.y.ticks.color = theme.muted;
+            chart.options.scales.y.grid.color = theme.grid;
+            chart.options.scales.y.grid.borderColor = theme.borderStrong;
+        });
+        if (apHistory.size > 0) updateChart();
+        else {
+            connectedChart.update("none");
+            othersChart.update("none");
+        }
+    }
+
+    function withAlpha(color, alpha) {
+        if (!color) return `rgba(0,0,0,${alpha})`;
+        if (color.startsWith("#")) {
+            let hex = color.slice(1);
+            if (hex.length === 3) {
+                hex = hex
+                    .split("")
+                    .map((c) => c + c)
+                    .join("");
+            }
+            const num = parseInt(hex, 16);
+            const r = (num >> 16) & 255;
+            const g = (num >> 8) & 255;
+            const b = num & 255;
+            return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+        }
+        if (color.startsWith("rgb(")) {
+            return color.replace("rgb(", "rgba(").replace(")", `, ${alpha})`);
+        }
+        if (color.startsWith("rgba(")) {
+            return color.replace(/rgba\\(([^)]+)\\)/, `rgba($1, ${alpha})`);
+        }
+        return color;
+    }
+
+    function recordNetworkSignals() {
+        const now = Date.now();
+
+        if (networks && networks.length > 0) {
+            networks.forEach((network) => {
+                if (!network?.accessPoints?.length) return;
+                network.accessPoints.forEach((ap) => {
+                    const bssid = ap?.bssid;
+                    if (!bssid) return;
+                    if (typeof ap.signal !== "number") return;
+                    const ssid = ap?.ssid || network?.ssid || "Unknown";
+                    const timestamp = now;
+
+                    let entry = apHistory.get(bssid);
+                    if (!entry) {
+                        entry = { bssid, ssid, points: [] };
+                        apHistory.set(bssid, entry);
+                    }
+                    entry.ssid = ssid;
+                    const lastPoint = entry.points[entry.points.length - 1];
+                    if (!lastPoint || lastPoint.x !== timestamp) {
+                        entry.points.push({ x: timestamp, y: ap.signal });
+                    }
+
+                    const cutoff = now - HISTORY_WINDOW_MS;
+                    entry.points = entry.points.filter(
+                        (point) => point.x >= cutoff,
+                    );
+                    if (entry.points.length > HISTORY_MAX_POINTS) {
+                        entry.points.splice(
+                            0,
+                            entry.points.length - HISTORY_MAX_POINTS,
+                        );
+                    }
+                });
+            });
+        }
+
+        apHistory.forEach((entry, bssid) => {
+            if (!entry.points || entry.points.length === 0) {
+                apHistory.delete(bssid);
+                return;
+            }
+            const lastPoint = entry.points[entry.points.length - 1];
+            if (lastPoint.x < now - HISTORY_WINDOW_MS) {
+                apHistory.delete(bssid);
+            }
+        });
+
+        historyAPs = apHistory.size;
+        historyPoints = 0;
+        apHistory.forEach((entry) => {
+            historyPoints += entry.points.length;
+        });
+    }
+
+    function normalizePoints(points) {
+        if (!Array.isArray(points)) return [];
+        return points
+            .map((point) => {
+                const x =
+                    typeof point.timestamp === "number"
+                        ? point.timestamp
+                        : point.x;
+                const parsed =
+                    typeof x === "number"
+                        ? x
+                        : Date.parse(point.timestamp || point.x);
+                const ts = Number.isNaN(parsed) ? Date.now() : parsed;
+                const y =
+                    typeof point.signal === "number" ? point.signal : point.y;
+                if (typeof y !== "number") return null;
+                return { x: ts, y };
+            })
+            .filter(Boolean)
+            .sort((a, b) => a.x - b.x);
     }
 
     function updateChart() {
-        if (
-            !clientStats ||
-            !clientStats.signalHistory ||
-            clientStats.signalHistory.length === 0
-        ) {
-            chart.data.datasets = [];
-            chart.update();
+        if (apHistory.size === 0) {
+            connectedChart.data.datasets = [];
+            othersChart.data.datasets = [];
+            connectedChart.update();
+            othersChart.update();
             return;
         }
 
@@ -188,62 +367,91 @@
 
         // Group signal data by BSSID to show multiple APs
         const signalDataByBSSID = {};
-
-        clientStats.signalHistory.forEach((point) => {
-            const bssid = point.bssid || "Unknown";
-            if (!signalDataByBSSID[bssid]) {
-                signalDataByBSSID[bssid] = [];
-            }
-            signalDataByBSSID[bssid].push({
-                x: point.timestamp,
-                y: point.signal,
-            });
+        apHistory.forEach((entry, bssid) => {
+            if (!entry.points || entry.points.length === 0) return;
+            signalDataByBSSID[bssid] = entry.points;
         });
 
         // Create datasets for each BSSID
-        const datasets = [];
-        const colors = [
-            "#0066cc",
-            "#4caf50",
-            "#ff9800",
-            "#f44336",
-            "#9c27b0",
-            "#00bcd4",
-            "#8bc34a",
-            "#ffc107",
-            "#795548",
-            "#607d8b",
-        ];
+        const connectedDatasets = [];
+        const otherDatasets = [];
+        const colors = theme.series;
         let colorIndex = 0;
 
-        Object.entries(signalDataByBSSID).forEach(([bssid, data]) => {
+        const connectedBSSID = clientStats?.bssid;
+        const entries = Object.entries(signalDataByBSSID).sort(([a], [b]) => {
+            if (a === connectedBSSID) return -1;
+            if (b === connectedBSSID) return 1;
+            return a.localeCompare(b);
+        });
+
+        const connectedHistory = normalizePoints(
+            clientStats?.signalHistory || [],
+        );
+        if (connectedHistory.length > 1 && connectedBSSID) {
+            const label = `${clientStats.ssid || "Connected"} (${connectedBSSID})`;
+            const baseColor = theme.accentStrong || theme.accent;
+            connectedDatasets.push({
+                label,
+                data: connectedHistory,
+                borderColor: baseColor,
+                backgroundColor: withAlpha(baseColor, 0.2),
+                borderWidth: 3,
+                borderDash: [],
+                pointRadius: 2,
+                pointHoverRadius: 6,
+                pointBackgroundColor: baseColor,
+                tension: 0.25,
+                fill: "origin",
+                showLine: true,
+                spanGaps: true,
+                order: 10,
+            });
+        }
+
+        entries.forEach(([bssid, data]) => {
             // Find the corresponding AP to get SSID
-            let label = bssid;
-            if (clientStats.bssid === bssid) {
+            const entry = apHistory.get(bssid);
+            let label = entry?.ssid ? `${entry.ssid} (${bssid})` : bssid;
+            const isConnected = connectedBSSID === bssid;
+            if (connectedBSSID === bssid && clientStats) {
                 label = `${clientStats.ssid || "Connected"} (${bssid})`;
             }
+            const baseColor = isConnected
+                ? theme.accentStrong || theme.accent
+                : colors[colorIndex % colors.length];
 
-            datasets.push({
+            const dataset = {
                 label: label,
-                data: data,
-                borderColor: colors[colorIndex % colors.length],
-                backgroundColor: colors[colorIndex % colors.length] + "20",
-                borderWidth: 2,
-                pointRadius: 3,
-                pointHoverRadius: 5,
-                tension: 0.1,
-                fill: false,
-            });
+                data: normalizePoints(data),
+                borderColor: baseColor,
+                backgroundColor: withAlpha(baseColor, isConnected ? 0.2 : 0.06),
+                borderWidth: isConnected ? 3 : 1.5,
+                borderDash: isConnected ? [] : [4, 3],
+                pointRadius: isConnected ? 3 : 2,
+                pointHoverRadius: isConnected ? 6 : 4,
+                pointBackgroundColor: baseColor,
+                tension: 0.25,
+                fill: isConnected ? "origin" : false,
+                showLine: true,
+                spanGaps: true,
+                order: isConnected ? 10 : 5,
+            };
+            if (isConnected) {
+                if (connectedHistory.length <= 1) {
+                    connectedDatasets.push(dataset);
+                }
+            } else otherDatasets.push(dataset);
             colorIndex++;
         });
 
         // Add roaming events as vertical lines
         if (
-            clientStats.roamingHistory &&
+            clientStats?.roamingHistory &&
             clientStats.roamingHistory.length > 0
         ) {
             clientStats.roamingHistory.forEach((roamEvent) => {
-                datasets.push({
+                connectedDatasets.push({
                     label: `Roaming: ${roamEvent.previousBSSID.slice(-6)} → ${roamEvent.newBSSID.slice(-6)}`,
                     data: [
                         { x: roamEvent.timestamp, y: -100 },
@@ -259,8 +467,15 @@
             });
         }
 
-        chart.data.datasets = datasets;
-        chart.update();
+        connectedChart.data.datasets = connectedDatasets;
+        othersChart.data.datasets = otherDatasets;
+        connectedChart.update();
+        othersChart.update();
+    }
+
+    function resetZoom() {
+        connectedChart?.resetZoom();
+        othersChart?.resetZoom();
     }
 
     function getSignalQuality(signal) {
@@ -313,22 +528,29 @@
     {/if}
 
     <div class="chart-wrapper">
-        <canvas bind:this={chartElement}></canvas>
+        <canvas bind:this={connectedChartElement}></canvas>
     </div>
 
-    {#if clientStats && clientStats.signalHistory && clientStats.signalHistory.length > 0}
+    <div class="chart-wrapper secondary">
+        <canvas bind:this={othersChartElement}></canvas>
+    </div>
+
+    {#if historyAPs > 0}
         <div class="chart-footer">
             <div class="history-info">
-                <span
-                    >History: {clientStats.signalHistory.length} data points</span
-                >
-                {#if clientStats.roamingHistory && clientStats.roamingHistory.length > 0}
+                <span>APs tracked: {historyAPs}</span>
+                <span>History: {historyPoints} data points</span>
+                {#if clientStats && clientStats.roamingHistory && clientStats.roamingHistory.length > 0}
                     <span
                         >Roaming events: {clientStats.roamingHistory
                             .length}</span
                     >
                 {/if}
+                <span class="zoom-hint">Scroll to zoom, drag to pan</span>
             </div>
+            <button class="reset-zoom" type="button" on:click={resetZoom}>
+                Reset zoom
+            </button>
         </div>
     {/if}
 </div>
@@ -336,14 +558,20 @@
 <style>
     .signal-chart-container {
         height: 100%;
+        min-height: 0;
         display: flex;
         flex-direction: column;
-        background: var(--bg-0);
+        gap: 12px;
+        background: linear-gradient(180deg, var(--bg-0), var(--bg-1));
         padding: 16px;
+        box-sizing: border-box;
     }
 
     .chart-header {
-        margin-bottom: 16px;
+        display: flex;
+        align-items: flex-end;
+        justify-content: space-between;
+        gap: 12px;
     }
 
     .chart-header h3 {
@@ -363,6 +591,11 @@
         display: flex;
         flex-direction: column;
         gap: 4px;
+        padding: 10px 12px;
+        border-radius: 12px;
+        background: var(--panel);
+        border: 1px solid var(--border);
+        box-shadow: var(--panel-shadow);
     }
 
     .current-signal {
@@ -379,6 +612,10 @@
     .signal-value {
         font-weight: 600;
         font-size: 16px;
+        padding: 2px 8px;
+        border-radius: 999px;
+        border: 1px solid color-mix(in srgb, currentColor 35%, transparent);
+        background: color-mix(in srgb, currentColor 14%, transparent);
     }
 
     .signal-good {
@@ -405,6 +642,13 @@
         color: var(--muted);
     }
 
+    .signal-stats span {
+        padding: 2px 8px;
+        border-radius: 999px;
+        background: var(--panel-strong);
+        border: 1px solid var(--border);
+    }
+
     .no-connection {
         color: var(--muted-2);
         font-size: 14px;
@@ -412,15 +656,27 @@
     }
 
     .chart-wrapper {
-        flex: 1;
+        flex: 1 1 0;
         position: relative;
-        min-height: 200px;
+        min-height: 0;
+        padding: 12px;
+        border-radius: 16px;
+        background: linear-gradient(180deg, var(--panel), var(--panel-strong));
+        border: 1px solid var(--border);
+        box-shadow: var(--panel-shadow);
+    }
+
+    .chart-wrapper.secondary {
+        min-height: 0;
     }
 
     .chart-footer {
-        margin-top: 12px;
-        padding-top: 8px;
-        border-top: 1px solid var(--border);
+        padding-top: 4px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        flex-wrap: wrap;
     }
 
     .history-info {
@@ -430,10 +686,43 @@
         color: var(--muted-2);
     }
 
+    .history-info span {
+        padding: 3px 8px;
+        border-radius: 999px;
+        background: var(--panel-strong);
+        border: 1px solid var(--border);
+    }
+
+    .zoom-hint {
+        color: var(--muted);
+    }
+
+    .reset-zoom {
+        padding: 6px 10px;
+        border-radius: 999px;
+        border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
+        background: color-mix(in srgb, var(--accent) 18%, transparent);
+        color: var(--text);
+        font-size: 12px;
+        font-weight: 600;
+        letter-spacing: 0.02em;
+        cursor: pointer;
+    }
+
+    .reset-zoom:hover {
+        border-color: var(--accent);
+        color: var(--accent);
+    }
+
     /* Responsive adjustments */
     @media (max-width: 768px) {
         .signal-chart-container {
             padding: 12px;
+        }
+
+        .chart-header {
+            flex-direction: column;
+            align-items: flex-start;
         }
 
         .chart-header h3 {
@@ -454,6 +743,10 @@
         .history-info {
             flex-direction: column;
             gap: 2px;
+        }
+
+        .chart-footer {
+            align-items: flex-start;
         }
     }
 </style>

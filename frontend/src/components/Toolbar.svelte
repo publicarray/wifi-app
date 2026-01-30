@@ -74,7 +74,7 @@
         display: flex;
         justify-content: space-between;
         align-items: center;
-        padding: 16px 20px;
+        padding: 0px 20px;
         background: var(--panel-soft);
         border-bottom: 2px solid var(--border);
         min-height: 70px;
