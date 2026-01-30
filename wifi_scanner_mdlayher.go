@@ -15,6 +15,7 @@ type WiFiScannerNL80211 struct {
 	client    *wifi.Client
 	ouiLookup *OUILookup
 	parser    *mdlayherParser
+	initErr   error
 }
 
 const activeScanTimeout = 20 * time.Second
@@ -25,17 +26,26 @@ func NewWiFiScanner(cacheFile string) WiFiBackend {
 
 	client, err := wifi.New()
 	if err != nil {
-		panic(fmt.Sprintf("failed to create wifi client: %v", err))
+		return &WiFiScannerNL80211{
+			client:    nil,
+			ouiLookup: ouiLookup,
+			parser:    &mdlayherParser{ouiLookup: ouiLookup},
+			initErr:   fmt.Errorf("failed to create wifi client: %w", err),
+		}
 	}
 
 	return &WiFiScannerNL80211{
 		client:    client,
 		ouiLookup: ouiLookup,
 		parser:    &mdlayherParser{ouiLookup: ouiLookup},
+		initErr:   nil,
 	}
 }
 
 func (s *WiFiScannerNL80211) GetInterfaces() ([]string, error) {
+	if s.initErr != nil {
+		return nil, s.initErr
+	}
 	interfaces, err := s.client.Interfaces()
 	if err != nil {
 		return nil, fmt.Errorf("failed to get interfaces: %w", err)
@@ -54,6 +64,9 @@ func (s *WiFiScannerNL80211) GetInterfaces() ([]string, error) {
 }
 
 func (s *WiFiScannerNL80211) ScanNetworks(iface string) ([]AccessPoint, error) {
+	if s.initErr != nil {
+		return nil, s.initErr
+	}
 	interfaces, err := s.client.Interfaces()
 	if err != nil {
 		return nil, fmt.Errorf("failed to get interfaces: %w", err)
@@ -265,6 +278,9 @@ func (p *mdlayherParser) parseSecurityFromRSN(rsn wifi.RSNInfo, ap *AccessPoint)
 
 func (s *WiFiScannerNL80211) GetLinkInfo(iface string) (map[string]string, error) {
 	info := make(map[string]string)
+	if s.initErr != nil {
+		return info, s.initErr
+	}
 
 	interfaces, err := s.client.Interfaces()
 	if err != nil {
@@ -336,10 +352,16 @@ func (s *WiFiScannerNL80211) GetLinkInfo(iface string) (map[string]string, error
 }
 
 func (s *WiFiScannerNL80211) GetStationStats(iface string) (map[string]string, error) {
+	if s.initErr != nil {
+		return map[string]string{}, s.initErr
+	}
 	return s.GetLinkInfo(iface)
 }
 
 func (s *WiFiScannerNL80211) Close() error {
+	if s.client == nil {
+		return nil
+	}
 	return s.client.Close()
 }
 
