@@ -8,7 +8,7 @@ require (
 	golang.org/x/sys v0.39.0
 )
 
-replace github.com/mdlayher/wifi => github.com/publicarray/wifi v0.1.0
+replace github.com/mdlayher/wifi => github.com/publicarray/wifi v0.1.1-0.20260130103944-2ac2e80b6813
 
 //replace github.com/mdlayher/wifi v0.7.2 => ./vendor-patch/github.com/mdlayher/wifi
 
