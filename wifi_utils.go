@@ -135,6 +135,7 @@ func NormalizeAccessPoint(ap *AccessPoint) {
 	if ap.PMF == "" {
 		ap.PMF = "Disabled"
 	}
+	normalizeCapabilities(ap)
 	if ap.CountryCode != "" {
 		ap.CountryCode = strings.ToUpper(strings.TrimSpace(ap.CountryCode))
 	}
@@ -189,6 +190,60 @@ func normalizeToken(value string) string {
 		"\u2212", "-",
 	)
 	return strings.TrimSpace(replacer.Replace(value))
+}
+
+func normalizeCapabilities(ap *AccessPoint) {
+	if ap == nil {
+		return
+	}
+	if len(ap.Capabilities) == 0 {
+		return
+	}
+
+	norm := make([]string, 0, len(ap.Capabilities))
+	has := func(key string) bool {
+		for _, c := range norm {
+			if strings.EqualFold(c, key) {
+				return true
+			}
+		}
+		return false
+	}
+
+	add := func(val string) {
+		if val == "" {
+			return
+		}
+		if !has(val) {
+			norm = append(norm, val)
+		}
+	}
+
+	for _, c := range ap.Capabilities {
+		clean := strings.TrimSpace(c)
+		switch strings.ToLower(clean) {
+		case "802.11ax":
+			add("HE")
+			add("WiFi6")
+		case "802.11ac":
+			add("VHT")
+			add("WiFi5")
+		case "802.11n":
+			add("HT")
+			add("WiFi4")
+		case "802.11be":
+			add("WiFi7")
+		case "802.11a", "802.11b", "802.11g":
+			add("Legacy")
+		default:
+			if strings.HasPrefix(strings.ToLower(clean), "802.11") {
+				continue
+			}
+			add(clean)
+		}
+	}
+
+	ap.Capabilities = norm
 }
 
 func maxPhyRateFromHEMCS(width int, maxMcs int, streams int) int {

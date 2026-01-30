@@ -584,10 +584,10 @@ func (p *windowsParser) parseInformationElements(ap *AccessPoint, entry *WLAN_BS
 			if length >= 12 {
 				rxHighest := int(uint16(data[6]) | uint16(data[7])<<8)
 				txHighest := int(uint16(data[10]) | uint16(data[11])<<8)
-				if rxHighest > ap.MaxPhyRate {
+				if ap.MaxPhyRate == 0 && rxHighest > 0 {
 					ap.MaxPhyRate = rxHighest
 				}
-				if txHighest > ap.MaxPhyRate {
+				if ap.MaxPhyRate == 0 && txHighest > 0 {
 					ap.MaxPhyRate = txHighest
 				}
 			}
@@ -648,7 +648,7 @@ func (p *windowsParser) parseInformationElements(ap *AccessPoint, entry *WLAN_BS
 						if streams > ap.MIMOStreams {
 							ap.MIMOStreams = streams
 						}
-						if rate := maxPhyRateFromHEMCS(ap.ChannelWidth, maxHEMCSFromMap(heMCSMap), streams); rate > ap.MaxPhyRate {
+						if rate := maxPhyRateFromHEMCS(ap.ChannelWidth, maxHEMCSFromMap(heMCSMap), streams); rate > 0 {
 							ap.MaxPhyRate = rate
 						}
 						// HE supports 1024-QAM
@@ -682,7 +682,7 @@ func (p *windowsParser) parseInformationElements(ap *AccessPoint, entry *WLAN_BS
 						if streams <= 0 {
 							streams = 1
 						}
-						if rate := maxPhyRateFromHEMCS(ap.ChannelWidth, maxMcs, streams); rate > ap.MaxPhyRate {
+						if rate := maxPhyRateFromHEMCS(ap.ChannelWidth, maxMcs, streams); rate > 0 {
 							ap.MaxPhyRate = rate
 						}
 					}

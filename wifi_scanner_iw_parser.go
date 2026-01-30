@@ -36,6 +36,7 @@ func (p *iwParser) ParseScan(output []byte) ([]AccessPoint, error) {
 	ssidRegex := regexp.MustCompile(`^\s+SSID:\s+(.*)$`)
 	channelRegex := regexp.MustCompile(`^\s+\* primary channel:\s+(\d+)`)
 	beaconRegex := regexp.MustCompile(`beacon interval:\s+(\d+)\s+TUs`)
+	dtimRegex := regexp.MustCompile(`DTIM Period\s+(\d+)`)
 	txPowerRegex := regexp.MustCompile(`TPC report: TX power:\s+([\d.]+)`)
 	widthRegex := regexp.MustCompile(`HT20|HT40|VHT80|VHT160|HE80|HE160|320MHz`)
 	wpsRegex := regexp.MustCompile(`WPS:.*Version:\s+([\d.]+)`)
@@ -63,7 +64,7 @@ func (p *iwParser) ParseScan(output []byte) ([]AccessPoint, error) {
 		if matches := bssRegex.FindStringSubmatch(line); matches != nil {
 			if currentAP != nil {
 				if heMaxMcs > 0 && heMaxStreams > 0 {
-					if rate := maxPhyRateFromHEMCS(currentAP.ChannelWidth, heMaxMcs, heMaxStreams); rate > currentAP.MaxPhyRate {
+					if rate := maxPhyRateFromHEMCS(currentAP.ChannelWidth, heMaxMcs, heMaxStreams); rate > 0 {
 						currentAP.MaxPhyRate = rate
 					}
 				}
@@ -118,9 +119,12 @@ func (p *iwParser) ParseScan(output []byte) ([]AccessPoint, error) {
 			if matches := beaconRegex.FindStringSubmatch(line); matches != nil {
 				beaconInt, _ := strconv.Atoi(matches[1])
 				currentAP.BeaconInt = beaconInt
-				currentAP.DTIM = beaconInt
 			}
 
+			if matches := dtimRegex.FindStringSubmatch(line); matches != nil {
+				dtim, _ := strconv.Atoi(matches[1])
+				currentAP.DTIM = dtim
+			}
 			if matches := txPowerRegex.FindStringSubmatch(line); matches != nil {
 				txPower, _ := strconv.ParseFloat(matches[1], 64)
 				currentAP.TxPower = int(txPower)
@@ -240,7 +244,7 @@ func (p *iwParser) ParseScan(output []byte) ([]AccessPoint, error) {
 					strings.HasPrefix(trimmed, "RSN:") {
 					inHEMcsSection = false
 					if heMaxMcs > 0 && heMaxStreams > 0 {
-						if rate := maxPhyRateFromHEMCS(currentAP.ChannelWidth, heMaxMcs, heMaxStreams); rate > currentAP.MaxPhyRate {
+						if rate := maxPhyRateFromHEMCS(currentAP.ChannelWidth, heMaxMcs, heMaxStreams); rate > 0 {
 							currentAP.MaxPhyRate = rate
 						}
 					}
@@ -269,7 +273,7 @@ func (p *iwParser) ParseScan(output []byte) ([]AccessPoint, error) {
 					strings.HasPrefix(trimmed, "BSS ") {
 					inEHTMcsSection = false
 					if ehtMaxMcs > 0 && ehtMaxStreams > 0 {
-						if rate := maxPhyRateFromHEMCS(currentAP.ChannelWidth, ehtMaxMcs, ehtMaxStreams); rate > currentAP.MaxPhyRate {
+						if rate := maxPhyRateFromHEMCS(currentAP.ChannelWidth, ehtMaxMcs, ehtMaxStreams); rate > 0 {
 							currentAP.MaxPhyRate = rate
 						}
 					}
@@ -278,14 +282,14 @@ func (p *iwParser) ParseScan(output []byte) ([]AccessPoint, error) {
 
 			if matches := vhtRxHighestRegex.FindStringSubmatch(line); matches != nil {
 				rate, _ := strconv.Atoi(matches[1])
-				if rate > currentAP.MaxPhyRate {
+				if currentAP.MaxPhyRate == 0 && rate > 0 {
 					currentAP.MaxPhyRate = rate
 				}
 			}
 
 			if matches := vhtTxHighestRegex.FindStringSubmatch(line); matches != nil {
 				rate, _ := strconv.Atoi(matches[1])
-				if rate > currentAP.MaxPhyRate {
+				if currentAP.MaxPhyRate == 0 && rate > 0 {
 					currentAP.MaxPhyRate = rate
 				}
 			}
@@ -364,12 +368,12 @@ func (p *iwParser) ParseScan(output []byte) ([]AccessPoint, error) {
 
 	if currentAP != nil {
 		if heMaxMcs > 0 && heMaxStreams > 0 {
-			if rate := maxPhyRateFromHEMCS(currentAP.ChannelWidth, heMaxMcs, heMaxStreams); rate > currentAP.MaxPhyRate {
+			if rate := maxPhyRateFromHEMCS(currentAP.ChannelWidth, heMaxMcs, heMaxStreams); rate > 0 {
 				currentAP.MaxPhyRate = rate
 			}
 		}
 		if ehtMaxMcs > 0 && ehtMaxStreams > 0 {
-			if rate := maxPhyRateFromHEMCS(currentAP.ChannelWidth, ehtMaxMcs, ehtMaxStreams); rate > currentAP.MaxPhyRate {
+			if rate := maxPhyRateFromHEMCS(currentAP.ChannelWidth, ehtMaxMcs, ehtMaxStreams); rate > 0 {
 				currentAP.MaxPhyRate = rate
 			}
 		}
@@ -382,9 +386,6 @@ func (p *iwParser) ParseScan(output []byte) ([]AccessPoint, error) {
 		}
 		if aps[i].ChannelWidth == 0 {
 			aps[i].ChannelWidth = 20
-		}
-		if aps[i].DTIM == 0 {
-			aps[i].DTIM = 100
 		}
 		if aps[i].PMF == "" {
 			aps[i].PMF = "Disabled"

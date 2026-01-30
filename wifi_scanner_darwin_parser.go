@@ -63,6 +63,7 @@ func (p *airportParser) ParseScan(output []byte) ([]AccessPoint, error) {
 			PMF:             pmf,
 			CountryCode:     strings.ToUpper(getString(entry, "COUNTRY_CODE", "CC")),
 			Noise:           getInt(entry, "NOISE"),
+			DTIM:            getIntAny(entry, "DTIM", "DTIM_PERIOD", "DTIM_INTERVAL"),
 		}
 
 		if getBool(entry, "HT") {
@@ -389,6 +390,15 @@ func getInt(entry map[string]interface{}, key string) int {
 			if i, err := strconv.Atoi(strings.TrimSpace(v)); err == nil {
 				return i
 			}
+		}
+	}
+	return 0
+}
+
+func getIntAny(entry map[string]interface{}, keys ...string) int {
+	for _, key := range keys {
+		if value := getInt(entry, key); value != 0 {
+			return value
 		}
 	}
 	return 0

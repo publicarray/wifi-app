@@ -1470,9 +1470,14 @@ MSP ADVICE:
                                                             DTIM Interval
                                                         </span>
                                                         <span
-                                                            class="value-pill value-neutral"
+                                                            class="value-pill {ap.dtim >
+                                                            0
+                                                                ? 'value-neutral'
+                                                                : 'value-unknown'}"
                                                         >
-                                                            {ap.dtim}
+                                                            {ap.dtim > 0
+                                                                ? ap.dtim
+                                                                : "N/A"}
                                                         </span>
                                                     </div>
                                                     <div

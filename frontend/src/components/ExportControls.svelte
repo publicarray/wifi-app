@@ -86,7 +86,6 @@
             "Capabilities",
             "DFS",
             "LastSeen",
-            "APName",
             "BSSLoadStations",
             "BSSLoadUtilization",
             "MaxPhyRateMbps",
@@ -129,7 +128,6 @@
                         (ap.capabilities || []).join("|"),
                         ap.dfs,
                         ap.lastSeen,
-                        ap.apName,
                         ap.bssLoadStations,
                         ap.bssLoadUtilization,
                         ap.maxPhyRate > 0 ? ap.maxPhyRate : "",
@@ -253,7 +251,6 @@
                     <td>—</td>
                     <td>—</td>
                     <td>—</td>
-                    <td>—</td>
                     <td>${escapeHtml(network.apCount ?? "—")}</td>
                     <td>${escapeHtml(network.bestSignal ?? "—")}</td>
                     <td>${escapeHtml(network.bestSignalAP ?? "—")}</td>
@@ -277,7 +274,6 @@
                     <td>${escapeHtml((ap.capabilities || []).join(" | "))}</td>
                     <td>${escapeHtml(ap.dfs)}</td>
                     <td>${escapeHtml(ap.lastSeen)}</td>
-                    <td>${escapeHtml(ap.apName)}</td>
                     <td>${escapeHtml(ap.bssLoadStations)}</td>
                     <td>${escapeHtml(ap.bssLoadUtilization)}</td>
                     <td>${escapeHtml(ap.maxPhyRate > 0 ? ap.maxPhyRate : "")}</td>
@@ -346,7 +342,6 @@
         <th>Capabilities</th>
         <th>DFS</th>
         <th>Last Seen</th>
-        <th>AP Name</th>
         <th>BSS Stations</th>
         <th>BSS Utilization</th>
         <th>Max PHY Rate</th>

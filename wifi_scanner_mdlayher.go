@@ -126,9 +126,6 @@ func (s *WiFiScannerNL80211) ScanNetworks(iface string) ([]AccessPoint, error) {
 		if accessPoints[i].ChannelWidth == 0 {
 			accessPoints[i].ChannelWidth = 20
 		}
-		if accessPoints[i].DTIM == 0 {
-			accessPoints[i].DTIM = 100
-		}
 		if accessPoints[i].PMF == "" {
 			accessPoints[i].PMF = "Disabled"
 		}
@@ -384,6 +381,8 @@ func (p *mdlayherParser) parseCapabilitiesIEs(ies []wifi.IE, ap *AccessPoint) {
 			parseTPCReport(ie.Data, ap)
 		case 7:
 			parseCountryIE(ie.Data, ap)
+		case 5:
+			parseTIM(ie.Data, ap)
 		case 127:
 			parseExtendedCapabilities(ie.Data, ap)
 		case 221:
@@ -473,10 +472,10 @@ func parseVHTCapabilities(data []byte, ap *AccessPoint) {
 	// Bytes 6-7: RX highest, Bytes 10-11: TX highest
 	rxHighest := int(uint16(data[6]) | uint16(data[7])<<8)
 	txHighest := int(uint16(data[10]) | uint16(data[11])<<8)
-	if rxHighest > ap.MaxPhyRate {
+	if ap.MaxPhyRate == 0 && rxHighest > 0 {
 		ap.MaxPhyRate = rxHighest
 	}
-	if txHighest > ap.MaxPhyRate {
+	if ap.MaxPhyRate == 0 && txHighest > 0 {
 		ap.MaxPhyRate = txHighest
 	}
 }
@@ -534,11 +533,6 @@ func parseHECapabilitiesElement(data []byte, ap *AccessPoint) {
 		ap.QAMSupport = 1024
 	}
 
-	// OBSS PD-based SR: Byte 9, Bit 4
-	if len(phyCap) >= 4 && (phyCap[3]&0x10) != 0 {
-		ap.OBSSPD = true
-	}
-
 	// Supported HE-MCS And NSS Set (bytes 17+)
 	// RX HE-MCS Map: 2 bytes, 2 bits per spatial stream
 	if len(data) >= 19 {
@@ -553,7 +547,7 @@ func parseHECapabilitiesElement(data []byte, ap *AccessPoint) {
 		if maxStream > ap.MIMOStreams {
 			ap.MIMOStreams = maxStream
 		}
-		if rate := maxPhyRateFromHEMCS(ap.ChannelWidth, maxHEMCSFromMap(rxMcsMap), maxStream); rate > ap.MaxPhyRate {
+		if rate := maxPhyRateFromHEMCS(ap.ChannelWidth, maxHEMCSFromMap(rxMcsMap), maxStream); rate > 0 {
 			ap.MaxPhyRate = rate
 		}
 	}
@@ -587,7 +581,7 @@ func parseEHTCapabilitiesElement(data []byte, ap *AccessPoint) {
 		if streams <= 0 {
 			streams = 1
 		}
-		if rate := maxPhyRateFromHEMCS(ap.ChannelWidth, maxMcs, streams); rate > ap.MaxPhyRate {
+		if rate := maxPhyRateFromHEMCS(ap.ChannelWidth, maxMcs, streams); rate > 0 {
 			ap.MaxPhyRate = rate
 		}
 	}
@@ -596,6 +590,14 @@ func parseEHTCapabilitiesElement(data []byte, ap *AccessPoint) {
 func parseEHTOperation(data []byte, ap *AccessPoint) {
 	_ = data
 	_ = ap
+}
+
+func parseTIM(data []byte, ap *AccessPoint) {
+	// TIM element: DTIM count (0), DTIM period (1), bitmap control (2), partial virtual bitmap...
+	if len(data) < 2 {
+		return
+	}
+	ap.DTIM = int(data[1])
 }
 
 func parseEHTMaxMCS(data []byte) int {

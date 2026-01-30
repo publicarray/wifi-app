@@ -65,6 +65,9 @@ func (o *OUILookup) LoadOUIDatabase() error {
 	if useFallback {
 		o.loadMinimalDatabase()
 	}
+	if !useFallback {
+		o.mergeMinimalDatabase()
+	}
 
 	o.loaded = true
 	return nil
@@ -139,7 +142,10 @@ func (o *OUILookup) loadFromFile(filepath string) error {
 			vendorName := strings.TrimSpace(record[1])
 
 			if macPrefix != "" && vendorName != "" {
-				o.ouiMap[macPrefix] = vendorName
+				normalized := normalizeOUIPrefix(macPrefix)
+				if normalized != "" {
+					o.ouiMap[normalized] = vendorName
+				}
 				entriesLoaded++
 			}
 		}
@@ -151,6 +157,20 @@ func (o *OUILookup) loadFromFile(filepath string) error {
 	}
 
 	return nil
+}
+
+func normalizeOUIPrefix(prefix string) string {
+	if prefix == "" {
+		return ""
+	}
+	p := strings.ToUpper(strings.TrimSpace(prefix))
+	p = strings.ReplaceAll(p, "-", "")
+	p = strings.ReplaceAll(p, ":", "")
+	if len(p) < 6 {
+		return ""
+	}
+	p = p[:6]
+	return fmt.Sprintf("%s:%s:%s", p[0:2], p[2:4], p[4:6])
 }
 
 // loadMinimalDatabase loads a minimal embedded OUI database for common vendors
@@ -294,6 +314,30 @@ func (o *OUILookup) loadMinimalDatabase() {
 
 	for mac, vendor := range commonOUIs {
 		o.ouiMap[mac] = vendor
+	}
+}
+
+func (o *OUILookup) mergeMinimalDatabase() {
+	commonOUIs := map[string]string{
+		// Ubiquiti (Unifi)
+		"00:27:22": "Ubiquiti Networks",
+		"24:5A:4C": "Ubiquiti Networks",
+		"68:D7:9A": "Ubiquiti Networks",
+		"70:A7:41": "Ubiquiti Networks",
+		"74:83:C2": "Ubiquiti Networks",
+		"78:8A:20": "Ubiquiti Networks",
+		"80:2A:A8": "Ubiquiti Networks",
+		"B4:FB:E4": "Ubiquiti Networks",
+		"DC:9F:DB": "Ubiquiti Networks",
+		"F0:9F:C2": "Ubiquiti Networks",
+		"FC:EC:DA": "Ubiquiti Networks",
+		"1E:6A:1B": "Ubiquiti Networks",
+	}
+
+	for mac, vendor := range commonOUIs {
+		if _, exists := o.ouiMap[mac]; !exists {
+			o.ouiMap[mac] = vendor
+		}
 	}
 }
 
