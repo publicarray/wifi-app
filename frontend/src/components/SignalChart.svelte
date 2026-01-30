@@ -1,3 +1,11 @@
+<script context="module">
+    const historyStore = {
+        apHistory: new Map(),
+        historyPoints: 0,
+        historyAPs: 0,
+    };
+</script>
+
 <script>
     import { onMount, onDestroy } from "svelte";
     import { Chart, registerables } from "chart.js";
@@ -12,9 +20,9 @@
     let connectedChart = null;
     let othersChart = null;
     let themeMedia = null;
-    let apHistory = new Map();
-    let historyPoints = 0;
-    let historyAPs = 0;
+    let apHistory = historyStore.apHistory;
+    let historyPoints = historyStore.historyPoints;
+    let historyAPs = historyStore.historyAPs;
     const HISTORY_WINDOW_MS = 30 * 60 * 1000;
     const HISTORY_MAX_POINTS = 300;
     const STALE_HOLD_MS = 30000;
@@ -350,6 +358,8 @@
         apHistory.forEach((entry) => {
             historyPoints += entry.points.length;
         });
+        historyStore.historyAPs = historyAPs;
+        historyStore.historyPoints = historyPoints;
     }
 
     function normalizePoints(points) {

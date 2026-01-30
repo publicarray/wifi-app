@@ -109,13 +109,34 @@ func (s *WiFiScannerNL80211) ScanNetworks(iface string) ([]AccessPoint, error) {
 			accessPoints = append(accessPoints, ap[0])
 		}
 	}
-	noiseFloor := 0
+	noiseByFreq := map[int]int{}
+	busyByFreq := map[int]int{}
+	extBusyByFreq := map[int]int{}
+	utilByFreq := map[int]int{}
+	maxTxPowerByFreq := map[int]int{}
 	surveys, err := s.client.SurveyInfo(targetInterface)
 	if err == nil && len(surveys) > 0 {
 		for _, survey := range surveys {
-			if survey.Noise != 0 {
-				noiseFloor = survey.Noise
-				break
+			if survey.Noise != 0 && survey.Frequency != 0 {
+				noiseByFreq[survey.Frequency] = survey.Noise
+			}
+			if survey.Frequency != 0 {
+				if survey.ChannelTime > 0 && survey.ChannelTimeBusy > 0 {
+					util := int(float64(survey.ChannelTimeBusy) / float64(survey.ChannelTime) * 100)
+					if util > 100 {
+						util = 100
+					}
+					utilByFreq[survey.Frequency] = util
+				}
+				if survey.ChannelTimeBusy > 0 {
+					busyByFreq[survey.Frequency] = int(survey.ChannelTimeBusy / time.Millisecond)
+				}
+				if survey.ChannelTimeExtBusy > 0 {
+					extBusyByFreq[survey.Frequency] = int(survey.ChannelTimeExtBusy / time.Millisecond)
+				}
+				if survey.MaxTXPower != 0 {
+					maxTxPowerByFreq[survey.Frequency] = int(survey.MaxTXPower / 100)
+				}
 			}
 		}
 	}
@@ -136,9 +157,21 @@ func (s *WiFiScannerNL80211) ScanNetworks(iface string) ([]AccessPoint, error) {
 			accessPoints[i].BSSLoadStations = -1
 			accessPoints[i].BSSLoadUtilization = -1
 		}
-		if noiseFloor != 0 {
-			accessPoints[i].Noise = noiseFloor
-			accessPoints[i].SNR = accessPoints[i].Signal - noiseFloor
+		if noise, ok := noiseByFreq[accessPoints[i].Frequency]; ok && noise != 0 {
+			accessPoints[i].Noise = noise
+			accessPoints[i].SNR = accessPoints[i].Signal - noise
+		}
+		if util, ok := utilByFreq[accessPoints[i].Frequency]; ok && util > 0 {
+			accessPoints[i].SurveyUtilization = util
+		}
+		if busy, ok := busyByFreq[accessPoints[i].Frequency]; ok && busy > 0 {
+			accessPoints[i].SurveyBusyMs = busy
+		}
+		if extBusy, ok := extBusyByFreq[accessPoints[i].Frequency]; ok && extBusy > 0 {
+			accessPoints[i].SurveyExtBusyMs = extBusy
+		}
+		if maxTx, ok := maxTxPowerByFreq[accessPoints[i].Frequency]; ok && maxTx != 0 {
+			accessPoints[i].MaxTxPowerDbm = maxTx
 		}
 		accessPoints[i].DFS = isDFSChannel(accessPoints[i].Channel)
 	}

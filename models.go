@@ -36,6 +36,10 @@ type AccessPoint struct {
 	MIMOStreams        int     `json:"mimoStreams"`        // Number of MIMO spatial streams (1-4)
 	EstimatedRange     float64 `json:"estimatedRange"`     // Estimated range in meters based on TX power and signal
 	SNR                int     `json:"snr"`                // Signal-to-noise ratio
+	SurveyUtilization  int     `json:"surveyUtilization"`  // Channel busy percentage from survey info
+	SurveyBusyMs       int     `json:"surveyBusyMs"`       // Channel busy time in ms
+	SurveyExtBusyMs    int     `json:"surveyExtBusyMs"`    // External busy time in ms
+	MaxTxPowerDbm      int     `json:"maxTxPowerDbm"`      // Max regulatory TX power in dBm
 	// Security details
 	SecurityCiphers []string `json:"securityCiphers"` // Encryption ciphers (CCMP, GCMP, TKIP, etc.)
 	AuthMethods     []string `json:"authMethods"`     // Authentication methods (PSK, SAE, EAP, etc.)

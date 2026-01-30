@@ -17,7 +17,7 @@
     let filterText = "";
     let filterChannel = "";
     let filterSecurity = "";
-    let showHidden = false;
+    let showHidden = true;
 
     function collectAPs(source) {
         return (source || []).flatMap((network) => network.accessPoints || []);
@@ -90,9 +90,11 @@
     ) {
         return networksToFilter.filter((network) => {
             // Text filter
+            const ssidValue =
+                typeof network.ssid === "string" ? network.ssid : "";
             if (
                 filterText !== "" &&
-                !network.ssid.toLowerCase().includes(filterText.toLowerCase())
+                !ssidValue.toLowerCase().includes(filterText.toLowerCase())
             ) {
                 return false;
             }
@@ -111,7 +113,10 @@
             }
 
             // Hidden networks filter - only filter if explicitly hiding
-            if (showHidden === false && network.ssid === "<Hidden Network>") {
+            if (
+                showHidden === false &&
+                (ssidValue === "" || ssidValue === "<Hidden Network>")
+            ) {
                 return false;
             }
 
@@ -826,6 +831,97 @@ Signal quality metric more important than absolute signal.
                                                                 )}"
                                                             >
                                                                 {ap.snr} dB
+                                                            </span>
+                                                        </div>
+                                                    {/if}
+                                                    {#if ap.noise && ap.noise < 0}
+                                                        <div
+                                                            class="capability-item"
+                                                        >
+                                                            <span
+                                                                class="capability-label"
+                                                                title="Background noise floor in dBm for this channel (lower is better)."
+                                                            >
+                                                                Noise Floor
+                                                            </span>
+                                                            <span
+                                                                class="value-pill value-neutral"
+                                                            >
+                                                                {ap.noise} dBm
+                                                            </span>
+                                                        </div>
+                                                    {/if}
+                                                    {#if ap.surveyUtilization && ap.surveyUtilization > 0}
+                                                        <div
+                                                            class="capability-item"
+                                                        >
+                                                            <span
+                                                                class="capability-label"
+                                                                title="Channel busy percentage from nl80211 survey data (airtime usage)."
+                                                            >
+                                                                Survey
+                                                                Utilization
+                                                            </span>
+                                                            <span
+                                                                class="value-pill {getUtilizationStatusClass(
+                                                                    ap.surveyUtilization,
+                                                                )}"
+                                                            >
+                                                                {ap.surveyUtilization}%
+                                                            </span>
+                                                        </div>
+                                                    {/if}
+                                                    {#if ap.surveyBusyMs && ap.surveyBusyMs > 0}
+                                                        <div
+                                                            class="capability-item"
+                                                        >
+                                                            <span
+                                                                class="capability-label"
+                                                                title="Total channel busy time from nl80211 survey data."
+                                                            >
+                                                                Survey Busy
+                                                            </span>
+                                                            <span
+                                                                class="value-pill value-neutral"
+                                                            >
+                                                                {ap.surveyBusyMs}
+                                                                ms
+                                                            </span>
+                                                        </div>
+                                                    {/if}
+                                                    {#if ap.surveyExtBusyMs && ap.surveyExtBusyMs > 0}
+                                                        <div
+                                                            class="capability-item"
+                                                        >
+                                                            <span
+                                                                class="capability-label"
+                                                                title="Channel busy time caused by non‑Wi‑Fi interference (nl80211 survey)."
+                                                            >
+                                                                Ext Busy
+                                                            </span>
+                                                            <span
+                                                                class="value-pill value-neutral"
+                                                            >
+                                                                {ap.surveyExtBusyMs}
+                                                                ms
+                                                            </span>
+                                                        </div>
+                                                    {/if}
+                                                    {#if ap.maxTxPowerDbm && ap.maxTxPowerDbm > 0}
+                                                        <div
+                                                            class="capability-item"
+                                                        >
+                                                            <span
+                                                                class="capability-label"
+                                                                title="Maximum regulatory TX power for this channel (nl80211 survey)."
+                                                            >
+                                                                Max TX Power
+                                                            </span>
+                                                            <span
+                                                                class="value-pill value-neutral"
+                                                            >
+                                                                {ap.maxTxPowerDbm}
+                                                                dBm
                                                             </span>
                                                         </div>
                                                     {/if}

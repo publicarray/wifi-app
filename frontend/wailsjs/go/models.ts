@@ -32,6 +32,10 @@ export namespace main {
 	    mimoStreams: number;
 	    estimatedRange: number;
 	    snr: number;
+	    surveyUtilization: number;
+	    surveyBusyMs: number;
+	    surveyExtBusyMs: number;
+	    maxTxPowerDbm: number;
 	    securityCiphers: string[];
 	    authMethods: string[];
 	    bssColor: number;
@@ -78,6 +82,10 @@ export namespace main {
 	        this.mimoStreams = source["mimoStreams"];
 	        this.estimatedRange = source["estimatedRange"];
 	        this.snr = source["snr"];
+	        this.surveyUtilization = source["surveyUtilization"];
+	        this.surveyBusyMs = source["surveyBusyMs"];
+	        this.surveyExtBusyMs = source["surveyExtBusyMs"];
+	        this.maxTxPowerDbm = source["maxTxPowerDbm"];
 	        this.securityCiphers = source["securityCiphers"];
 	        this.authMethods = source["authMethods"];
 	        this.bssColor = source["bssColor"];
