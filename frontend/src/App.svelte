@@ -19,6 +19,7 @@
     import ClientStatsPanel from "./components/ClientStatsPanel.svelte";
     import RoamingAnalysis from "./components/RoamingAnalysis.svelte";
     import Toolbar from "./components/Toolbar.svelte";
+    import ExportControls from "./components/ExportControls.svelte";
 
     let interfaces = [];
     let selectedInterface = "";
@@ -187,6 +188,7 @@
         {:else if activeTab === "stats"}
             <div class="content-panel stats-panel">
                 <ClientStatsPanel {clientStats} />
+                <ExportControls {networks} {clientStats} />
             </div>
         {:else if activeTab === "roaming"}
             <div class="content-panel channel-panel">

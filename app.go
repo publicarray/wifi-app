@@ -4,7 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
+	"strconv"
 	"strings"
+
+	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
 // App struct
@@ -121,4 +125,35 @@ func (a *App) ExportClientStats() (string, error) {
 	}
 
 	return string(data), nil
+}
+
+// SaveReport opens a save dialog and writes the given content to disk.
+// Returns the chosen file path or empty string if the user cancels.
+func (a *App) SaveReport(filename string, content string) (string, error) {
+	if a.ctx == nil {
+		return "", fmt.Errorf("app context not initialized")
+	}
+	path, err := runtime.SaveFileDialog(a.ctx, runtime.SaveDialogOptions{
+		DefaultFilename:      filename,
+		CanCreateDirectories: true,
+	})
+	if err != nil {
+		return "", err
+	}
+	if path == "" {
+		return "", nil
+	}
+	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+		return "", err
+	}
+	if sudoUID := os.Getenv("SUDO_UID"); sudoUID != "" {
+		if sudoGID := os.Getenv("SUDO_GID"); sudoGID != "" {
+			uid, uidErr := strconv.Atoi(sudoUID)
+			gid, gidErr := strconv.Atoi(sudoGID)
+			if uidErr == nil && gidErr == nil {
+				_ = os.Chown(path, uid, gid)
+			}
+		}
+	}
+	return path, nil
 }

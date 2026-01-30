@@ -17,6 +17,7 @@
     let historyAPs = 0;
     const HISTORY_WINDOW_MS = 30 * 60 * 1000;
     const HISTORY_MAX_POINTS = 300;
+    const STALE_HOLD_MS = 30000;
 
     onMount(() => {
         Chart.register(...registerables, zoomPlugin);
@@ -52,9 +53,9 @@
                 },
                 layout: {
                     padding: {
-                        top: 8,
+                        top: 6,
                         right: 12,
-                        bottom: 8,
+                        bottom: 6,
                         left: 8,
                     },
                 },
@@ -278,6 +279,7 @@
 
     function recordNetworkSignals() {
         const now = Date.now();
+        const seenBSSIDs = new Set();
 
         if (networks && networks.length > 0) {
             networks.forEach((network) => {
@@ -288,6 +290,7 @@
                     if (typeof ap.signal !== "number") return;
                     const ssid = ap?.ssid || network?.ssid || "Unknown";
                     const timestamp = now;
+                    seenBSSIDs.add(bssid);
 
                     let entry = apHistory.get(bssid);
                     if (!entry) {
@@ -313,6 +316,17 @@
                 });
             });
         }
+
+        apHistory.forEach((entry, bssid) => {
+            if (seenBSSIDs.has(bssid)) return;
+            const lastPoint = entry.points?.[entry.points.length - 1];
+            if (!lastPoint) return;
+            if (now - lastPoint.x <= STALE_HOLD_MS) {
+                if (lastPoint.x !== now) {
+                    entry.points.push({ x: now, y: lastPoint.y });
+                }
+            }
+        });
 
         apHistory.forEach((entry, bssid) => {
             if (!entry.points || entry.points.length === 0) {
@@ -659,7 +673,7 @@
         flex: 1 1 0;
         position: relative;
         min-height: 0;
-        padding: 12px;
+        padding: 6px;
         border-radius: 16px;
         background: linear-gradient(180deg, var(--panel), var(--panel-strong));
         border: 1px solid var(--border);

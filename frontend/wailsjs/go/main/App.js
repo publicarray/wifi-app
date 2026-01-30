@@ -38,6 +38,10 @@ export function IsScanning() {
   return window['go']['main']['App']['IsScanning']();
 }
 
+export function SaveReport(arg1, arg2) {
+  return window['go']['main']['App']['SaveReport'](arg1, arg2);
+}
+
 export function StartScanning(arg1) {
   return window['go']['main']['App']['StartScanning'](arg1);
 }

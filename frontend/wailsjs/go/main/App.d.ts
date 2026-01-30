@@ -20,6 +20,8 @@ export function GetRoamingAnalysis():Promise<Record<string, any>>;
 
 export function IsScanning():Promise<boolean>;
 
+export function SaveReport(arg1:string,arg2:string):Promise<string>;
+
 export function StartScanning(arg1:string):Promise<void>;
 
 export function StopScanning():Promise<void>;
