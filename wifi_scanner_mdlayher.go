@@ -14,7 +14,6 @@ import (
 type WiFiScannerNL80211 struct {
 	client    *wifi.Client
 	ouiLookup *OUILookup
-	lastScan  time.Time
 	parser    *mdlayherParser
 }
 
@@ -90,7 +89,7 @@ func (s *WiFiScannerNL80211) ScanNetworks(iface string) ([]AccessPoint, error) {
 	var accessPoints []AccessPoint
 	for _, bss := range bssList {
 		if s.parser == nil {
-			continue
+			return nil, fmt.Errorf("no parser configured for nl80211 scanner")
 		}
 		ap := s.parser.convertBSSToAccessPoint(bss)
 		if len(ap) > 0 {
@@ -161,8 +160,12 @@ func (p *mdlayherParser) convertBSSToAccessPoint(bss *wifi.BSS) []AccessPoint {
 
 	ap.Frequency = bss.Frequency
 	ap.Channel = frequencyToChannel(ap.Frequency)
-	ap.Signal = int(bss.Signal / 100)
-	ap.SignalQuality = signalToQuality(int(bss.Signal / 100))
+	if bss.Signal != 0 {
+		ap.Signal = int(bss.Signal / 100)
+		ap.SignalQuality = signalToQuality(ap.Signal)
+	} else if bss.SignalUnspecified > 0 {
+		ap.SignalQuality = int(bss.SignalUnspecified)
+	}
 	ap.BeaconInt = int(bss.BeaconInterval.Seconds() / 0.1024)
 
 	ap.ChannelWidth = 20
@@ -187,6 +190,9 @@ func (p *mdlayherParser) convertBSSToAccessPoint(bss *wifi.BSS) []AccessPoint {
 
 	if bss.RSN.IsInitialized() {
 		p.parseSecurityFromRSN(bss.RSN, &ap)
+		if ap.Security == "" {
+			ap.Security = "WPA2"
+		}
 	} else {
 		if ap.Security == "" {
 			ap.Security = "Open"
@@ -335,28 +341,6 @@ func (s *WiFiScannerNL80211) GetStationStats(iface string) (map[string]string, e
 
 func (s *WiFiScannerNL80211) Close() error {
 	return s.client.Close()
-}
-
-func parseIEs(b []byte) []wifi.IE {
-	var ies []wifi.IE
-	for len(b) >= 2 {
-		id := b[0]
-		length := int(b[1])
-		b = b[2:]
-
-		if length > len(b) {
-			break
-		}
-
-		ies = append(ies, wifi.IE{
-			ID:   id,
-			Data: b[:length],
-		})
-
-		b = b[length:]
-	}
-
-	return ies
 }
 
 func (p *mdlayherParser) parseCapabilitiesIEs(ies []wifi.IE, ap *AccessPoint) {

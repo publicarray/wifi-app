@@ -123,10 +123,7 @@ func (s *darwinScanner) GetConnectionInfo(iface string) (ConnectionInfo, error) 
 		}
 		if matches := noiseRegex.FindStringSubmatch(line); matches != nil {
 			if noise, err := strconv.Atoi(matches[1]); err == nil {
-				connInfo.Noise = noise
-				if connInfo.Signal != 0 {
-					connInfo.SNR = connInfo.Signal - noise
-				}
+				_ = noise
 			}
 		}
 		if matches := rxMcsRegex.FindStringSubmatch(line); matches != nil {
