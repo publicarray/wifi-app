@@ -157,17 +157,17 @@
     }
 
     .section {
-        background: #2a2a2a;
+        background: var(--panel-soft);
         border-radius: 6px;
         padding: 16px;
-        border: 1px solid #333;
+        border: 1px solid var(--border);
     }
 
     .section h3 {
         margin: 0 0 16px 0;
         font-size: 16px;
         font-weight: 600;
-        color: #e0e0e0;
+        color: var(--text);
     }
 
     .metrics-grid {
@@ -177,37 +177,37 @@
     }
 
     .metric-card {
-        background: #1a1a1a;
+        background: var(--panel);
         padding: 16px;
         border-radius: 4px;
         display: flex;
         flex-direction: column;
         gap: 4px;
-        border: 1px solid #333;
+        border: 1px solid var(--border);
     }
 
     .metric-label {
         font-size: 12px;
-        color: #888;
+        color: var(--muted-2);
         font-weight: 500;
     }
 
     .metric-value {
         font-size: 20px;
         font-weight: 600;
-        color: #e0e0e0;
+        color: var(--text);
     }
 
     .metric-good {
-        color: #4caf50;
+        color: var(--success);
     }
 
     .metric-bad {
-        color: #f44336;
+        color: var(--danger);
     }
 
     .metric-neutral {
-        color: #ff9800;
+        color: var(--warning);
     }
 
     .behavior-grid {
@@ -221,14 +221,14 @@
         justify-content: space-between;
         align-items: center;
         padding: 12px;
-        background: #1a1a1a;
+        background: var(--panel);
         border-radius: 4px;
-        border: 1px solid #333;
+        border: 1px solid var(--border);
     }
 
     .behavior-label {
         font-size: 14px;
-        color: #e0e0e0;
+        color: var(--text);
         font-weight: 500;
     }
 
@@ -246,13 +246,13 @@
     }
 
     .advice-box.advice-good {
-        background: rgba(76, 175, 80, 0.1);
-        border: 1px solid #4caf50;
+        background: color-mix(in srgb, var(--success) 15%, transparent);
+        border: 1px solid var(--success);
     }
 
     .advice-box.advice-warning {
-        background: rgba(255, 152, 0, 0.1);
-        border: 1px solid #ff9800;
+        background: color-mix(in srgb, var(--warning) 15%, transparent);
+        border: 1px solid var(--warning);
     }
 
     .advice-icon {
@@ -262,7 +262,7 @@
 
     .advice-text {
         font-size: 14px;
-        color: #e0e0e0;
+        color: var(--text);
         line-height: 1.5;
     }
 
@@ -277,9 +277,9 @@
         align-items: flex-start;
         gap: 10px;
         padding: 12px;
-        background: #1a1a1a;
+        background: var(--panel);
         border-radius: 4px;
-        border-left: 3px solid #ff9800;
+        border-left: 3px solid var(--warning);
     }
 
     .rec-icon {
@@ -289,7 +289,7 @@
 
     .rec-text {
         font-size: 14px;
-        color: #e0e0e0;
+        color: var(--text);
         line-height: 1.4;
     }
 
@@ -301,7 +301,7 @@
         justify-content: center;
         padding: 40px 20px;
         text-align: center;
-        color: #888;
+        color: var(--muted-2);
     }
 
     .no-data-icon,
@@ -319,7 +319,7 @@
 
     .hint {
         font-size: 12px;
-        color: #666;
+        color: var(--muted-2);
         margin-top: 8px;
     }
 

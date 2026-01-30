@@ -197,18 +197,71 @@
 </div>
 
 <style>
+    :global(:root) {
+        color-scheme: dark light;
+        --bg-0: #101216;
+        --bg-1: #14171c;
+        --panel: #20252b;
+        --panel-strong: #1a1f24;
+        --panel-soft: #2a2f36;
+        --field-bg: #15181d;
+        --border: rgba(255, 255, 255, 0.08);
+        --border-strong: rgba(255, 255, 255, 0.16);
+        --text: #e6e8eb;
+        --muted: #9aa3ad;
+        --muted-2: #7d8793;
+        --accent: #3b82f6;
+        --accent-strong: #2563eb;
+        --accent-2: #7dd3fc;
+        --success: #22c55e;
+        --warning: #f59e0b;
+        --danger: #ef4444;
+        --row-hover: rgba(255, 255, 255, 0.04);
+        --row-active: rgba(34, 197, 94, 0.12);
+        --tooltip-bg: rgba(20, 22, 27, 0.92);
+        --chart-grid: rgba(255, 255, 255, 0.08);
+    }
+
+    @media (prefers-color-scheme: light) {
+        :global(:root) {
+            --bg-0: #f5f7fb;
+            --bg-1: #eef1f6;
+            --panel: #ffffff;
+            --panel-strong: #f1f3f6;
+            --panel-soft: #e7ecf2;
+            --field-bg: #ffffff;
+            --border: rgba(15, 23, 42, 0.12);
+            --border-strong: rgba(15, 23, 42, 0.2);
+            --text: #1b1f24;
+            --muted: #5f6b7a;
+            --muted-2: #7a8696;
+            --accent: #2563eb;
+            --accent-strong: #1d4ed8;
+            --accent-2: #0ea5e9;
+            --success: #16a34a;
+            --warning: #d97706;
+            --danger: #dc2626;
+            --row-hover: rgba(15, 23, 42, 0.06);
+            --row-active: rgba(22, 163, 74, 0.12);
+            --tooltip-bg: rgba(15, 23, 42, 0.92);
+            --chart-grid: rgba(15, 23, 42, 0.12);
+        }
+    }
+
     :global(body) {
         margin: 0;
         padding: 0;
         overflow: hidden;
+        background: var(--bg-0);
+        color: var(--text);
     }
 
     .app-container {
         display: flex;
         flex-direction: column;
         height: 100vh;
-        background: #1a1a1a;
-        color: #e0e0e0;
+        background: var(--bg-0);
+        color: var(--text);
         font-family:
             -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen,
             Ubuntu, Cantarell, sans-serif;
@@ -216,8 +269,8 @@
 
     .main-tabs {
         display: flex;
-        background: #2a2a2a;
-        border-bottom: 2px solid #333;
+        background: var(--panel-soft);
+        border-bottom: 2px solid var(--border);
         padding: 0 20px;
     }
 
@@ -229,7 +282,7 @@
         gap: 8px;
         padding: 16px 12px;
         background: transparent;
-        color: #888;
+        color: var(--muted-2);
         border: none;
         cursor: pointer;
         font-size: 14px;
@@ -239,14 +292,14 @@
     }
 
     .main-tab:hover {
-        background: #333;
-        color: #e0e0e0;
+        background: var(--panel-strong);
+        color: var(--text);
     }
 
     .main-tab.active {
-        background: #252525;
-        color: #0066cc;
-        border-bottom-color: #0066cc;
+        background: var(--panel-strong);
+        color: var(--accent-strong);
+        border-bottom-color: var(--accent-strong);
     }
 
     .tab-icon {

@@ -1514,13 +1514,13 @@ UNIFI CONSIDERATIONS:
         height: 100%;
         display: flex;
         flex-direction: column;
-        background: #1a1a1a;
+        background: var(--bg-0);
     }
 
     .filters {
         padding: 16px;
-        background: #2a2a2a;
-        border-bottom: 1px solid #333;
+        background: var(--panel-soft);
+        border-bottom: 1px solid var(--border);
     }
 
     .filter-row {
@@ -1534,32 +1534,32 @@ UNIFI CONSIDERATIONS:
         flex: 1;
         min-width: 200px;
         padding: 8px 12px;
-        background: #1a1a1a;
-        color: #e0e0e0;
-        border: 1px solid #444;
+        background: var(--field-bg);
+        color: var(--text);
+        border: 1px solid var(--border-strong);
         border-radius: 4px;
         font-size: 14px;
     }
 
     .filter-input:focus {
         outline: none;
-        border-color: #0066cc;
+        border-color: var(--accent-strong);
     }
 
     .filter-select {
         padding: 8px 12px;
-        background: #1a1a1a;
-        color: #e0e0e0;
-        border: 1px solid #444;
+        background: var(--field-bg);
+        color: var(--text);
+        border: 1px solid var(--border-strong);
         border-radius: 4px;
         font-size: 14px;
         min-width: 120px;
-        color-scheme: dark;
+        color-scheme: light dark;
     }
 
     .filter-select option {
-        background: #1a1a1a;
-        color: #e0e0e0;
+        background: var(--field-bg);
+        color: var(--text);
     }
 
     .checkbox-label {
@@ -1567,7 +1567,7 @@ UNIFI CONSIDERATIONS:
         align-items: center;
         gap: 6px;
         font-size: 14px;
-        color: #aaa;
+        color: var(--muted);
         cursor: pointer;
     }
 
@@ -1584,12 +1584,12 @@ UNIFI CONSIDERATIONS:
     }
 
     .network-table th {
-        background: #2a2a2a;
+        background: var(--panel-soft);
         padding: 12px 16px;
         text-align: left;
         font-weight: 600;
-        color: #aaa;
-        border-bottom: 2px solid #333;
+        color: var(--muted);
+        border-bottom: 2px solid var(--border);
         position: sticky;
         top: 0;
         z-index: 10;
@@ -1602,17 +1602,17 @@ UNIFI CONSIDERATIONS:
     }
 
     .network-table th.sortable:hover {
-        background: #333;
+        background: var(--panel-strong);
     }
 
     .sort-indicator {
         margin-left: 4px;
-        color: #0066cc;
+        color: var(--accent-strong);
     }
 
     .network-table td {
         padding: 12px 16px;
-        border-bottom: 1px solid #333;
+        border-bottom: 1px solid var(--border);
     }
 
     .network-row {
@@ -1620,16 +1620,16 @@ UNIFI CONSIDERATIONS:
     }
 
     .network-row:hover {
-        background: #252525;
+        background: var(--row-hover);
     }
 
     .network-row.connected {
-        background: #1a2a1a;
-        border-left: 3px solid #4caf50;
+        background: var(--row-active);
+        border-left: 3px solid var(--success);
     }
 
     .network-row.has-issues {
-        border-left: 3px solid #ff9800;
+        border-left: 3px solid var(--warning);
     }
 
     .ssid-cell {
@@ -1649,19 +1649,19 @@ UNIFI CONSIDERATIONS:
 
     .vendor-hint {
         font-size: 12px;
-        color: #66b3ff;
+        color: var(--accent-2);
         font-style: italic;
     }
 
     .expand-indicator {
         font-size: 12px;
-        color: #888;
+        color: var(--muted-2);
         margin-top: 2px;
     }
 
     .ap-count-cell {
         text-align: center;
-        color: #aaa;
+        color: var(--muted);
     }
 
     .channel-cell {
@@ -1678,27 +1678,27 @@ UNIFI CONSIDERATIONS:
     }
 
     .signal-good {
-        color: #4caf50;
+        color: var(--success);
     }
 
     .signal-medium {
-        color: #ff9800;
+        color: var(--warning);
     }
 
     .signal-poor {
-        color: #f44336;
+        color: var(--danger);
     }
 
     .security-good {
-        color: #4caf50;
+        color: var(--success);
     }
 
     .security-medium {
-        color: #ff9800;
+        color: var(--warning);
     }
 
     .security-poor {
-        color: #f44336;
+        color: var(--danger);
     }
 
     .status-cell {
@@ -1706,21 +1706,21 @@ UNIFI CONSIDERATIONS:
     }
 
     .status-connected {
-        color: #4caf50;
+        color: var(--success);
         font-weight: 600;
     }
 
     .status-warning {
-        color: #ff9800;
+        color: var(--warning);
         font-weight: 600;
     }
 
     .status-ok {
-        color: #888;
+        color: var(--muted-2);
     }
 
     .ap-details-row {
-        background: #0f0f0f;
+        background: var(--panel-strong);
     }
 
     .ap-details {
@@ -1731,8 +1731,8 @@ UNIFI CONSIDERATIONS:
     }
 
     .ap-card {
-        background: #1a1a1a;
-        border: 1px solid #333;
+        background: var(--panel);
+        border: 1px solid var(--border);
         border-radius: 4px;
         padding: 12px;
     }
@@ -1743,21 +1743,21 @@ UNIFI CONSIDERATIONS:
         align-items: center;
         margin-bottom: 8px;
         padding-bottom: 6px;
-        border-bottom: 1px solid #333;
+        border-bottom: 1px solid var(--border);
     }
 
     .ap-bssid {
         font-family: monospace;
         font-size: 13px;
-        color: #66b3ff;
+        color: var(--accent-2);
     }
 
     .ap-band {
-        background: #333;
+        background: var(--panel-strong);
         padding: 2px 6px;
         border-radius: 3px;
         font-size: 11px;
-        color: #aaa;
+        color: var(--muted);
     }
 
     .ap-metrics {
@@ -1773,19 +1773,19 @@ UNIFI CONSIDERATIONS:
     }
 
     .metric-label {
-        color: #888;
+        color: var(--text);
     }
 
     .ap-capabilities {
         margin-top: 12px;
         padding-top: 12px;
-        border-top: 1px solid #333;
+        border-top: 1px solid var(--border);
     }
 
     .capability-title {
         font-size: 12px;
         font-weight: 600;
-        color: #aaa;
+        color: var(--muted);
         margin-bottom: 8px;
         text-transform: uppercase;
         letter-spacing: 0.5px;
@@ -1805,7 +1805,7 @@ UNIFI CONSIDERATIONS:
     }
 
     .capability-label {
-        color: #888;
+        color: var(--text);
         display: flex;
         align-items: center;
         position: relative;
@@ -1827,21 +1827,21 @@ UNIFI CONSIDERATIONS:
     }
 
     .value-good {
-        background: rgba(76, 175, 80, 0.2);
-        color: #4caf50;
-        border: 1px solid rgba(76, 175, 80, 0.4);
+        background: color-mix(in srgb, var(--success) 18%, transparent);
+        color: var(--success);
+        border: 1px solid color-mix(in srgb, var(--success) 45%, transparent);
     }
 
     .value-bad {
-        background: rgba(244, 67, 54, 0.2);
-        color: #f44336;
-        border: 1px solid rgba(244, 67, 54, 0.4);
+        background: color-mix(in srgb, var(--danger) 18%, transparent);
+        color: var(--danger);
+        border: 1px solid color-mix(in srgb, var(--danger) 45%, transparent);
     }
 
     .value-neutral {
-        background: rgba(136, 136, 136, 0.15);
-        color: #fff;
-        border: 1px solid rgba(136, 136, 136, 0.3);
+        background: color-mix(in srgb, var(--muted-2) 18%, transparent);
+        color: var(--text);
+        border: 1px solid color-mix(in srgb, var(--muted-2) 35%, transparent);
     }
 
     .dfs-badge {
@@ -1850,9 +1850,9 @@ UNIFI CONSIDERATIONS:
         border-radius: 3px;
         font-size: 9px;
         font-weight: 600;
-        background: rgba(255, 152, 0, 0.2);
-        color: #ff9800;
-        border: 1px solid rgba(255, 152, 0, 0.4);
+        background: color-mix(in srgb, var(--warning) 20%, transparent);
+        color: var(--warning);
+        border: 1px solid color-mix(in srgb, var(--warning) 45%, transparent);
         margin-left: 4px;
         vertical-align: middle;
     }

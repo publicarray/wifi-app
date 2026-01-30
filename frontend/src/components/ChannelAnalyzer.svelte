@@ -74,16 +74,10 @@
     }
 
     function getCongestionLevel(apCount) {
-        switch (true) {
-            case apCount === 0:
-                return "empty";
-            case apCount <= 2:
-                return "low";
-            case apCount <= 4:
-                return "medium";
-            default:
-                return "high";
-        }
+        if (apCount === 0) return "empty";
+        if (apCount <= 2) return "low";
+        if (apCount <= 4) return "medium";
+        return "high";
     }
 
     function getBandStats(channels) {
@@ -140,22 +134,22 @@
     function getCongestionColor(congestion) {
         switch (congestion) {
             case "empty":
-                return "#2f3338";
+                return "var(--border-strong)";
             case "low":
-                return "#22c55e";
+                return "var(--success)";
             case "medium":
-                return "#f59e0b";
+                return "var(--warning)";
             case "high":
-                return "#ef4444";
+                return "var(--danger)";
             default:
-                return "#3a3f46";
+                return "var(--border)";
         }
     }
 
     function getUtilizationColor(utilization) {
-        if (utilization < 30) return "#22c55e";
-        if (utilization < 70) return "#f59e0b";
-        return "#ef4444";
+        if (utilization < 30) return "var(--success)";
+        if (utilization < 70) return "var(--warning)";
+        return "var(--danger)";
     }
 
     function formatFrequency(freq) {
@@ -443,17 +437,6 @@
 
 <style>
     .channel-analyzer-container {
-        --bg-0: #101216;
-        --bg-1: #14171c;
-        --panel: #20252b;
-        --panel-strong: #1a1f24;
-        --panel-soft: #242a31;
-        --text: #e6e8eb;
-        --muted: #9aa3ad;
-        --accent: #4fd1c5;
-        --accent-2: #7dd3fc;
-        --border: rgba(255, 255, 255, 0.08);
-
         min-height: 100%;
         overflow: visible;
         padding: 20px;
@@ -511,15 +494,15 @@
     }
 
     .status-pill.live {
-        color: #b5f3df;
-        background: rgba(79, 209, 197, 0.15);
-        border-color: rgba(79, 209, 197, 0.4);
+        color: var(--success);
+        background: color-mix(in srgb, var(--success) 18%, transparent);
+        border-color: color-mix(in srgb, var(--success) 45%, transparent);
     }
 
     .status-pill.idle {
-        color: #cbd5f5;
-        background: rgba(125, 211, 252, 0.12);
-        border-color: rgba(125, 211, 252, 0.35);
+        color: var(--accent-2);
+        background: color-mix(in srgb, var(--accent-2) 18%, transparent);
+        border-color: color-mix(in srgb, var(--accent-2) 40%, transparent);
     }
 
     .subtitle {
@@ -583,20 +566,20 @@
     }
 
     .legend-color.empty {
-        background: #333;
+        background: var(--border-strong);
     }
     .legend-color.low {
-        background: #22c55e;
+        background: var(--success);
     }
     .legend-color.medium {
-        background: #f59e0b;
+        background: var(--warning);
     }
     .legend-color.high {
-        background: #ef4444;
+        background: var(--danger);
     }
     .legend-color.overlap {
         background: transparent;
-        border: 1px dashed #f59e0b;
+        border: 1px dashed var(--warning);
     }
 
     .band-section {
@@ -645,9 +628,9 @@
         font-size: 10px;
         letter-spacing: 0.08em;
         text-transform: uppercase;
-        background: rgba(79, 209, 197, 0.12);
-        color: #c7f9f2;
-        border: 1px solid rgba(79, 209, 197, 0.28);
+        background: color-mix(in srgb, var(--accent) 16%, transparent);
+        color: var(--text);
+        border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
     }
 
     .channel-grid {
@@ -765,7 +748,7 @@
     }
 
     .overlap-indicator {
-        color: #f59e0b;
+        color: var(--warning);
         font-size: 10px;
         text-transform: uppercase;
         letter-spacing: 0.05em;
@@ -851,11 +834,11 @@
     }
 
     .channel-width-badge {
-        background: rgba(125, 211, 252, 0.12);
+        background: color-mix(in srgb, var(--accent-2) 18%, transparent);
         padding: 2px 6px;
         border-radius: 6px;
         font-size: 11px;
-        color: #cfe9ff;
+        color: var(--accent-2);
     }
 
     .channel-metrics {
@@ -875,19 +858,19 @@
     }
 
     .congestion-badge.empty {
-        background: #2f3338;
-        color: #9aa0a6;
+        background: var(--panel-strong);
+        color: var(--muted-2);
     }
     .congestion-badge.low {
-        background: #22c55e;
+        background: var(--success);
         color: #0f172a;
     }
     .congestion-badge.medium {
-        background: #f59e0b;
+        background: var(--warning);
         color: #0f172a;
     }
     .congestion-badge.high {
-        background: #ef4444;
+        background: var(--danger);
         color: #0f172a;
     }
 
@@ -940,7 +923,7 @@
     }
 
     .ap-signal {
-        color: #7dd3fc;
+        color: var(--accent-2);
         font-weight: 500;
         min-width: 50px;
         text-align: right;

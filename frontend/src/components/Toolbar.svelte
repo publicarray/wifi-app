@@ -75,8 +75,8 @@
         justify-content: space-between;
         align-items: center;
         padding: 16px 20px;
-        background: #2a2a2a;
-        border-bottom: 2px solid #333;
+        background: var(--panel-soft);
+        border-bottom: 2px solid var(--border);
         min-height: 70px;
     }
 
@@ -90,7 +90,7 @@
         margin: 0;
         font-size: 24px;
         font-weight: 600;
-        color: #e0e0e0;
+        color: var(--text);
     }
 
     .interface-selector {
@@ -102,24 +102,24 @@
     .interface-selector label {
         font-size: 14px;
         font-weight: 500;
-        color: #aaa;
+        color: var(--muted);
     }
 
     select {
         padding: 8px 12px;
-        background: #1a1a1a;
-        color: #e0e0e0;
-        border: 1px solid #444;
+        background: var(--field-bg);
+        color: var(--text);
+        border: 1px solid var(--border-strong);
         border-radius: 4px;
         cursor: pointer;
         font-size: 14px;
         min-width: 120px;
-        color-scheme: dark;
+        color-scheme: light dark;
     }
 
     select option {
-        background: #1a1a1a;
-        color: #e0e0e0;
+        background: var(--field-bg);
+        color: var(--text);
     }
 
     select:disabled {
@@ -129,7 +129,7 @@
 
     select:focus {
         outline: none;
-        border-color: #0066cc;
+        border-color: var(--accent-strong);
     }
 
     .toolbar-right {
@@ -153,36 +153,36 @@
     }
 
     .btn-primary {
-        background: #0066cc;
+        background: var(--accent-strong);
         color: white;
     }
 
     .btn-primary:hover {
-        background: #0052a3;
+        background: var(--accent);
     }
 
     .btn-danger {
-        background: #cc0000;
+        background: var(--danger);
         color: white;
         margin-left: 12px;
     }
 
     .btn-danger:hover {
-        background: #a30000;
+        background: color-mix(in srgb, var(--danger) 85%, black);
     }
 
     .scanning-indicator {
         display: flex;
         align-items: center;
         gap: 8px;
-        color: #4caf50;
+        color: var(--success);
         font-weight: 500;
     }
 
     .scan-dot {
         width: 8px;
         height: 8px;
-        background: #4caf50;
+        background: var(--success);
         border-radius: 50%;
         animation: pulse 1.5s infinite;
     }
@@ -202,8 +202,8 @@
         align-items: center;
         gap: 8px;
         padding: 12px 20px;
-        background: #4a1515;
-        border-bottom: 1px solid #8b0000;
+        background: color-mix(in srgb, var(--danger) 18%, transparent);
+        border-bottom: 1px solid var(--danger);
     }
 
     .error-icon {
@@ -211,7 +211,7 @@
     }
 
     .error-message {
-        color: #ff6b6b;
+        color: var(--danger);
         font-size: 14px;
         flex: 1;
     }
