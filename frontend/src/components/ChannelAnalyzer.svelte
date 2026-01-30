@@ -444,12 +444,12 @@
         background:
             radial-gradient(
                 900px 500px at 5% -10%,
-                rgba(79, 209, 197, 0.18),
+                var(--channel-bg-radial-1),
                 transparent 60%
             ),
             radial-gradient(
                 800px 400px at 100% 0%,
-                rgba(59, 130, 246, 0.14),
+                var(--channel-bg-radial-2),
                 transparent 60%
             ),
             linear-gradient(180deg, var(--bg-0) 0%, var(--bg-1) 100%);
@@ -555,8 +555,8 @@
         color: var(--muted);
         padding: 4px 8px;
         border-radius: 999px;
-        background: rgba(255, 255, 255, 0.04);
-        border: 1px solid rgba(255, 255, 255, 0.06);
+        background: var(--channel-legend-bg);
+        border: 1px solid var(--channel-legend-border);
     }
 
     .legend-color {
@@ -589,10 +589,10 @@
         border: 1px solid var(--border);
         background: linear-gradient(
             180deg,
-            rgba(32, 37, 43, 0.8),
-            rgba(24, 28, 34, 0.8)
+            var(--panel-gradient-1),
+            var(--panel-gradient-2)
         );
-        box-shadow: 0 18px 30px rgba(0, 0, 0, 0.28);
+        box-shadow: var(--panel-shadow);
     }
 
     .band-header {
@@ -651,11 +651,15 @@
         background:
             linear-gradient(
                 160deg,
-                rgba(255, 255, 255, 0.04),
-                rgba(255, 255, 255, 0)
+                var(--channel-block-gloss-1),
+                var(--channel-block-gloss-2)
             ),
-            linear-gradient(180deg, rgba(0, 0, 0, 0.2), rgba(0, 0, 0, 0.65));
-        border: 1px solid rgba(255, 255, 255, 0.08);
+            linear-gradient(
+                180deg,
+                var(--channel-block-shade-1),
+                var(--channel-block-shade-2)
+            );
+        border: 1px solid var(--channel-block-border);
         border-radius: 12px;
         display: flex;
         flex-direction: column;
@@ -688,13 +692,13 @@
 
     .channel-block:hover {
         transform: translateY(-2px);
-        border-color: rgba(255, 255, 255, 0.2);
-        box-shadow: 0 12px 24px rgba(0, 0, 0, 0.35);
+        border-color: var(--channel-hover-border);
+        box-shadow: var(--channel-hover-shadow);
     }
 
     .channel-block.has-aps {
-        border-color: rgba(79, 209, 197, 0.5);
-        box-shadow: inset 0 0 0 1px rgba(79, 209, 197, 0.2);
+        border-color: var(--channel-active-border);
+        box-shadow: var(--channel-active-shadow);
     }
 
     .channel-top {
@@ -720,7 +724,7 @@
     .channel-meter {
         height: 6px;
         border-radius: 999px;
-        background: rgba(255, 255, 255, 0.1);
+        background: var(--channel-meter-track);
         overflow: hidden;
     }
 
@@ -731,7 +735,7 @@
         background: linear-gradient(
             90deg,
             var(--congestion-color),
-            rgba(255, 255, 255, 0.75)
+            var(--channel-meter-highlight)
         );
     }
 
@@ -759,9 +763,9 @@
         grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
         gap: 16px;
         padding: 12px;
-        background: rgba(0, 0, 0, 0.35);
+        background: var(--channel-overview-bg);
         border-radius: 10px;
-        border: 1px solid rgba(255, 255, 255, 0.06);
+        border: 1px solid var(--channel-overview-border);
     }
 
     .overview-stat {
@@ -806,7 +810,7 @@
         gap: 10px;
         padding: 12px 16px;
         background: var(--panel-strong);
-        border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+        border-bottom: 1px solid var(--channel-header-border);
         flex-wrap: wrap;
     }
 
@@ -816,8 +820,8 @@
         min-width: 48px;
         padding: 2px 8px;
         border-radius: 999px;
-        background: rgba(79, 209, 197, 0.12);
-        border: 1px solid rgba(79, 209, 197, 0.25);
+        background: var(--channel-id-bg);
+        border: 1px solid var(--channel-id-border);
     }
 
     .channel-freq {
@@ -826,7 +830,7 @@
     }
 
     .channel-band {
-        background: rgba(255, 255, 255, 0.08);
+        background: var(--channel-band-bg);
         padding: 2px 6px;
         border-radius: 6px;
         font-size: 11px;
@@ -863,15 +867,15 @@
     }
     .congestion-badge.low {
         background: var(--success);
-        color: #0f172a;
+        color: var(--text-on-accent);
     }
     .congestion-badge.medium {
         background: var(--warning);
-        color: #0f172a;
+        color: var(--text-on-accent);
     }
     .congestion-badge.high {
         background: var(--danger);
-        color: #0f172a;
+        color: var(--text-on-accent);
     }
 
     .utilization {
@@ -884,7 +888,7 @@
         width: 90px;
         height: 8px;
         border-radius: 999px;
-        background: rgba(255, 255, 255, 0.1);
+        background: var(--channel-meter-track);
         overflow: hidden;
     }
 
@@ -910,7 +914,7 @@
         align-items: center;
         padding: 6px 0;
         font-size: 13px;
-        border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+        border-bottom: 1px solid var(--channel-divider);
     }
 
     .ap-ssid {
