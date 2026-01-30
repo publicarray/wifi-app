@@ -3,6 +3,7 @@
     export let selectedInterface = "";
     export let scanning = false;
     export let errorMessage = "";
+    export let clientStats = null;
 
     function handleInterfaceChange(event) {
         const newInterface = event.target.value;
@@ -15,6 +16,12 @@
 
     function handleStopScanning() {
         dispatch("stopScanning");
+    }
+
+    function getSignalClass(signal) {
+        if (signal > -60) return "signal-good";
+        if (signal > -75) return "signal-medium";
+        return "signal-poor";
     }
 
     // Event dispatcher
@@ -41,6 +48,11 @@
     </div>
 
     <div class="toolbar-right">
+        {#if clientStats && clientStats.connected}
+            <div class="signal-pill {getSignalClass(clientStats.signal)}">
+                {clientStats.signal} dBm
+            </div>
+        {/if}
         <div class="scan-controls">
             {#if !scanning}
                 <button class="btn btn-primary" on:click={handleStartScanning}>
@@ -135,6 +147,7 @@
     .toolbar-right {
         display: flex;
         align-items: center;
+        gap: 12px;
     }
 
     .scan-controls {
@@ -177,6 +190,28 @@
         gap: 8px;
         color: var(--success);
         font-weight: 500;
+    }
+
+    .signal-pill {
+        padding: 6px 12px;
+        border-radius: 999px;
+        font-size: 12px;
+        font-weight: 600;
+        letter-spacing: 0.02em;
+        border: 1px solid currentColor;
+        background: color-mix(in srgb, currentColor 18%, transparent);
+    }
+
+    .signal-good {
+        color: var(--success);
+    }
+
+    .signal-medium {
+        color: var(--warning);
+    }
+
+    .signal-poor {
+        color: var(--danger);
     }
 
     .scan-dot {

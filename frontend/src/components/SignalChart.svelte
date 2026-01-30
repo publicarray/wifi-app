@@ -64,6 +64,12 @@
                         display: true,
                         text: titleText,
                         color: theme.text,
+                        padding: {
+                            top: 0,
+                            right: 0,
+                            bottom: 0,
+                            left: 0,
+                        },
                         font: {
                             size: 16,
                             weight: "600",
@@ -491,50 +497,10 @@
         connectedChart?.resetZoom();
         othersChart?.resetZoom();
     }
-
-    function getSignalQuality(signal) {
-        if (signal > -60) return { text: "Excellent", color: "var(--success)" };
-        if (signal > -70) return { text: "Good", color: "var(--success)" };
-        if (signal > -80) return { text: "Fair", color: "var(--warning)" };
-        return { text: "Poor", color: "var(--danger)" };
-    }
 </script>
 
 <div class="signal-chart-container">
-    {#if clientStats && clientStats.connected}
-        <div class="chart-header">
-            <div class="connection-info">
-                <h3>Connected: {clientStats.ssid}</h3>
-                <div class="signal-summary">
-                    <div class="current-signal">
-                        <span class="signal-label">Current:</span>
-                        <span
-                            class="signal-value"
-                            class:signal-good={clientStats.signal > -60}
-                            class:signal-medium={clientStats.signal > -75 &&
-                                clientStats.signal <= -60}
-                            class:signal-poor={clientStats.signal <= -75}
-                        >
-                            {clientStats.signal} dBm
-                        </span>
-                        <span
-                            class="signal-quality"
-                            style="color: {getSignalQuality(clientStats.signal)
-                                .color}"
-                        >
-                            ({getSignalQuality(clientStats.signal).text})
-                        </span>
-                    </div>
-                    <div class="signal-stats">
-                        <span
-                            >Avg: {clientStats.signalAvg || clientStats.signal} dBm</span
-                        >
-                        <span>SNR: {clientStats.snr} dB</span>
-                    </div>
-                </div>
-            </div>
-        </div>
-    {:else}
+    {#if !(clientStats && clientStats.connected)}
         <div class="chart-header">
             <h3>Signal Strength</h3>
             <p class="no-connection">Not connected to any WiFi network</p>
@@ -581,86 +547,11 @@
         box-sizing: border-box;
     }
 
-    .chart-header {
-        display: flex;
-        align-items: flex-end;
-        justify-content: space-between;
-        gap: 12px;
-    }
-
     .chart-header h3 {
         margin: 0 0 8px 0;
         font-size: 18px;
         font-weight: 600;
         color: var(--text);
-    }
-
-    .connection-info {
-        display: flex;
-        flex-direction: column;
-        gap: 8px;
-    }
-
-    .signal-summary {
-        display: flex;
-        flex-direction: column;
-        gap: 4px;
-        padding: 10px 12px;
-        border-radius: 12px;
-        background: var(--panel);
-        border: 1px solid var(--border);
-        box-shadow: var(--panel-shadow);
-    }
-
-    .current-signal {
-        display: flex;
-        align-items: center;
-        gap: 8px;
-    }
-
-    .signal-label {
-        color: var(--muted);
-        font-size: 14px;
-    }
-
-    .signal-value {
-        font-weight: 600;
-        font-size: 16px;
-        padding: 2px 8px;
-        border-radius: 999px;
-        border: 1px solid color-mix(in srgb, currentColor 35%, transparent);
-        background: color-mix(in srgb, currentColor 14%, transparent);
-    }
-
-    .signal-good {
-        color: var(--success);
-    }
-
-    .signal-medium {
-        color: var(--warning);
-    }
-
-    .signal-poor {
-        color: var(--danger);
-    }
-
-    .signal-quality {
-        font-size: 14px;
-        font-weight: 500;
-    }
-
-    .signal-stats {
-        display: flex;
-        gap: 16px;
-        font-size: 13px;
-        color: var(--muted);
-    }
-
-    .signal-stats span {
-        padding: 2px 8px;
-        border-radius: 999px;
-        background: var(--panel-strong);
-        border: 1px solid var(--border);
     }
 
     .no-connection {
@@ -734,33 +625,8 @@
             padding: 12px;
         }
 
-        .chart-header {
-            flex-direction: column;
-            align-items: flex-start;
-        }
-
         .chart-header h3 {
             font-size: 16px;
-        }
-
-        .current-signal {
-            flex-direction: column;
-            align-items: flex-start;
-            gap: 4px;
-        }
-
-        .signal-stats {
-            flex-direction: column;
-            gap: 2px;
-        }
-
-        .history-info {
-            flex-direction: column;
-            gap: 2px;
-        }
-
-        .chart-footer {
-            align-items: flex-start;
         }
     }
 </style>

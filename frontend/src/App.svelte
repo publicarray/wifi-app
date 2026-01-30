@@ -152,6 +152,7 @@
         {selectedInterface}
         {scanning}
         {errorMessage}
+        {clientStats}
         on:selectInterface={(e) => selectInterface(e.detail)}
         on:startScanning={startScanning}
         on:stopScanning={stopScanning}
