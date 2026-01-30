@@ -211,20 +211,20 @@
 
     function getPMFStatusClass(pmfStatus) {
         if (pmfStatus === "Required") return "value-good";
-        if (pmfStatus === "Optional") return "value-neutral";
+        if (pmfStatus === "Optional") return "value-warn";
         return "value-bad";
     }
 
     function getSNRStatusClass(snr) {
         if (snr > 20) return "value-good";
-        if (snr > 10) return "value-neutral";
+        if (snr > 10) return "value-warn";
         return "value-bad";
     }
 
     function getUtilizationStatusClass(utilization) {
         if (utilization < 0) return "value-neutral"; // N/A
         if (utilization < 60) return "value-good";
-        if (utilization < 80) return "value-neutral";
+        if (utilization < 80) return "value-warn";
         return "value-bad";
     }
 
@@ -232,7 +232,7 @@
         if (count === undefined || count === null || count < 0)
             return "value-neutral";
         if (count <= 10) return "value-good";
-        if (count <= 25) return "value-neutral";
+        if (count <= 25) return "value-warn";
         return "value-bad";
     }
 
@@ -248,7 +248,7 @@
         if (!authMethods || authMethods.length === 0) return "value-neutral";
         for (let a of authMethods) {
             if (a.includes("SAE")) return "value-good";
-            if (a.includes("PSK")) return "value-neutral";
+            if (a.includes("PSK")) return "value-warn";
         }
         if (authMethods.includes("Open")) return "value-bad";
         return "value-neutral";
@@ -2031,6 +2031,12 @@ UNIFI CONSIDERATIONS:
         background: color-mix(in srgb, var(--muted-2) 18%, transparent);
         color: var(--text);
         border: 1px solid color-mix(in srgb, var(--muted-2) 35%, transparent);
+    }
+
+    .value-warn {
+        background: color-mix(in srgb, var(--warning) 18%, transparent);
+        color: var(--warning);
+        border: 1px solid color-mix(in srgb, var(--warning) 45%, transparent);
     }
 
     .value-unknown {
