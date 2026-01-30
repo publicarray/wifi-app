@@ -100,6 +100,15 @@ func (ws *WiFiService) StopScanning() {
 	ws.scanning = false
 }
 
+// Close stops scanning and releases scanner resources.
+func (ws *WiFiService) Close() error {
+	ws.StopScanning()
+	if ws.scanner != nil {
+		return ws.scanner.Close()
+	}
+	return nil
+}
+
 // scanLoop runs the periodic scanning loop
 func (ws *WiFiService) scanLoop(ctx context.Context, iface string) {
 	for {

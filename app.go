@@ -31,6 +31,11 @@ func (a *App) startup(ctx context.Context) {
 	a.wifiService.SetContext(ctx)
 }
 
+// shutdown is called when the app is exiting.
+func (a *App) shutdown(ctx context.Context) {
+	_ = a.wifiService.Close()
+}
+
 // GetAvailableInterfaces returns a list of available WiFi interfaces
 func (a *App) GetAvailableInterfaces() ([]string, error) {
 	return a.wifiService.scanner.GetInterfaces()
