@@ -1,6 +1,10 @@
 name: Wails build
 
-on: [push, pull_request]
+on:
+  push:
+  pull_request:
+  release:
+    types: [created, published]
 
 jobs:
   build:
@@ -9,16 +13,67 @@ jobs:
       matrix:
         build:
           [
-            { name: wifi-app, platform: linux/amd64, os: ubuntu-latest },
-            { name: wifi-app, platform: windows/amd64, os: windows-latest },
-            { name: wifi-app, platform: darwin/universal, os: macos-latest },
+            {
+              name: wifi-app,
+              platform: linux/amd64,
+              os: ubuntu-latest,
+              out: wifi-app-linux-amd64
+            },
+            {
+              name: wifi-app,
+              platform: windows/amd64,
+              os: windows-latest,
+              out: wifi-app-windows-amd64.exe
+            },
+            {
+              name: wifi-app,
+              platform: darwin/universal,
+              os: macos-latest,
+              out: wifi-app-macos-universal
+            },
           ]
     runs-on: ${{ matrix.build.os }}
+
     steps:
       - uses: actions/checkout@v4
         with:
           submodules: recursive
+
       - uses: snider/build@main
         with:
           build-name: ${{ matrix.build.name }}
           build-platform: ${{ matrix.build.platform }}
+
+      # -------------------------
+      # Rename binaries
+      # -------------------------
+      - name: Rename binary (unix)
+        if: runner.os != 'Windows'
+        run: |
+          mv build/bin/wifi-app build/bin/${{ matrix.build.out }}
+
+      - name: Rename binary (windows)
+        if: runner.os == 'Windows'
+        run: |
+          rename build\bin\wifi-app.exe ${{ matrix.build.out }}
+
+      # -------------------------
+      # Upload CI artifacts
+      # -------------------------
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.build.out }}
+          path: build/bin/${{ matrix.build.out }}
+          if-no-files-found: error
+
+      # -------------------------
+      # Upload binaries to GitHub Release
+      # -------------------------
+      - name: Upload to GitHub Release
+        if: github.event_name == 'release'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: build/bin/${{ matrix.build.out }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
