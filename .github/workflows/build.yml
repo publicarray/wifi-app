@@ -50,17 +50,17 @@ jobs:
       - name: Rename binary (unix)
         if: runner.os == 'Linux'
         run: |
-          mv build/bin/wifi-app build/bin/${{ matrix.build.out }}
+          mv build/bin/${{ matrix.build.name }} build/bin/${{ matrix.build.out }}
 
       - name: Rename binary (windows)
         if: runner.os == 'Windows'
         run: |
-          Rename-Item build\bin\wifi-app.exe build\bin\${{ matrix.build.out }}
+          Move-Item build\bin\${{ matrix.build.name }} build\bin\${{ matrix.build.out }}
 
       - name: Rename macOS zip
         if: runner.os == 'macOS'
         run: |
-          mv build/bin/wifi-app.app.zip build/bin/${{ matrix.build.out }}
+          mv build/bin/${{ matrix.build.name }}.app.zip build/bin/${{ matrix.build.out }}
 
       # -------------------------
       # Upload binaries to GitHub Release
