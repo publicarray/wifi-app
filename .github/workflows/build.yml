@@ -17,19 +17,19 @@ jobs:
               name: wifi-app,
               platform: linux/amd64,
               os: ubuntu-latest,
-              out: wifi-app-linux-amd64
+              out: wifi-app-linux-amd64,
             },
             {
               name: wifi-app,
               platform: windows/amd64,
               os: windows-latest,
-              out: wifi-app-windows-amd64.exe
+              out: wifi-app-windows-amd64.exe,
             },
             {
               name: wifi-app,
               platform: darwin/universal,
               os: macos-latest,
-              out: wifi-app-macos-universal
+              out: wifi-app-macos-universal.zip,
             },
           ]
     runs-on: ${{ matrix.build.os }}
@@ -48,14 +48,19 @@ jobs:
       # Rename binaries
       # -------------------------
       - name: Rename binary (unix)
-        if: runner.os != 'Windows'
+        if: runner.os = 'Linux'
         run: |
           mv build/bin/wifi-app build/bin/${{ matrix.build.out }}
 
       - name: Rename binary (windows)
         if: runner.os == 'Windows'
         run: |
-          rename build\bin\wifi-app.exe ${{ matrix.build.out }}
+          Rename-Item build\bin\wifi-app.exe ${{ matrix.build.out }}
+
+      - name: Rename macOS zip
+        if: runner.os == 'macOS'
+        run: |
+          mv build/bin/wifi-app.app.zip build/bin/${{ matrix.build.out }}
 
       # -------------------------
       # Upload CI artifacts
