@@ -11,6 +11,12 @@ visualizes signal, channels, and roaming in real time.
 
 More screenshots in the [screenshots](screenshots/) folder.
 
+### Download the Latest Release
+
+- [Linux (amd64)](https://github.com/publicarray/wifi-app/releases/latest/download/wifi-app-linux-amd64)
+- [macOS (Universal)](https://github.com/publicarray/wifi-app/releases/latest/download/wifi-app-macos-universal.zip)
+- [Windows (amd64)](https://github.com/pablicarray/wifi-app/releases/latest/download/wifi-app-windows-amd64.exe)
+
 ## Features
 
 - Multi-platform WiFi scanning (Linux, macOS, Windows)
