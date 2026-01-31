@@ -20,7 +20,7 @@ jobs:
               out: wifi-app-linux-amd64,
             },
             {
-              name: wifi-app,
+              name: wifi-app.exe,
               platform: windows/amd64,
               os: windows-latest,
               out: wifi-app-windows-amd64.exe,
@@ -55,7 +55,7 @@ jobs:
       - name: Rename binary (windows)
         if: runner.os == 'Windows'
         run: |
-          Rename-Item build\bin\wifi-app build\bin\${{ matrix.build.out }}
+          Rename-Item build\bin\wifi-app.exe build\bin\${{ matrix.build.out }}
 
       - name: Rename macOS zip
         if: runner.os == 'macOS'
