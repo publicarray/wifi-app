@@ -14,16 +14,19 @@ jobs:
         build:
           [
             {
+              name: wifi-app,
               platform: linux/amd64,
               os: ubuntu-latest,
               out: wifi-app-linux-amd64,
             },
             {
+              name: wifi-app,
               platform: windows/amd64,
               os: windows-latest,
               out: wifi-app-windows-amd64.exe,
             },
             {
+              name: wifi-app,
               platform: darwin/universal,
               os: macos-latest,
               out: wifi-app-macos-universal.zip,
