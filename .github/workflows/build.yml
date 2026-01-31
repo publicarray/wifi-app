@@ -48,14 +48,14 @@ jobs:
       # Rename binaries
       # -------------------------
       - name: Rename binary (unix)
-        if: runner.os = 'Linux'
+        if: runner.os == 'Linux'
         run: |
           mv build/bin/wifi-app build/bin/${{ matrix.build.out }}
 
       - name: Rename binary (windows)
         if: runner.os == 'Windows'
         run: |
-          Rename-Item build\bin\wifi-app.exe ${{ matrix.build.out }}
+          Rename-Item build\bin\wifi-app.exe build\bin\${{ matrix.build.out }}
 
       - name: Rename macOS zip
         if: runner.os == 'macOS'
