@@ -4,7 +4,7 @@ Cross-platform WiFi diagnostic desktop app built with a Go backend (Wails v2)
 and a Svelte frontend. It scans nearby networks, aggregates AP data, and
 visualizes signal, channels, and roaming in real time.
 
-> [!IMPORTANT]  
+> [!WARNING]  
 > This app is still in development and may not be fully functional or contain bugs or incomplete features.
 
 ## Features
@@ -77,7 +77,7 @@ GOOS=windows GOARCH=amd64 wails build
 - Linux has two backends:
   - `iw` (shell exec) - deprecated
   - `nl80211` netlink, - default/preferred
-- macOS uses CoreWLAN via cgo. (WIP - experimental)
+- macOS uses [CoreWLAN](https://developer.apple.com/documentation/corewlan) via cgo. (WIP - experimental)
 - Windows uses the native WiFi API.
 
 ## Events and UI
