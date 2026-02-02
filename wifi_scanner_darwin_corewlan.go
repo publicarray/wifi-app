@@ -51,7 +51,11 @@ static NSDictionary *cw_network_to_dict(CWNetwork *net) {
 		dict[@"channel"] = @(net.wlanChannel.channelNumber);
 		dict[@"channelWidth"] = @(net.wlanChannel.channelWidth);
 	}
-	dict[@"security"] = @(net.security);
+	if ([net respondsToSelector:@selector(securityMode)]) {
+		dict[@"security"] = @([net securityMode]);
+	} else if ([net respondsToSelector:@selector(security)]) {
+		dict[@"security"] = @([net security]);
+	}
 	return dict;
 }
 
@@ -72,7 +76,11 @@ static NSDictionary *cw_interface_current_dict(CWInterface *iface) {
 		dict[@"channel"] = @(iface.wlanChannel.channelNumber);
 		dict[@"channelWidth"] = @(iface.wlanChannel.channelWidth);
 	}
-	dict[@"security"] = @(iface.security);
+	if ([iface respondsToSelector:@selector(securityMode)]) {
+		dict[@"security"] = @([iface securityMode]);
+	} else if ([iface respondsToSelector:@selector(security)]) {
+		dict[@"security"] = @([iface security]);
+	}
 	return dict;
 }
 
