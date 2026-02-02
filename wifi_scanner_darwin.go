@@ -19,6 +19,7 @@ type darwinScanner struct {
 	hasWdutil         bool
 	hasSystemProfiler bool
 	hasNetworksetup   bool
+	hasCoreWLAN       bool
 	airportParser     *airportParser
 	systemParser      *systemProfilerParser
 }
@@ -30,6 +31,7 @@ func NewWiFiScanner(cacheFile string) WiFiBackend {
 	_, wdutilErr := exec.LookPath("wdutil")
 	_, profilerErr := exec.LookPath("system_profiler")
 	_, networksetupErr := exec.LookPath("networksetup")
+	setCoreWLANLookup(ouiLookup)
 
 	return &darwinScanner{
 		ouiLookup:         ouiLookup,
@@ -38,12 +40,19 @@ func NewWiFiScanner(cacheFile string) WiFiBackend {
 		hasWdutil:         wdutilErr == nil,
 		hasSystemProfiler: profilerErr == nil,
 		hasNetworksetup:   networksetupErr == nil,
+		hasCoreWLAN:       coreWLANAvailable(),
 		airportParser:     &airportParser{ouiLookup: ouiLookup},
 		systemParser:      &systemProfilerParser{ouiLookup: ouiLookup},
 	}
 }
 
 func (s *darwinScanner) ScanNetworks(iface string) ([]AccessPoint, error) {
+	if s.hasCoreWLAN {
+		aps, err := coreWLANScanNetworks(iface)
+		if err == nil && len(aps) > 0 {
+			return aps, nil
+		}
+	}
 	if s.hasAirport {
 		cmd := exec.Command(s.airportPath, "-s", "-x")
 		output, err := cmd.CombinedOutput()
@@ -99,6 +108,12 @@ func (s *darwinScanner) GetInterfaces() ([]string, error) {
 }
 
 func (s *darwinScanner) GetConnectionInfo(iface string) (ConnectionInfo, error) {
+	if s.hasCoreWLAN {
+		info, err := coreWLANConnectionInfo(iface)
+		if err == nil {
+			return info, nil
+		}
+	}
 	if s.hasAirport {
 		cmd := exec.Command(s.airportPath, "-I")
 		output, err := cmd.CombinedOutput()
@@ -134,6 +149,12 @@ func (s *darwinScanner) GetConnectionInfo(iface string) (ConnectionInfo, error) 
 }
 
 func (s *darwinScanner) GetStationStats(iface string) (map[string]string, error) {
+	if s.hasCoreWLAN {
+		stats, err := coreWLANStationInfo(iface)
+		if err == nil {
+			return stats, nil
+		}
+	}
 	if s.hasAirport {
 		cmd := exec.Command(s.airportPath, "-I")
 		output, err := cmd.CombinedOutput()
@@ -178,6 +199,12 @@ func (s *darwinScanner) GetStationStats(iface string) (map[string]string, error)
 }
 
 func (s *darwinScanner) GetLinkInfo(iface string) (map[string]string, error) {
+	if s.hasCoreWLAN {
+		link, err := coreWLANLinkInfo(iface)
+		if err == nil {
+			return link, nil
+		}
+	}
 	if s.hasAirport {
 		cmd := exec.Command(s.airportPath, "-I")
 		output, err := cmd.CombinedOutput()
