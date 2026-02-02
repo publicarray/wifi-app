@@ -1,8 +1,11 @@
 package main
 
 import (
+	"crypto/sha1"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -37,6 +40,9 @@ func (p *systemProfilerParser) ParseScan(output []byte) ([]AccessPoint, error) {
 			for _, entry := range entries {
 				ssid := getString(entry, "spairport_network_name", "_name", "SSID_STR", "SSID")
 				bssid := extractBSSID(getString(entry, "spairport_network_bssid", "spairport_network_bssid_string", "BSSID"))
+				if bssid == "" {
+					bssid = synthesizeBSSID(ssid, getString(entry, "spairport_network_channel", "spairport_network_channel_string"), getString(entry, "spairport_network_security", "spairport_security_mode"))
+				}
 				if ssid == "" || bssid == "" {
 					continue
 				}
@@ -66,8 +72,10 @@ func (p *systemProfilerParser) ParseScan(output []byte) ([]AccessPoint, error) {
 				}
 
 				securityField := firstNonEmpty(
-					getJoinedString(entry, "spairport_network_security"),
-					getJoinedString(entry, "spairport_network_security_type"),
+					normalizeSystemProfilerSecurity(getString(entry, "spairport_network_security")),
+					normalizeSystemProfilerSecurity(getString(entry, "spairport_network_security_type")),
+					normalizeSystemProfilerSecurity(getString(entry, "spairport_security_mode")),
+					normalizeSystemProfilerSecurity(getString(entry, "spairport_network_phymode")),
 					getJoinedString(entry, "SECURITY"),
 				)
 				security, ciphers, authMethods, pmf := parseAirportSecurity(securityField)
@@ -195,6 +203,7 @@ func parseSystemProfilerJSON(output []byte) (map[string]interface{}, error) {
 
 func extractNetworksFromInterface(iface map[string]interface{}) []map[string]interface{} {
 	for _, key := range []string{
+		"spairport_airport_local_wireless_networks",
 		"spairport_networks",
 		"spairport_other_local_wireless_networks",
 		"spairport_other_local_networks",
@@ -273,4 +282,39 @@ func firstNonEmpty(values ...string) string {
 		}
 	}
 	return ""
+}
+
+func normalizeSystemProfilerSecurity(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return ""
+	}
+	lower := strings.ToLower(value)
+	switch {
+	case strings.Contains(lower, "wpa3"):
+		return "WPA3"
+	case strings.Contains(lower, "wpa2"):
+		return "WPA2"
+	case strings.Contains(lower, "wpa"):
+		return "WPA"
+	case strings.Contains(lower, "wep"):
+		return "WEP"
+	case strings.Contains(lower, "open"):
+		return "Open"
+	}
+	return strings.ReplaceAll(strings.ToUpper(value), "_", " ")
+}
+
+func synthesizeBSSID(ssid, channel, security string) string {
+	payload := strings.Join([]string{ssid, channel, security}, "|")
+	hash := sha1.Sum([]byte(payload))
+	hexed := hex.EncodeToString(hash[:6])
+	var b strings.Builder
+	for i := 0; i < len(hexed); i += 2 {
+		if i > 0 {
+			b.WriteByte(':')
+		}
+		b.WriteString(hexed[i : i+2])
+	}
+	return b.String()
 }

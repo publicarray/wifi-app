@@ -18,6 +18,7 @@ type darwinScanner struct {
 	hasAirport        bool
 	hasWdutil         bool
 	hasSystemProfiler bool
+	hasNetworksetup   bool
 	airportParser     *airportParser
 	systemParser      *systemProfilerParser
 }
@@ -28,6 +29,7 @@ func NewWiFiScanner(cacheFile string) WiFiBackend {
 	airportPath := findAirportPath()
 	_, wdutilErr := exec.LookPath("wdutil")
 	_, profilerErr := exec.LookPath("system_profiler")
+	_, networksetupErr := exec.LookPath("networksetup")
 
 	return &darwinScanner{
 		ouiLookup:         ouiLookup,
@@ -35,6 +37,7 @@ func NewWiFiScanner(cacheFile string) WiFiBackend {
 		hasAirport:        airportPath != "",
 		hasWdutil:         wdutilErr == nil,
 		hasSystemProfiler: profilerErr == nil,
+		hasNetworksetup:   networksetupErr == nil,
 		airportParser:     &airportParser{ouiLookup: ouiLookup},
 		systemParser:      &systemProfilerParser{ouiLookup: ouiLookup},
 	}
@@ -123,7 +126,11 @@ func (s *darwinScanner) GetConnectionInfo(iface string) (ConnectionInfo, error) 
 		return parseSystemProfilerConnectionInfo(output), nil
 	}
 
-	return ConnectionInfo{}, fmt.Errorf("no macOS WiFi info command available (airport/wdutil/system_profiler missing)")
+	if s.hasNetworksetup {
+		return parseNetworksetupConnectionInfo(iface), nil
+	}
+
+	return ConnectionInfo{}, fmt.Errorf("no macOS WiFi info command available (airport/wdutil/system_profiler/networksetup missing)")
 }
 
 func (s *darwinScanner) GetStationStats(iface string) (map[string]string, error) {
@@ -154,7 +161,20 @@ func (s *darwinScanner) GetStationStats(iface string) (map[string]string, error)
 		return parseSystemProfilerStationInfo(output), nil
 	}
 
-	return map[string]string{"connected": "false"}, fmt.Errorf("no macOS WiFi info command available (airport/wdutil/system_profiler missing)")
+	if s.hasNetworksetup {
+		info := parseNetworksetupConnectionInfo(iface)
+		stats := map[string]string{"connected": strconv.FormatBool(info.Connected)}
+		if info.BSSID != "" {
+			stats["bssid"] = info.BSSID
+		}
+		if info.Signal != 0 {
+			stats["signal"] = strconv.Itoa(info.Signal)
+			stats["signal_avg"] = strconv.Itoa(info.Signal)
+		}
+		return stats, nil
+	}
+
+	return map[string]string{"connected": "false"}, fmt.Errorf("no macOS WiFi info command available (airport/wdutil/system_profiler/networksetup missing)")
 }
 
 func (s *darwinScanner) GetLinkInfo(iface string) (map[string]string, error) {
@@ -185,7 +205,19 @@ func (s *darwinScanner) GetLinkInfo(iface string) (map[string]string, error) {
 		return parseSystemProfilerLinkInfo(output), nil
 	}
 
-	return map[string]string{"connected": "false"}, fmt.Errorf("no macOS WiFi info command available (airport/wdutil/system_profiler missing)")
+	if s.hasNetworksetup {
+		info := parseNetworksetupConnectionInfo(iface)
+		link := map[string]string{"connected": strconv.FormatBool(info.Connected)}
+		if info.SSID != "" {
+			link["ssid"] = info.SSID
+		}
+		if info.BSSID != "" {
+			link["bssid"] = info.BSSID
+		}
+		return link, nil
+	}
+
+	return map[string]string{"connected": "false"}, fmt.Errorf("no macOS WiFi info command available (airport/wdutil/system_profiler/networksetup missing)")
 }
 
 func (s *darwinScanner) Close() error {
@@ -290,6 +322,15 @@ func parseWdutilConnectionInfo(output []byte) ConnectionInfo {
 		if width := parseChannelWidth(channel); width != 0 {
 			connInfo.ChannelWidth = width
 		}
+		if connInfo.Channel == 0 {
+			if ch, width := parseWdutilChannel(channel); ch != 0 {
+				connInfo.Channel = ch
+				connInfo.Frequency = channelToFrequency(ch)
+				if width != 0 {
+					connInfo.ChannelWidth = width
+				}
+			}
+		}
 	}
 	if width := parseChannelWidth(firstValue(values, "channel width", "chan width")); width != 0 {
 		connInfo.ChannelWidth = width
@@ -343,6 +384,14 @@ func parseWdutilLinkInfo(output []byte) map[string]string {
 	}
 	if width := parseChannelWidth(firstValue(values, "channel width", "chan width", "channel")); width != 0 {
 		info["channel_width"] = strconv.Itoa(width)
+	}
+	if info["channel"] == "" {
+		if ch, width := parseWdutilChannel(firstValue(values, "channel", "primary channel")); ch != 0 {
+			info["channel"] = strconv.Itoa(ch)
+			if info["channel_width"] == "" && width != 0 {
+				info["channel_width"] = strconv.Itoa(width)
+			}
+		}
 	}
 	info["rx_bytes"] = "0"
 	info["tx_bytes"] = "0"
@@ -444,6 +493,31 @@ func parseSystemProfilerStationInfo(output []byte) map[string]string {
 	return info
 }
 
+func parseNetworksetupConnectionInfo(iface string) ConnectionInfo {
+	connInfo := ConnectionInfo{}
+	if iface == "" {
+		return connInfo
+	}
+	cmd := exec.Command("/usr/sbin/networksetup", "-getairportnetwork", iface)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return connInfo
+	}
+	line := strings.TrimSpace(string(output))
+	if strings.Contains(strings.ToLower(line), "not associated") || strings.Contains(line, "Off") {
+		connInfo.Connected = false
+		return connInfo
+	}
+	const prefix = "Current Wi-Fi Network:"
+	if strings.HasPrefix(line, prefix) {
+		connInfo.SSID = strings.TrimSpace(strings.TrimPrefix(line, prefix))
+	}
+	if connInfo.SSID != "" {
+		connInfo.Connected = true
+	}
+	return connInfo
+}
+
 func parseWdutilKeyValues(output []byte) map[string]string {
 	values := make(map[string]string)
 	scanner := bufio.NewScanner(bytes.NewReader(output))
@@ -456,6 +530,9 @@ func parseWdutilKeyValues(output []byte) map[string]string {
 		key := strings.ToLower(strings.TrimSpace(parts[0]))
 		value := strings.TrimSpace(parts[1])
 		if key == "" || value == "" {
+			continue
+		}
+		if isEmptyWdutilValue(value) {
 			continue
 		}
 		values[key] = value
@@ -506,6 +583,22 @@ func parseChannelWidth(value string) int {
 		return width
 	}
 	return 0
+}
+
+func parseWdutilChannel(value string) (int, int) {
+	re := regexp.MustCompile(`(?i)(?:2g|5g|6g)?\s*(\d+)\s*/\s*(\d+)`)
+	matches := re.FindStringSubmatch(value)
+	if len(matches) < 3 {
+		return 0, 0
+	}
+	channel, _ := strconv.Atoi(matches[1])
+	width, _ := strconv.Atoi(matches[2])
+	return channel, width
+}
+
+func isEmptyWdutilValue(value string) bool {
+	trimmed := strings.TrimSpace(strings.ToLower(value))
+	return trimmed == "none" || trimmed == "n/a" || trimmed == "null"
 }
 
 func extractBSSID(value string) string {
