@@ -26,15 +26,15 @@ func NewWiFiScanner(cacheFile string) WiFiBackend {
 	ouiLookup := NewOUILookup(cacheFile)
 	ouiLookup.LoadOUIDatabase()
 	airportPath := findAirportPath()
-	_, wdutilAvailable := exec.LookPath("wdutil")
-	_, profilerAvailable := exec.LookPath("system_profiler")
+	_, wdutilErr := exec.LookPath("wdutil")
+	_, profilerErr := exec.LookPath("system_profiler")
 
 	return &darwinScanner{
 		ouiLookup:         ouiLookup,
 		airportPath:       airportPath,
 		hasAirport:        airportPath != "",
-		hasWdutil:         wdutilAvailable,
-		hasSystemProfiler: profilerAvailable,
+		hasWdutil:         wdutilErr == nil,
+		hasSystemProfiler: profilerErr == nil,
 		airportParser:     &airportParser{ouiLookup: ouiLookup},
 		systemParser:      &systemProfilerParser{ouiLookup: ouiLookup},
 	}
