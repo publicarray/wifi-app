@@ -15,9 +15,15 @@ import (
 )
 
 const (
-	maxSignalHistory = 600 // Keep 10 minutes at 1 second intervals
-	scanInterval     = 4 * time.Second
+	maxSignalHistory  = 600 // Keep 10 minutes at 1 second intervals
+	maxRoamingHistory = 100
+	scanInterval      = 4 * time.Second
 )
+
+// scanBackoffDelays are the delays between retry attempts when a scan fails.
+// After exhausting these, the loop emits `scan:error` and waits out the next
+// scanInterval tick rather than thrashing the driver.
+var scanBackoffDelays = []time.Duration{500 * time.Millisecond, 1 * time.Second, 2 * time.Second}
 
 // WiFiService manages WiFi scanning and data aggregation
 type WiFiService struct {
@@ -76,10 +82,16 @@ func (ws *WiFiService) StartScanning(iface string) error {
 		return fmt.Errorf("scanning already in progress")
 	}
 
+	// Inherit from the Wails app context so app shutdown cancels scanning.
+	// Fall back to Background when SetContext hasn't been called (tests).
+	parent := ws.ctx
+	if parent == nil {
+		parent = context.Background()
+	}
+	scanCtx, cancel := context.WithCancel(parent)
+
 	ws.currentInterface = iface
 	ws.scanning = true
-
-	scanCtx, cancel := context.WithCancel(context.Background())
 	ws.cancelFunc = cancel
 
 	go ws.scanLoop(scanCtx, iface)
@@ -141,7 +153,7 @@ func (ws *WiFiService) performScan(iface string) {
 	}
 	defer ws.scanInFlight.Store(false)
 
-	aps, err := ws.scanner.ScanNetworks(iface)
+	aps, err := ws.scanWithBackoff(iface)
 	if err != nil {
 		runtime.EventsEmit(ws.ctx, "scan:error", err.Error())
 		return
@@ -150,19 +162,45 @@ func (ws *WiFiService) performScan(iface string) {
 		NormalizeAccessPoint(&aps[i])
 	}
 
-	// Aggregate data
+	// Aggregate data (read-only — no shared state touched)
 	result := ws.aggregateData(aps, iface)
 
+	// Commit aggregated results + refresh client stats under a single write
+	// lock, then snapshot what we're about to emit. The emit happens *after*
+	// the lock is released so slow listeners can't block further scans.
 	ws.mu.Lock()
 	ws.lastScanResult = result
 	ws.networks = result.Networks
 	ws.channelInfo = result.Channels
+	ws.updateClientStatsLocked(iface)
+	networksSnapshot := ws.networks
+	channelsSnapshot := ws.channelInfo
+	clientSnapshot := ws.cloneClientStatsLocked()
 	ws.mu.Unlock()
 
-	ws.updateClientStats(iface)
+	runtime.EventsEmit(ws.ctx, "networks:updated", networksSnapshot)
+	runtime.EventsEmit(ws.ctx, "channels:updated", channelsSnapshot)
+	runtime.EventsEmit(ws.ctx, "client:updated", clientSnapshot)
+}
 
-	runtime.EventsEmit(ws.ctx, "networks:updated", ws.networks)
-	runtime.EventsEmit(ws.ctx, "client:updated", ws.clientStats)
+// scanWithBackoff retries a failing scan with short exponential backoff so a
+// single transient driver hiccup doesn't surface as a scan:error toast.
+func (ws *WiFiService) scanWithBackoff(iface string) ([]AccessPoint, error) {
+	var lastErr error
+	for attempt := 0; attempt <= len(scanBackoffDelays); attempt++ {
+		aps, err := ws.scanner.ScanNetworks(iface)
+		if err == nil {
+			return aps, nil
+		}
+		lastErr = err
+		if attempt == len(scanBackoffDelays) {
+			break
+		}
+		select {
+		case <-time.After(scanBackoffDelays[attempt]):
+		}
+	}
+	return nil, lastErr
 }
 
 // aggregateData aggregates access point data into networks and channel info
@@ -171,9 +209,15 @@ func (ws *WiFiService) aggregateData(aps []AccessPoint, iface string) *ScanResul
 	channelMap := make(map[int]*ChannelInfo)
 
 	for _, ap := range aps {
-		// Group by SSID
-		if _, exists := networkMap[ap.SSID]; !exists {
-			networkMap[ap.SSID] = &Network{
+		// Group by SSID. Hidden APs advertise an empty SSID; we key those
+		// per-BSSID so two unrelated hidden networks don't collapse into one
+		// row. The on-the-wire SSID stays empty so the UI can render "(hidden)".
+		key := ap.SSID
+		if key == "" {
+			key = "<hidden:" + ap.BSSID + ">"
+		}
+		if _, exists := networkMap[key]; !exists {
+			networkMap[key] = &Network{
 				SSID:          ap.SSID,
 				AccessPoints:  []AccessPoint{},
 				BestSignal:    -100,
@@ -183,7 +227,7 @@ func (ws *WiFiService) aggregateData(aps []AccessPoint, iface string) *ScanResul
 			}
 		}
 
-		network := networkMap[ap.SSID]
+		network := networkMap[key]
 		network.AccessPoints = append(network.AccessPoints, ap)
 		network.APCount = len(network.AccessPoints)
 
@@ -310,8 +354,11 @@ func (ws *WiFiService) countOverlappingChannels(channel int, channelMap map[int]
 	return count
 }
 
-// updateClientStats updates client connection statistics
-func (ws *WiFiService) updateClientStats(iface string) {
+// updateClientStatsLocked updates client connection statistics.
+// The caller MUST hold ws.mu.Lock for the duration of the call; the function
+// reads and writes ws.clientStats, ws.signalHistory, ws.roamingHistory, and
+// ws.lastBSSID without acquiring the mutex itself.
+func (ws *WiFiService) updateClientStatsLocked(iface string) {
 	linkInfo, err := ws.scanner.GetLinkInfo(iface)
 	if err != nil {
 		ws.clientStats.Connected = false
@@ -390,24 +437,22 @@ func (ws *WiFiService) updateClientStats(iface string) {
 		}
 	}
 
-	ws.updateSignalHistory()
+	ws.updateSignalHistoryLocked()
 	NormalizeClientStats(&ws.clientStats)
 }
 
-// updateSignalHistory updates the signal history and detects roaming events
-func (ws *WiFiService) updateSignalHistory() {
+// updateSignalHistoryLocked appends the current signal reading and detects
+// roaming events. Caller must hold ws.mu.Lock.
+func (ws *WiFiService) updateSignalHistoryLocked() {
 	dataPoint := SignalDataPoint{
 		Timestamp: time.Now(),
 		Signal:    ws.clientStats.Signal,
 		BSSID:     ws.clientStats.BSSID,
 	}
 
-	ws.signalHistory = append(ws.signalHistory, dataPoint)
-
-	// Keep only recent history
-	if len(ws.signalHistory) > maxSignalHistory {
-		ws.signalHistory = ws.signalHistory[len(ws.signalHistory)-maxSignalHistory:]
-	}
+	// appendCapped allocates a fresh backing array when truncating, so prior
+	// slice headers handed out via GetClientStats remain valid and immutable.
+	ws.signalHistory = appendCapped(ws.signalHistory, dataPoint, maxSignalHistory)
 
 	// Detect roaming events
 	if ws.lastBSSID != "" && ws.lastBSSID != ws.clientStats.BSSID {
@@ -427,14 +472,34 @@ func (ws *WiFiService) updateSignalHistory() {
 			PreviousSignal: prevSignal,
 			NewSignal:      ws.clientStats.Signal,
 		}
-		ws.roamingHistory = append(ws.roamingHistory, roamingEvent)
+		ws.roamingHistory = appendCapped(ws.roamingHistory, roamingEvent, maxRoamingHistory)
 
 		runtime.EventsEmit(ws.ctx, "roaming:detected", roamingEvent)
 	}
 
 	ws.lastBSSID = ws.clientStats.BSSID
-	ws.clientStats.SignalHistory = ws.signalHistory
-	ws.clientStats.RoamingHistory = ws.roamingHistory
+	// Note: SignalHistory/RoamingHistory on ClientStats are populated lazily
+	// via cloneClientStatsLocked when a caller asks for a snapshot; we never
+	// hand out the live backing slices anymore.
+}
+
+// cloneClientStatsLocked returns a deep copy of ws.clientStats with fresh
+// SignalHistory/RoamingHistory slices. Caller must hold the lock.
+func (ws *WiFiService) cloneClientStatsLocked() ClientStats {
+	out := ws.clientStats
+	if n := len(ws.signalHistory); n > 0 {
+		out.SignalHistory = make([]SignalDataPoint, n)
+		copy(out.SignalHistory, ws.signalHistory)
+	} else {
+		out.SignalHistory = nil
+	}
+	if n := len(ws.roamingHistory); n > 0 {
+		out.RoamingHistory = make([]RoamingEvent, n)
+		copy(out.RoamingHistory, ws.roamingHistory)
+	} else {
+		out.RoamingHistory = nil
+	}
+	return out
 }
 
 // GetNetworks returns the list of discovered WiFi networks
@@ -444,11 +509,13 @@ func (ws *WiFiService) GetNetworks() []Network {
 	return ws.networks
 }
 
-// GetClientStats returns current client connection statistics
+// GetClientStats returns a snapshot of current client connection statistics.
+// The returned value owns its SignalHistory/RoamingHistory slices — callers
+// may inspect or mutate them without affecting the service's live state.
 func (ws *WiFiService) GetClientStats() ClientStats {
 	ws.mu.RLock()
 	defer ws.mu.RUnlock()
-	return ws.clientStats
+	return ws.cloneClientStatsLocked()
 }
 
 // GetChannelAnalysis returns channel utilization information
@@ -465,22 +532,15 @@ func (ws *WiFiService) IsScanning() bool {
 	return ws.scanning
 }
 
-// AnalyzeRoamingQuality analyzes roaming quality based on signal history
-func (ws *WiFiService) AnalyzeRoamingQuality() map[string]interface{} {
+// AnalyzeRoamingQuality analyzes roaming quality based on signal history.
+func (ws *WiFiService) AnalyzeRoamingQuality() RoamingQualityReport {
 	ws.mu.RLock()
 	defer ws.mu.RUnlock()
 
-	result := make(map[string]interface{})
-
 	if len(ws.roamingHistory) == 0 {
-		result["totalRoams"] = 0
-		result["goodRoams"] = 0
-		result["badRoams"] = 0
-		result["avgSignalChange"] = 0
-		result["excessiveRoaming"] = false
-		result["stickyClient"] = false
-		result["roamingAdvice"] = "No roaming data available yet. Connect to a network with multiple APs to see roaming analysis."
-		return result
+		return RoamingQualityReport{
+			RoamingAdvice: "No roaming data available yet. Connect to a network with multiple APs to see roaming analysis.",
+		}
 	}
 
 	totalRoams := len(ws.roamingHistory)
@@ -503,16 +563,9 @@ func (ws *WiFiService) AnalyzeRoamingQuality() map[string]interface{} {
 		avgSignalChange = totalSignalChange / totalRoams
 	}
 
-	result["totalRoams"] = totalRoams
-	result["goodRoams"] = goodRoams
-	result["badRoams"] = badRoams
-	result["avgSignalChange"] = avgSignalChange
-
-	// Detect excessive roaming
 	excessiveRoaming := totalRoams > 10 && len(ws.signalHistory) > 0 &&
 		float64(totalRoams)/float64(len(ws.signalHistory))*100 > 5
 
-	// Detect sticky client
 	stickyClient := false
 	if ws.clientStats.Connected && ws.clientStats.Signal < -75 && totalRoams == 0 {
 		for _, network := range ws.networks {
@@ -527,38 +580,42 @@ func (ws *WiFiService) AnalyzeRoamingQuality() map[string]interface{} {
 		}
 	}
 
-	result["excessiveRoaming"] = excessiveRoaming
-	result["stickyClient"] = stickyClient
-
-	// Time since last roam
-	if len(ws.roamingHistory) > 0 {
-		lastRoam := ws.roamingHistory[len(ws.roamingHistory)-1]
-		timeSince := time.Since(lastRoam.Timestamp)
-		if timeSince < time.Minute {
-			result["timeSinceLastRoam"] = fmt.Sprintf("%ds ago", int(timeSince.Seconds()))
-		} else if timeSince < time.Hour {
-			result["timeSinceLastRoam"] = fmt.Sprintf("%dm ago", int(timeSince.Minutes()))
-		} else {
-			result["timeSinceLastRoam"] = fmt.Sprintf("%dh %dm ago", int(timeSince.Hours()), int(timeSince.Minutes())%60)
-		}
+	var timeSinceLastRoam string
+	lastRoam := ws.roamingHistory[len(ws.roamingHistory)-1]
+	timeSince := time.Since(lastRoam.Timestamp)
+	switch {
+	case timeSince < time.Minute:
+		timeSinceLastRoam = fmt.Sprintf("%ds ago", int(timeSince.Seconds()))
+	case timeSince < time.Hour:
+		timeSinceLastRoam = fmt.Sprintf("%dm ago", int(timeSince.Minutes()))
+	default:
+		timeSinceLastRoam = fmt.Sprintf("%dh %dm ago", int(timeSince.Hours()), int(timeSince.Minutes())%60)
 	}
 
-	// Generate advice
 	var advice string
-	if excessiveRoaming {
+	switch {
+	case excessiveRoaming:
 		advice = "Your device is roaming excessively. This may indicate overlapping AP coverage or unstable connections. Consider adjusting AP placement or roaming aggressiveness settings."
-	} else if stickyClient {
+	case stickyClient:
 		advice = "Your device appears to be a 'sticky client' - it's staying connected to a weak AP when better options are available. Consider enabling 802.11k/v/r on your network or adjusting client roaming settings."
-	} else if avgSignalChange > 5 {
+	case avgSignalChange > 5:
 		advice = "Roaming is working well! Your device is successfully moving to stronger access points."
-	} else if avgSignalChange < -5 {
+	case avgSignalChange < -5:
 		advice = "Roaming decisions may not be optimal. Your device sometimes roams to weaker APs. This could indicate AP coverage overlap issues."
-	} else {
+	default:
 		advice = "Roaming behavior appears normal. Signal quality is maintained during transitions."
 	}
-	result["roamingAdvice"] = advice
 
-	return result
+	return RoamingQualityReport{
+		TotalRoams:        totalRoams,
+		GoodRoams:         goodRoams,
+		BadRoams:          badRoams,
+		AvgSignalChange:   avgSignalChange,
+		ExcessiveRoaming:  excessiveRoaming,
+		StickyClient:      stickyClient,
+		TimeSinceLastRoam: timeSinceLastRoam,
+		RoamingAdvice:     advice,
+	}
 }
 
 // GetAPPlacementRecommendations provides recommendations for AP placement

@@ -28,8 +28,8 @@ type AccessPoint struct {
 	PMF           string `json:"pmf"`           // Protected Management Frames (Required, Optional, Disabled)
 	// Additional advanced metrics
 	WPS                bool    `json:"wps"`                // WPS (WiFi Protected Setup) status
-	BSSLoadStations    int     `json:"bssLoadStations"`    // Number of connected stations
-	BSSLoadUtilization int     `json:"bssLoadUtilization"` // Channel utilization percentage (0-255)
+	BSSLoadStations    *int    `json:"bssLoadStations"`    // Number of connected stations; nil when IE absent
+	BSSLoadUtilization *int    `json:"bssLoadUtilization"` // Channel utilization percentage (0-100); nil when IE absent
 	MaxPhyRate         int     `json:"maxPhyRate"`         // Max PHY rate in Mbps
 	TWTSupport         bool    `json:"twtSupport"`         // Target Wake Time support (WiFi 6)
 	NeighborReport     bool    `json:"neighborReport"`     // 802.11k Neighbor Report support
@@ -125,6 +125,20 @@ type ChannelInfo struct {
 	Utilization      int      `json:"utilization"`      // Channel utilization percentage
 	CongestionLevel  string   `json:"congestionLevel"`  // "low", "medium", "high"
 	OverlappingCount int      `json:"overlappingCount"` // Number of overlapping networks
+}
+
+// RoamingQualityReport is the typed result of AnalyzeRoamingQuality.
+// Previously this was returned as map[string]interface{}, which made the
+// frontend type-cast every field.
+type RoamingQualityReport struct {
+	TotalRoams        int    `json:"totalRoams"`
+	GoodRoams         int    `json:"goodRoams"`
+	BadRoams          int    `json:"badRoams"`
+	AvgSignalChange   int    `json:"avgSignalChange"`
+	ExcessiveRoaming  bool   `json:"excessiveRoaming"`
+	StickyClient      bool   `json:"stickyClient"`
+	TimeSinceLastRoam string `json:"timeSinceLastRoam,omitempty"`
+	RoamingAdvice     string `json:"roamingAdvice"`
 }
 
 // ScanResult represents the complete result of a WiFi scan

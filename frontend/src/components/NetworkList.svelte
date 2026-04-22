@@ -2,15 +2,46 @@
     export let networks = [];
     export let clientStats = null;
 
-    // Type helper functions
+    // Derivation helpers used to highlight the currently-connected network in
+    // the table. Previously these were referenced in the template without
+    // being defined, which caused a runtime ReferenceError on render.
     function isConnected(stats) {
-        return stats && stats.connected === true;
+        return !!(stats && stats.connected);
     }
 
     function getConnectedSSID(stats) {
-        return isConnected(stats) ? stats.ssid : null;
+        return stats && stats.connected ? stats.ssid : "";
     }
 
+    function getConnectedBSSID(stats) {
+        return stats && stats.connected ? (stats.bssid || "").toLowerCase() : "";
+    }
+
+    // networkKey returns a stable identifier for a network entry — used as
+    // the key for the expanded-row Set and for display labels. Hidden
+    // networks (empty SSID) share no natural string identifier; we fall back
+    // to the strongest-AP BSSID so two different hidden networks don't
+    // collapse into a single expandable row.
+    function networkKey(network) {
+        if (!network) return "";
+        if (network.ssid) return network.ssid;
+        return network.bestSignalAP || (network.accessPoints && network.accessPoints[0] && network.accessPoints[0].bssid) || "";
+    }
+
+    function getUniqueChannels(networks) {
+        return [...new Set(networks.map((n) => n.channel))].sort((a, b) => parseInt(a) - parseInt(b));
+    }
+
+    function getUniqueSecurityTypes(networks) {
+        const map = new Map();
+        networks.forEach((n) => {
+            if (!map.has(n.security)) map.set(n.security, true);
+        });
+        return [...map.keys()];
+    }
+
+    $: availableChannels = getUniqueChannels(networks);
+    $: availableSecurityTypes = getUniqueSecurityTypes(networks);
     let expandedNetworks = new Set();
     let sortBy = "signal"; // 'ssid', 'signal', 'channel', 'security'
     let sortOrder = "desc"; // 'asc', 'desc'
@@ -471,20 +502,21 @@ Network health and connection state.
                 </tr>
             </thead>
             <tbody>
-                {#each sortedNetworks as network}
+                {#each sortedNetworks as network (networkKey(network))}
+                    {@const key = networkKey(network)}
+                    {@const isConnectedNetwork = isConnected(clientStats) && ((network.ssid && getConnectedSSID(clientStats) === network.ssid) || (!network.ssid && network.accessPoints && network.accessPoints.some((ap) => (ap.bssid || "").toLowerCase() === getConnectedBSSID(clientStats))))}
                     <tr
                         class="network-row"
                         class:has-issues={network.hasIssues}
-                        class:connected={isConnected(clientStats) &&
-                            getConnectedSSID(clientStats) === network.ssid}
+                        class:connected={isConnectedNetwork}
                     >
                         <td
                             class="ssid-cell"
-                            on:click={() => toggleNetwork(network.ssid)}
-                            on:keypress={() => toggleNetwork(network.ssid)}
+                            on:click={() => toggleNetwork(key)}
+                            on:keypress={() => toggleNetwork(key)}
                         >
                             <div class="ssid-content">
-                                <span class="ssid-text">{network.ssid}</span>
+                                <span class="ssid-text">{network.ssid || "(hidden)"}</span>
                                 {#if network.accessPoints && network.accessPoints.length > 0}
                                     {@const standard = getWiFiStandard(
                                         network.accessPoints[0],
@@ -503,7 +535,7 @@ Network health and connection state.
                             </div>
                             {#if network.apCount > 1}
                                 <div class="expand-indicator">
-                                    {expandedNetworks.has(network.ssid)
+                                    {expandedNetworks.has(key)
                                         ? "▼"
                                         : "▶"}
                                 </div>
@@ -524,7 +556,7 @@ Network health and connection state.
                         <td class="status-cell">
                             {#if network.hasIssues}
                                 <span class="status-warning">⚠️ Issues</span>
-                            {:else if isConnected(clientStats) && getConnectedSSID(clientStats) === network.ssid}
+                            {:else if isConnectedNetwork}
                                 <span class="status-connected"
                                     >🔗 Connected</span
                                 >
@@ -535,7 +567,7 @@ Network health and connection state.
                     </tr>
 
                     <!-- Expanded AP Details -->
-                    {#if expandedNetworks.has(network.ssid)}
+                    {#if expandedNetworks.has(key)}
                         <tr class="ap-details-row">
                             <td colspan="6">
                                 <div class="ap-details">

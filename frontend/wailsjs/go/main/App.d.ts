@@ -16,7 +16,7 @@ export function GetClientStats():Promise<main.ClientStats>;
 
 export function GetNetworks():Promise<Array<main.Network>>;
 
-export function GetRoamingAnalysis():Promise<Record<string, any>>;
+export function GetRoamingAnalysis():Promise<main.RoamingQualityReport>;
 
 export function IsScanning():Promise<boolean>;
 

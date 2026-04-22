@@ -1,5 +1,9 @@
 <script>
     export let networks = [];
+    // Optional per-channel stats straight from the backend (utilization,
+    // congestion level, overlap counts). Not yet consumed by the derivation
+    // below but plumbed through so callers have a single source of truth.
+    export let channelAnalysis = [];
 
     $: channels2_4GHz = analyze2_4GHzChannels(networks);
     $: channels5GHz = analyze5GHzChannels(networks);

@@ -11,12 +11,19 @@ import (
 	"time"
 )
 
-// OUILookup handles MAC address vendor lookups
+// OUILookup handles MAC address vendor lookups.
+//
+// The lookup starts in "minimal" mode — a small embedded vendor table is
+// seeded synchronously so Vendor columns are never empty. A richer database
+// is downloaded or loaded from cache in the background; when that finishes
+// the map is swapped under a write lock and onReady is invoked (if set) so
+// the UI can refresh.
 type OUILookup struct {
-	ouiMap    map[string]string
 	mu        sync.RWMutex
+	ouiMap    map[string]string
 	loaded    bool
 	cacheFile string
+	onReady   func()
 }
 
 // NewOUILookup creates a new OUI lookup service
@@ -27,50 +34,88 @@ func NewOUILookup(cacheFile string) *OUILookup {
 	}
 }
 
-// LoadOUIDatabase loads the OUI database from a local file or downloads it
+// SetReadyCallback registers a callback invoked once the full OUI database
+// has loaded in the background. Useful for emitting a Wails event so the
+// frontend can re-render Vendor columns.
+func (o *OUILookup) SetReadyCallback(cb func()) {
+	o.mu.Lock()
+	o.onReady = cb
+	o.mu.Unlock()
+}
+
+// LoadOUIDatabase seeds the minimal embedded OUI table synchronously, then
+// kicks off the full database load (from cache or network) in the background.
+// Returns immediately so it's safe to call from constructors.
 func (o *OUILookup) LoadOUIDatabase() error {
 	o.mu.Lock()
-	defer o.mu.Unlock()
-
-	cacheMaxAge := 30 * 24 * time.Hour
-	useFallback := false
-
-	if stat, err := os.Stat(o.cacheFile); err == nil {
-		if stat.Size() == 0 {
-			if err := o.downloadOUIDatabase(o.cacheFile); err != nil {
-				useFallback = true
-			} else {
-				_ = o.loadFromFile(o.cacheFile)
-			}
-		} else if time.Since(stat.ModTime()) > cacheMaxAge {
-			if err := o.downloadOUIDatabase(o.cacheFile); err == nil {
-				_ = o.loadFromFile(o.cacheFile)
-			}
-			if err := o.loadFromFile(o.cacheFile); err != nil {
-				useFallback = true
-			}
-		} else {
-			if err := o.loadFromFile(o.cacheFile); err != nil {
-				useFallback = true
-			}
-		}
-	} else {
-		if err := o.downloadOUIDatabase(o.cacheFile); err != nil {
-			useFallback = true
-		} else {
-			_ = o.loadFromFile(o.cacheFile)
-		}
-	}
-
-	if useFallback {
-		o.loadMinimalDatabase()
-	}
-	if !useFallback {
-		o.mergeMinimalDatabase()
-	}
-
+	o.loadMinimalDatabaseLocked()
 	o.loaded = true
+	o.mu.Unlock()
+
+	go o.loadFullDatabaseAsync()
 	return nil
+}
+
+// loadFullDatabaseAsync resolves the full database, either from a reasonably
+// fresh on-disk cache or by downloading a new copy with bounded timeout +
+// retries. On success it atomically replaces the lookup map under the write
+// lock and fires onReady.
+func (o *OUILookup) loadFullDatabaseAsync() {
+	const cacheMaxAge = 30 * 24 * time.Hour
+
+	useCache := false
+	if stat, err := os.Stat(o.cacheFile); err == nil && stat.Size() > 0 && time.Since(stat.ModTime()) < cacheMaxAge {
+		useCache = true
+	}
+
+	if !useCache {
+		_ = o.downloadWithRetry(o.cacheFile)
+	}
+
+	full, err := loadOUIMapFromFile(o.cacheFile)
+	if err != nil || len(full) == 0 {
+		// Cache missing or unreadable — try a download one more time.
+		if err := o.downloadWithRetry(o.cacheFile); err == nil {
+			full, _ = loadOUIMapFromFile(o.cacheFile)
+		}
+	}
+	if len(full) == 0 {
+		// Stick with the minimal database already loaded by LoadOUIDatabase.
+		return
+	}
+
+	// Merge the minimal seed so well-known WiFi vendors survive even if the
+	// upstream database is missing them.
+	for mac, vendor := range minimalOUIs {
+		if _, exists := full[mac]; !exists {
+			full[mac] = vendor
+		}
+	}
+
+	o.mu.Lock()
+	o.ouiMap = full
+	cb := o.onReady
+	o.mu.Unlock()
+
+	if cb != nil {
+		cb()
+	}
+}
+
+// downloadWithRetry downloads the OUI CSV with a 10s per-attempt timeout and
+// up to 3 attempts separated by short backoff. Blocking the startup path on
+// a 30s timeout was the old behaviour; this keeps the background load bounded.
+func (o *OUILookup) downloadWithRetry(path string) error {
+	var lastErr error
+	for attempt := 0; attempt < 3; attempt++ {
+		if err := o.downloadOUIDatabase(path); err == nil {
+			return nil
+		} else {
+			lastErr = err
+		}
+		time.Sleep(time.Duration(1<<attempt) * time.Second)
+	}
+	return lastErr
 }
 
 // downloadOUIDatabase downloads the OUI database from maclookup.app
@@ -86,7 +131,7 @@ func (o *OUILookup) downloadOUIDatabase(filepath string) error {
 	req.Header.Set("Accept", "text/plain, text/html, application/xhtml+xml, application/xml;q=0.9, */*;q=0.8")
 
 	client := &http.Client{
-		Timeout: 30 * time.Second,
+		Timeout: 10 * time.Second,
 	}
 
 	resp, err := client.Do(req)
@@ -116,16 +161,18 @@ func (o *OUILookup) downloadOUIDatabase(filepath string) error {
 	return os.Rename(tmpPath, filepath)
 }
 
-// loadFromFile loads OUI data from a file
-func (o *OUILookup) loadFromFile(filepath string) error {
+// loadOUIMapFromFile parses the OUI CSV and returns a fresh map without
+// touching any OUILookup instance. This lets the async loader build the full
+// database off-lock, then hand the finished map to the lookup in one swap.
+func loadOUIMapFromFile(filepath string) (map[string]string, error) {
 	file, err := os.Open(filepath)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	defer file.Close()
 
 	reader := csv.NewReader(file)
-	entriesLoaded := 0
+	out := make(map[string]string)
 
 	for {
 		record, err := reader.Read()
@@ -133,7 +180,7 @@ func (o *OUILookup) loadFromFile(filepath string) error {
 			break
 		}
 		if err != nil {
-			return err
+			return nil, err
 		}
 
 		// CSV format: Mac Prefix,Vendor Name,Private,Block Type,Last Updated
@@ -142,21 +189,18 @@ func (o *OUILookup) loadFromFile(filepath string) error {
 			vendorName := strings.TrimSpace(record[1])
 
 			if macPrefix != "" && vendorName != "" {
-				normalized := normalizeOUIPrefix(macPrefix)
-				if normalized != "" {
-					o.ouiMap[normalized] = vendorName
+				if normalized := normalizeOUIPrefix(macPrefix); normalized != "" {
+					out[normalized] = vendorName
 				}
-				entriesLoaded++
 			}
 		}
 	}
 
-	// Return error if no valid OUI entries were loaded (e.g., HTML error page)
-	if entriesLoaded == 0 {
-		return fmt.Errorf("no valid OUI entries found in file")
+	if len(out) == 0 {
+		return nil, fmt.Errorf("no valid OUI entries found in file")
 	}
 
-	return nil
+	return out, nil
 }
 
 func normalizeOUIPrefix(prefix string) string {
@@ -173,171 +217,150 @@ func normalizeOUIPrefix(prefix string) string {
 	return fmt.Sprintf("%s:%s:%s", p[0:2], p[2:4], p[4:6])
 }
 
-// loadMinimalDatabase loads a minimal embedded OUI database for common vendors
-func (o *OUILookup) loadMinimalDatabase() {
-	// Common WiFi equipment manufacturers
-	commonOUIs := map[string]string{
-		// Ubiquiti (Unifi)
-		"00:27:22": "Ubiquiti Networks",
-		"24:5A:4C": "Ubiquiti Networks",
-		"68:D7:9A": "Ubiquiti Networks",
-		"70:A7:41": "Ubiquiti Networks",
-		"74:83:C2": "Ubiquiti Networks",
-		"78:8A:20": "Ubiquiti Networks",
-		"80:2A:A8": "Ubiquiti Networks",
-		"B4:FB:E4": "Ubiquiti Networks",
-		"DC:9F:DB": "Ubiquiti Networks",
-		"F0:9F:C2": "Ubiquiti Networks",
-		"FC:EC:DA": "Ubiquiti Networks",
-		"1E:6A:1B": "Ubiquiti Networks",
+// minimalOUIs is the single source of truth for the embedded vendor table.
+// It is merged with any full database loaded from disk/network so well-known
+// WiFi-equipment OUIs always resolve even if the upstream CSV is incomplete.
+var minimalOUIs = map[string]string{
+	// Ubiquiti (Unifi)
+	"00:27:22": "Ubiquiti Networks",
+	"24:5A:4C": "Ubiquiti Networks",
+	"68:D7:9A": "Ubiquiti Networks",
+	"70:A7:41": "Ubiquiti Networks",
+	"74:83:C2": "Ubiquiti Networks",
+	"78:8A:20": "Ubiquiti Networks",
+	"80:2A:A8": "Ubiquiti Networks",
+	"B4:FB:E4": "Ubiquiti Networks",
+	"DC:9F:DB": "Ubiquiti Networks",
+	"F0:9F:C2": "Ubiquiti Networks",
+	"FC:EC:DA": "Ubiquiti Networks",
+	"1E:6A:1B": "Ubiquiti Networks",
 
-		// Cisco/Linksys
-		"00:00:0C": "Cisco Systems",
-		"00:01:42": "Cisco Systems",
-		"00:01:43": "Cisco Systems",
-		"00:01:96": "Cisco Systems",
-		"00:01:97": "Cisco Systems",
-		"00:01:C7": "Cisco Systems",
-		"00:02:3D": "Cisco Systems",
-		"00:02:4A": "Cisco Systems",
-		"00:02:4B": "Cisco Systems",
-		"00:02:B9": "Cisco Systems",
-		"00:02:BA": "Cisco Systems",
-		"00:02:FC": "Cisco Systems",
-		"00:02:FD": "Cisco Systems",
-		"00:03:6B": "Cisco Systems",
-		"00:03:6C": "Cisco Systems",
-		"00:03:9F": "Cisco Systems",
-		"00:03:A0": "Cisco Systems",
-		"00:03:E3": "Cisco Systems",
-		"00:03:E4": "Cisco Systems",
-		"00:03:FD": "Cisco Systems",
-		"00:03:FE": "Cisco Systems",
+	// Cisco/Linksys
+	"00:00:0C": "Cisco Systems",
+	"00:01:42": "Cisco Systems",
+	"00:01:43": "Cisco Systems",
+	"00:01:96": "Cisco Systems",
+	"00:01:97": "Cisco Systems",
+	"00:01:C7": "Cisco Systems",
+	"00:02:3D": "Cisco Systems",
+	"00:02:4A": "Cisco Systems",
+	"00:02:4B": "Cisco Systems",
+	"00:02:B9": "Cisco Systems",
+	"00:02:BA": "Cisco Systems",
+	"00:02:FC": "Cisco Systems",
+	"00:02:FD": "Cisco Systems",
+	"00:03:6B": "Cisco Systems",
+	"00:03:6C": "Cisco Systems",
+	"00:03:9F": "Cisco Systems",
+	"00:03:A0": "Cisco Systems",
+	"00:03:E3": "Cisco Systems",
+	"00:03:E4": "Cisco Systems",
+	"00:03:FD": "Cisco Systems",
+	"00:03:FE": "Cisco Systems",
 
-		// TP-Link
-		"00:27:19": "TP-Link",
-		"10:FE:ED": "TP-Link",
-		"14:CF:92": "TP-Link",
-		"1C:3B:F3": "TP-Link",
-		"50:C7:BF": "TP-Link",
-		"54:A5:1B": "TP-Link",
-		"60:E3:27": "TP-Link",
-		"98:DE:D0": "TP-Link",
-		"A0:F3:C1": "TP-Link",
-		"AC:84:C6": "TP-Link",
-		"C0:4A:00": "TP-Link",
-		"E8:94:F6": "TP-Link",
-		"EC:08:6B": "TP-Link",
+	// TP-Link
+	"00:27:19": "TP-Link",
+	"10:FE:ED": "TP-Link",
+	"14:CF:92": "TP-Link",
+	"1C:3B:F3": "TP-Link",
+	"50:C7:BF": "TP-Link",
+	"54:A5:1B": "TP-Link",
+	"60:E3:27": "TP-Link",
+	"98:DE:D0": "TP-Link",
+	"A0:F3:C1": "TP-Link",
+	"AC:84:C6": "TP-Link",
+	"C0:4A:00": "TP-Link",
+	"E8:94:F6": "TP-Link",
+	"EC:08:6B": "TP-Link",
 
-		// Netgear
-		"00:09:5B": "Netgear",
-		"00:0F:B5": "Netgear",
-		"00:14:6C": "Netgear",
-		"00:18:4D": "Netgear",
-		"00:1B:2F": "Netgear",
-		"00:1E:2A": "Netgear",
-		"00:22:3F": "Netgear",
-		"00:24:B2": "Netgear",
-		"00:26:F2": "Netgear",
-		"20:E5:2A": "Netgear",
-		"28:C6:8E": "Netgear",
-		"30:46:9A": "Netgear",
-		"A0:21:B7": "Netgear",
-		"C0:3F:0E": "Netgear",
-		"E0:46:9A": "Netgear",
+	// Netgear
+	"00:09:5B": "Netgear",
+	"00:0F:B5": "Netgear",
+	"00:14:6C": "Netgear",
+	"00:18:4D": "Netgear",
+	"00:1B:2F": "Netgear",
+	"00:1E:2A": "Netgear",
+	"00:22:3F": "Netgear",
+	"00:24:B2": "Netgear",
+	"00:26:F2": "Netgear",
+	"20:E5:2A": "Netgear",
+	"28:C6:8E": "Netgear",
+	"30:46:9A": "Netgear",
+	"A0:21:B7": "Netgear",
+	"C0:3F:0E": "Netgear",
+	"E0:46:9A": "Netgear",
 
-		// Aruba Networks
-		"00:0B:86": "Aruba Networks",
-		"00:1A:1E": "Aruba Networks",
-		"00:24:6C": "Aruba Networks",
-		"20:4C:03": "Aruba Networks",
-		"24:DE:C6": "Aruba Networks",
-		"6C:F3:7F": "Aruba Networks",
-		"70:3A:0E": "Aruba Networks",
-		"94:B4:0F": "Aruba Networks",
-		"D8:C7:C8": "Aruba Networks",
+	// Aruba Networks
+	"00:0B:86": "Aruba Networks",
+	"00:1A:1E": "Aruba Networks",
+	"00:24:6C": "Aruba Networks",
+	"20:4C:03": "Aruba Networks",
+	"24:DE:C6": "Aruba Networks",
+	"6C:F3:7F": "Aruba Networks",
+	"70:3A:0E": "Aruba Networks",
+	"94:B4:0F": "Aruba Networks",
+	"D8:C7:C8": "Aruba Networks",
 
-		// Ruckus Wireless
-		"00:24:A8": "Ruckus Wireless",
-		"24:C9:A1": "Ruckus Wireless",
-		"2C:30:33": "Ruckus Wireless",
-		"58:93:96": "Ruckus Wireless",
-		"88:DC:96": "Ruckus Wireless",
-		"C4:10:8A": "Ruckus Wireless",
+	// Ruckus Wireless
+	"00:24:A8": "Ruckus Wireless",
+	"24:C9:A1": "Ruckus Wireless",
+	"2C:30:33": "Ruckus Wireless",
+	"58:93:96": "Ruckus Wireless",
+	"88:DC:96": "Ruckus Wireless",
+	"C4:10:8A": "Ruckus Wireless",
 
-		// Meraki (Cisco)
-		"00:18:0A": "Cisco Meraki",
-		"88:15:44": "Cisco Meraki",
-		"E0:55:3D": "Cisco Meraki",
-		"E0:CB:BC": "Cisco Meraki",
+	// Meraki (Cisco)
+	"00:18:0A": "Cisco Meraki",
+	"88:15:44": "Cisco Meraki",
+	"E0:55:3D": "Cisco Meraki",
+	"E0:CB:BC": "Cisco Meraki",
 
-		// MikroTik
-		"00:0C:42": "MikroTik",
-		"4C:5E:0C": "MikroTik",
-		"6C:3B:6B": "MikroTik",
-		"D4:CA:6D": "MikroTik",
-		"E6:8D:8C": "MikroTik",
+	// MikroTik
+	"00:0C:42": "MikroTik",
+	"4C:5E:0C": "MikroTik",
+	"6C:3B:6B": "MikroTik",
+	"D4:CA:6D": "MikroTik",
+	"E6:8D:8C": "MikroTik",
 
-		// Apple
-		"00:03:93": "Apple",
-		"00:0A:27": "Apple",
-		"00:0A:95": "Apple",
-		"00:0D:93": "Apple",
-		"00:10:FA": "Apple",
-		"00:11:24": "Apple",
-		"00:14:51": "Apple",
-		"00:16:CB": "Apple",
-		"00:17:F2": "Apple",
-		"00:19:E3": "Apple",
-		"00:1B:63": "Apple",
-		"00:1C:B3": "Apple",
-		"00:1D:4F": "Apple",
-		"00:1E:52": "Apple",
-		"00:1E:C2": "Apple",
-		"00:1F:5B": "Apple",
-		"00:1F:F3": "Apple",
-		"00:21:E9": "Apple",
-		"00:22:41": "Apple",
-		"00:23:12": "Apple",
-		"00:23:32": "Apple",
-		"00:23:6C": "Apple",
-		"00:23:DF": "Apple",
-		"00:24:36": "Apple",
-		"00:25:00": "Apple",
-		"00:25:4B": "Apple",
-		"00:25:BC": "Apple",
-		"00:26:08": "Apple",
-		"00:26:4A": "Apple",
-		"00:26:B0": "Apple",
-		"00:26:BB": "Apple",
-	}
-
-	for mac, vendor := range commonOUIs {
-		o.ouiMap[mac] = vendor
-	}
+	// Apple
+	"00:03:93": "Apple",
+	"00:0A:27": "Apple",
+	"00:0A:95": "Apple",
+	"00:0D:93": "Apple",
+	"00:10:FA": "Apple",
+	"00:11:24": "Apple",
+	"00:14:51": "Apple",
+	"00:16:CB": "Apple",
+	"00:17:F2": "Apple",
+	"00:19:E3": "Apple",
+	"00:1B:63": "Apple",
+	"00:1C:B3": "Apple",
+	"00:1D:4F": "Apple",
+	"00:1E:52": "Apple",
+	"00:1E:C2": "Apple",
+	"00:1F:5B": "Apple",
+	"00:1F:F3": "Apple",
+	"00:21:E9": "Apple",
+	"00:22:41": "Apple",
+	"00:23:12": "Apple",
+	"00:23:32": "Apple",
+	"00:23:6C": "Apple",
+	"00:23:DF": "Apple",
+	"00:24:36": "Apple",
+	"00:25:00": "Apple",
+	"00:25:4B": "Apple",
+	"00:25:BC": "Apple",
+	"00:26:08": "Apple",
+	"00:26:4A": "Apple",
+	"00:26:B0": "Apple",
+	"00:26:BB": "Apple",
 }
 
-func (o *OUILookup) mergeMinimalDatabase() {
-	commonOUIs := map[string]string{
-		// Ubiquiti (Unifi)
-		"00:27:22": "Ubiquiti Networks",
-		"24:5A:4C": "Ubiquiti Networks",
-		"68:D7:9A": "Ubiquiti Networks",
-		"70:A7:41": "Ubiquiti Networks",
-		"74:83:C2": "Ubiquiti Networks",
-		"78:8A:20": "Ubiquiti Networks",
-		"80:2A:A8": "Ubiquiti Networks",
-		"B4:FB:E4": "Ubiquiti Networks",
-		"DC:9F:DB": "Ubiquiti Networks",
-		"F0:9F:C2": "Ubiquiti Networks",
-		"FC:EC:DA": "Ubiquiti Networks",
-		"1E:6A:1B": "Ubiquiti Networks",
-	}
-
-	for mac, vendor := range commonOUIs {
-		if _, exists := o.ouiMap[mac]; !exists {
-			o.ouiMap[mac] = vendor
-		}
+// loadMinimalDatabaseLocked seeds the lookup with the embedded minimal table.
+// Caller must hold the write lock.
+func (o *OUILookup) loadMinimalDatabaseLocked() {
+	for mac, vendor := range minimalOUIs {
+		o.ouiMap[mac] = vendor
 	}
 }
 

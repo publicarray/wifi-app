@@ -75,6 +75,15 @@ func (s *darwinScanner) ScanNetworks(iface string) ([]AccessPoint, error) {
 }
 
 func (s *darwinScanner) GetInterfaces() ([]string, error) {
+	// Prefer CoreWLAN when available — it returns just the WiFi interfaces
+	// and does not require shelling out. Fall back to networksetup if the
+	// cgo build is not in use or CoreWLAN returned nothing.
+	if s.hasCoreWLAN {
+		if names, err := coreWLANInterfaces(); err == nil && len(names) > 0 {
+			return names, nil
+		}
+	}
+
 	cmd := exec.Command("/usr/sbin/networksetup", "-listallhardwareports")
 	output, err := cmd.CombinedOutput()
 	if err != nil {

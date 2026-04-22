@@ -24,8 +24,8 @@ export namespace main {
 	    dtim: number;
 	    pmf: string;
 	    wps: boolean;
-	    bssLoadStations: number;
-	    bssLoadUtilization: number;
+	    bssLoadStations?: number;
+	    bssLoadUtilization?: number;
 	    maxPhyRate: number;
 	    twtSupport: boolean;
 	    neighborReport: boolean;
@@ -346,6 +346,32 @@ export namespace main {
 		}
 	}
 	
+	export class RoamingQualityReport {
+	    totalRoams: number;
+	    goodRoams: number;
+	    badRoams: number;
+	    avgSignalChange: number;
+	    excessiveRoaming: boolean;
+	    stickyClient: boolean;
+	    timeSinceLastRoam?: string;
+	    roamingAdvice: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new RoamingQualityReport(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.totalRoams = source["totalRoams"];
+	        this.goodRoams = source["goodRoams"];
+	        this.badRoams = source["badRoams"];
+	        this.avgSignalChange = source["avgSignalChange"];
+	        this.excessiveRoaming = source["excessiveRoaming"];
+	        this.stickyClient = source["stickyClient"];
+	        this.timeSinceLastRoam = source["timeSinceLastRoam"];
+	        this.roamingAdvice = source["roamingAdvice"];
+	    }
+	}
 
 }
 

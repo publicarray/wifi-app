@@ -1,8 +1,35 @@
 # WIFI-APP KNOWLEDGE BASE
 
-**Generated:** 2026-01-24T11:35:42Z  
-**Commit:** 0c1339d  
+**Generated:** 2026-04-14T06:43:00Z  
+**Commit:** [current]  
 **Branch:** master
+
+## Workflow
+
+- install: `go mod tidy && cd frontend && npm install`
+- build: `wails build`
+- test all: `(none configured)`
+- test file: `(none configured)`
+- test case: `(none configured)`
+- lint: `(none configured)`
+- format: `(none configured)`
+- typecheck: `(none configured)`
+- after every edit: `go mod tidy && go build . && cd frontend && npm run build`
+- debug: `wails build -debug && sudo build/bin/wifi-app`
+
+## Conventions
+
+- Interface-based architecture: All WiFi scanners implement `WiFiBackend` interface
+- Event-driven communication: Uses `runtime.EventsEmit()` for real-time updates
+- Platform-specific build tags: `//go:build linux && iw` and `//go:build linux && !iw`
+- Network aggregation: SSID-based grouping of multiple access points
+- 4-second scan intervals with 600-point signal history buffer
+- Wails auto-generated TypeScript bindings for frontend integration
+- Chart.js for real-time signal visualization with zoom
+
+## Commit & Pull Request Guidelines
+
+Commits use imperative tense ("Update", "use", "improve") in short, focused messages referencing specific files, like `Update wifi_scanner_darwin_corewlan.go` or `use coreWLAN via cgo`. Pull requests should include feature descriptions, test results for multi-platform builds, and reference any related issues or dependencies.
 
 ## OVERVIEW
 

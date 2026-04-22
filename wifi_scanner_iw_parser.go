@@ -40,7 +40,6 @@ func (p *iwParser) ParseScan(output []byte) ([]AccessPoint, error) {
 	txPowerRegex := regexp.MustCompile(`TPC report: TX power:\s+([\d.]+)`)
 	widthRegex := regexp.MustCompile(`HT20|HT40|VHT80|VHT160|HE80|HE160|320MHz`)
 	wpsRegex := regexp.MustCompile(`WPS:.*Version:\s+([\d.]+)`)
-	bssLoadRegex := regexp.MustCompile(`BSS Load:\s*`)
 	bssStationCountRegex := regexp.MustCompile(`station count:\s+(\d+)`)
 	bssUtilizationRegex := regexp.MustCompile(`channel utilisation:\s+(\d+)/255`)
 	mimoStreamsRegex := regexp.MustCompile(`(\d+) streams:\s+MCS`)
@@ -72,12 +71,10 @@ func (p *iwParser) ParseScan(output []byte) ([]AccessPoint, error) {
 			}
 			bssid := matches[1]
 			currentAP = &AccessPoint{
-				BSSID:              bssid,
-				Vendor:             p.ouiLookup.LookupVendor(bssid),
-				LastSeen:           time.Now(),
-				Capabilities:       []string{},
-				BSSLoadStations:    -1,
-				BSSLoadUtilization: -1,
+				BSSID:        bssid,
+				Vendor:       p.ouiLookup.LookupVendor(bssid),
+				LastSeen:     time.Now(),
+				Capabilities: []string{},
 			}
 			inSecurityBlock = false
 			inHEMcsSection = false
@@ -138,8 +135,6 @@ func (p *iwParser) ParseScan(output []byte) ([]AccessPoint, error) {
 					currentAP.ChannelWidth = 40
 				case strings.Contains(line, "VHT80") || strings.Contains(line, "HE80"):
 					currentAP.ChannelWidth = 80
-				case strings.Contains(line, "320MHz"):
-					currentAP.ChannelWidth = 320
 				case strings.Contains(line, "VHT160") || strings.Contains(line, "HE160"):
 					currentAP.ChannelWidth = 160
 				case strings.Contains(line, "320MHz"):
@@ -200,19 +195,15 @@ func (p *iwParser) ParseScan(output []byte) ([]AccessPoint, error) {
 				currentAP.WPS = true
 			}
 
-			if bssLoadRegex.MatchString(line) {
-				currentAP.BSSLoadStations = -1
-				currentAP.BSSLoadUtilization = -1
-			}
-
 			if matches := bssStationCountRegex.FindStringSubmatch(line); matches != nil {
 				stations, _ := strconv.Atoi(matches[1])
-				currentAP.BSSLoadStations = stations
+				currentAP.BSSLoadStations = intPtr(stations)
 			}
 
 			if matches := bssUtilizationRegex.FindStringSubmatch(line); matches != nil {
 				utilization, _ := strconv.Atoi(matches[1])
-				currentAP.BSSLoadUtilization = utilization
+				// iw reports utilization as raw/255 (byte value from IE); normalize to 0-100%.
+				currentAP.BSSLoadUtilization = intPtr(utilization * 100 / 255)
 			}
 
 			if matches := mimoStreamsRegex.FindStringSubmatch(line); matches != nil {
@@ -393,11 +384,6 @@ func (p *iwParser) ParseScan(output []byte) ([]AccessPoint, error) {
 		if aps[i].MIMOStreams == 0 {
 			aps[i].MIMOStreams = 1
 		}
-		if aps[i].BSSLoadStations == 0 && aps[i].BSSLoadUtilization == 0 {
-			aps[i].BSSLoadStations = -1
-			aps[i].BSSLoadUtilization = -1
-		}
-
 		if aps[i].Noise != 0 {
 			aps[i].SNR = aps[i].Signal - aps[i].Noise
 		}

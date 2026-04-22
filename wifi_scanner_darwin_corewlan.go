@@ -38,6 +38,35 @@ static CWInterface *cw_select_interface(const char *name) {
 	return client.interface;
 }
 
+// cw_detect_network_security maps CWNetwork's supportsSecurity: responses
+// to our Security enum integers (Open=0 .. WPA3=4). CoreWLAN does not expose
+// a single security-type property on CWNetwork, so we probe in priority
+// order (strongest first) and return the best-supported mode.
+static int cw_detect_network_security(CWNetwork *net) {
+	if (!net) {
+		return 0;
+	}
+	if ([net supportsSecurity:kCWSecurityWPA3Personal] ||
+	    [net supportsSecurity:kCWSecurityWPA3Enterprise] ||
+	    [net supportsSecurity:kCWSecurityWPA3Transition]) {
+		return 4; // WPA3
+	}
+	if ([net supportsSecurity:kCWSecurityWPA2Personal] ||
+	    [net supportsSecurity:kCWSecurityWPA2Enterprise]) {
+		return 3; // WPA2
+	}
+	if ([net supportsSecurity:kCWSecurityWPAPersonal] ||
+	    [net supportsSecurity:kCWSecurityWPAEnterprise] ||
+	    [net supportsSecurity:kCWSecurityWPAPersonalMixed] ||
+	    [net supportsSecurity:kCWSecurityWPAEnterpriseMixed]) {
+		return 2; // WPA
+	}
+	if ([net supportsSecurity:kCWSecurityWEP]) {
+		return 1; // WEP
+	}
+	return 0; // Open / unknown
+}
+
 static NSDictionary *cw_network_to_dict(CWNetwork *net) {
 	NSMutableDictionary *dict = [NSMutableDictionary dictionary];
 	if (net.ssid) {
@@ -51,11 +80,7 @@ static NSDictionary *cw_network_to_dict(CWNetwork *net) {
 		dict[@"channel"] = @(net.wlanChannel.channelNumber);
 		dict[@"channelWidth"] = @(net.wlanChannel.channelWidth);
 	}
-	if ([net respondsToSelector:@selector(securityMode)]) {
-		dict[@"security"] = @([net securityMode]);
-	} else if ([net respondsToSelector:@selector(security)]) {
-		dict[@"security"] = @([net security]);
-	}
+	dict[@"security"] = @(cw_detect_network_security(net));
 	return dict;
 }
 
@@ -76,10 +101,29 @@ static NSDictionary *cw_interface_current_dict(CWInterface *iface) {
 		dict[@"channel"] = @(iface.wlanChannel.channelNumber);
 		dict[@"channelWidth"] = @(iface.wlanChannel.channelWidth);
 	}
-	if ([iface respondsToSelector:@selector(securityMode)]) {
-		dict[@"security"] = @([iface securityMode]);
-	} else if ([iface respondsToSelector:@selector(security)]) {
-		dict[@"security"] = @([iface security]);
+	// CWInterface exposes the active security directly.
+	switch ((int)iface.security) {
+		case kCWSecurityWPA3Personal:
+		case kCWSecurityWPA3Enterprise:
+		case kCWSecurityWPA3Transition:
+			dict[@"security"] = @(4);
+			break;
+		case kCWSecurityWPA2Personal:
+		case kCWSecurityWPA2Enterprise:
+			dict[@"security"] = @(3);
+			break;
+		case kCWSecurityWPAPersonal:
+		case kCWSecurityWPAEnterprise:
+		case kCWSecurityWPAPersonalMixed:
+		case kCWSecurityWPAEnterpriseMixed:
+			dict[@"security"] = @(2);
+			break;
+		case kCWSecurityWEP:
+			dict[@"security"] = @(1);
+			break;
+		default:
+			dict[@"security"] = @(0);
+			break;
 	}
 	return dict;
 }
@@ -160,6 +204,24 @@ type coreWLANCurrent struct {
 
 func coreWLANAvailable() bool {
 	return true
+}
+
+// coreWLANInterfaces returns the list of WiFi interface names visible to
+// CoreWLAN. Used as a first-choice source on macOS before falling back to
+// `networksetup -listallhardwareports`.
+func coreWLANInterfaces() ([]string, error) {
+	jsonStr := C.cw_copy_interfaces_json()
+	defer C.cw_free(jsonStr)
+
+	raw := C.GoString(jsonStr)
+	if raw == "" || raw == "[]" {
+		return nil, errors.New("corewlan returned no interfaces")
+	}
+	var names []string
+	if err := json.Unmarshal([]byte(raw), &names); err != nil {
+		return nil, fmt.Errorf("corewlan interfaces json parse failed: %w", err)
+	}
+	return names, nil
 }
 
 func coreWLANScanNetworks(iface string) ([]AccessPoint, error) {

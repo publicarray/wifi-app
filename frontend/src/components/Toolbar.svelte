@@ -7,8 +7,11 @@
     export let reportOpen = false;
 
     function handleInterfaceChange(event) {
-        const newInterface = event.target.value;
-        dispatch("selectInterface", { detail: newInterface });
+        // createEventDispatcher already wraps its second argument as
+        // CustomEvent.detail, so the parent reads the string via e.detail.
+        // Passing { detail: newInterface } here would double-wrap it and
+        // break StartScanning's string argument.
+        dispatch("selectInterface", event.target.value);
     }
 
     function handleStartScanning() {

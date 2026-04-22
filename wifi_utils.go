@@ -105,6 +105,26 @@ func appendUnique(slice []string, item string) []string {
 	return append(slice, item)
 }
 
+// appendCapped appends v to s and keeps only the last cap elements. The
+// returned slice is always a freshly-allocated backing array when truncation
+// occurs so concurrent readers of the previous slice header are never
+// affected by the write.
+func appendCapped[T any](s []T, v T, cap int) []T {
+	s = append(s, v)
+	if len(s) <= cap {
+		return s
+	}
+	out := make([]T, cap)
+	copy(out, s[len(s)-cap:])
+	return out
+}
+
+// intPtr returns a pointer to a copy of v. Used to populate optional numeric
+// fields whose absence should serialize as JSON null (e.g. BSSLoad IE fields).
+func intPtr(v int) *int {
+	return &v
+}
+
 // NormalizeAccessPoint applies consistent defaults and derived values across platforms.
 func NormalizeAccessPoint(ap *AccessPoint) {
 	if ap == nil {
@@ -170,10 +190,6 @@ func NormalizeAccessPoint(ap *AccessPoint) {
 	}
 	if ap.MaxPhyRate == 0 {
 		ap.MaxPhyRate = estimateMaxPhyRate(ap)
-	}
-	if ap.BSSLoadStations == 0 && ap.BSSLoadUtilization == 0 {
-		ap.BSSLoadStations = -1
-		ap.BSSLoadUtilization = -1
 	}
 	if ap.Noise != 0 {
 		ap.SNR = ap.Signal - ap.Noise

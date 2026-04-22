@@ -25,3 +25,7 @@ func coreWLANLinkInfo(_ string) (map[string]string, error) {
 func coreWLANStationInfo(_ string) (map[string]string, error) {
 	return map[string]string{"connected": "false"}, fmt.Errorf("corewlan unavailable (cgo disabled)")
 }
+
+func coreWLANInterfaces() ([]string, error) {
+	return nil, fmt.Errorf("corewlan unavailable (cgo disabled)")
+}

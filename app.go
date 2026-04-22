@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/csv"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -70,7 +71,7 @@ func (a *App) IsScanning() bool {
 	return a.wifiService.IsScanning()
 }
 
-func (a *App) GetRoamingAnalysis() map[string]interface{} {
+func (a *App) GetRoamingAnalysis() RoamingQualityReport {
 	return a.wifiService.AnalyzeRoamingQuality()
 }
 
@@ -98,27 +99,77 @@ func (a *App) exportToJSON(networks []Network) (string, error) {
 	return string(data), nil
 }
 
+// exportToCSV writes one row per access point with full per-AP fields.
+// Previously this wrote one row per network using fmt.Sprintf, which broke on
+// SSIDs containing double quotes. encoding/csv handles RFC 4180 quoting
+// correctly and the per-AP layout brings CSV into parity with JSON.
 func (a *App) exportToCSV(networks []Network) (string, error) {
 	var builder strings.Builder
+	w := csv.NewWriter(&builder)
 
-	builder.WriteString("SSID,AP Count,Best Signal,Channel,Security,Has Issues\n")
-
-	for _, network := range networks {
-		issues := "No"
-		if network.HasIssues {
-			issues = "Yes"
-		}
-		builder.WriteString(fmt.Sprintf("\"%s\",%d,%d,%d,\"%s\",%s\n",
-			network.SSID,
-			network.APCount,
-			network.BestSignal,
-			network.Channel,
-			network.Security,
-			issues,
-		))
+	if err := w.Write([]string{
+		"SSID", "BSSID", "Vendor", "Signal_dBm", "SignalQuality_pct",
+		"Noise_dBm", "SNR_dB", "Channel", "ChannelWidth_MHz", "Frequency_MHz",
+		"Band", "Security", "SecurityCiphers", "AuthMethods", "PMF", "DFS",
+		"BSSLoadStations", "BSSLoadUtilization_pct", "MaxPhyRate_Mbps",
+		"MIMOStreams", "Capabilities", "APCount", "NetworkHasIssues",
+		"NetworkIssues",
+	}); err != nil {
+		return "", err
 	}
 
+	for _, network := range networks {
+		issues := strings.Join(network.IssueMessages, "; ")
+		hasIssues := "No"
+		if network.HasIssues {
+			hasIssues = "Yes"
+		}
+		for _, ap := range network.AccessPoints {
+			if err := w.Write([]string{
+				ap.SSID,
+				ap.BSSID,
+				ap.Vendor,
+				strconv.Itoa(ap.Signal),
+				strconv.Itoa(ap.SignalQuality),
+				strconv.Itoa(ap.Noise),
+				strconv.Itoa(ap.SNR),
+				strconv.Itoa(ap.Channel),
+				strconv.Itoa(ap.ChannelWidth),
+				strconv.Itoa(ap.Frequency),
+				ap.Band,
+				ap.Security,
+				strings.Join(ap.SecurityCiphers, "|"),
+				strings.Join(ap.AuthMethods, "|"),
+				ap.PMF,
+				strconv.FormatBool(ap.DFS),
+				optIntString(ap.BSSLoadStations),
+				optIntString(ap.BSSLoadUtilization),
+				strconv.Itoa(ap.MaxPhyRate),
+				strconv.Itoa(ap.MIMOStreams),
+				strings.Join(ap.Capabilities, "|"),
+				strconv.Itoa(network.APCount),
+				hasIssues,
+				issues,
+			}); err != nil {
+				return "", err
+			}
+		}
+	}
+
+	w.Flush()
+	if err := w.Error(); err != nil {
+		return "", err
+	}
 	return builder.String(), nil
+}
+
+// optIntString renders an optional *int field as a string, using an empty
+// string to represent absence (IE not present in the beacon).
+func optIntString(v *int) string {
+	if v == nil {
+		return ""
+	}
+	return strconv.Itoa(*v)
 }
 
 func (a *App) ExportClientStats() (string, error) {
@@ -156,7 +207,9 @@ func (a *App) SaveReport(filename string, content string) (string, error) {
 			uid, uidErr := strconv.Atoi(sudoUID)
 			gid, gidErr := strconv.Atoi(sudoGID)
 			if uidErr == nil && gidErr == nil {
-				_ = os.Chown(path, uid, gid)
+				if err := os.Chown(path, uid, gid); err != nil {
+					runtime.LogWarningf(a.ctx, "SaveReport: failed to chown %s to %d:%d: %v", path, uid, gid, err)
+				}
 			}
 		}
 	}

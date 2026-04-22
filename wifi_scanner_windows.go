@@ -394,16 +394,16 @@ func (s *windowsScanner) ScanNetworks(iface string) ([]AccessPoint, error) {
 
 	defer wlanFreeMemory.Call(uintptr(unsafe.Pointer(bssList)))
 
+	if s.parser == nil {
+		return nil, fmt.Errorf("windows scanner: parser not initialized")
+	}
+
 	aps := make([]AccessPoint, 0, bssList.NumberOfItems)
 	entrySize := unsafe.Sizeof(WLAN_BSS_ENTRY{})
 
 	for i := uint32(0); i < bssList.NumberOfItems; i++ {
 		entryPtr := unsafe.Add(unsafe.Pointer(&bssList.WlanBssEntries[0]), uintptr(i)*entrySize)
 		entry := (*WLAN_BSS_ENTRY)(entryPtr)
-
-		if s.parser == nil {
-			continue
-		}
 		ap := s.parser.bssEntryToAccessPoint(entry)
 		aps = append(aps, ap)
 	}
@@ -502,9 +502,9 @@ func (p *windowsParser) parseInformationElements(ap *AccessPoint, entry *WLAN_BS
 		case 11: // BSS Load
 			if length >= 5 {
 				// Byte 0-1: Station Count (little-endian)
-				ap.BSSLoadStations = int(uint16(data[0]) | uint16(data[1])<<8)
-				// Byte 2: Channel Utilization (0-255, convert to percentage)
-				ap.BSSLoadUtilization = int(data[2])
+				ap.BSSLoadStations = intPtr(int(uint16(data[0]) | uint16(data[1])<<8))
+				// Byte 2: Channel Utilization — raw byte (0-255) mapped to 0-100%.
+				ap.BSSLoadUtilization = intPtr(int(data[2]) * 100 / 255)
 			}
 
 		case 45: // HT Capabilities
@@ -709,10 +709,13 @@ func (p *windowsParser) parseInformationElements(ap *AccessPoint, entry *WLAN_BS
 		}
 	}
 
-	if ap.Noise == 0 {
-		ap.Noise = -95
+	// Windows WLAN API does not expose a real noise floor. Leave Noise=0
+	// (the caller's convention for "unknown") and only compute SNR when we
+	// actually have a measurement — otherwise SNR would equal Signal and
+	// mislead the UI.
+	if ap.Noise != 0 {
+		ap.SNR = ap.Signal - ap.Noise
 	}
-	ap.SNR = ap.Signal - ap.Noise
 }
 
 func (p *windowsParser) parseRSNElement(ap *AccessPoint, data []byte) {

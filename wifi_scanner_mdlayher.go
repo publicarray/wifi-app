@@ -153,10 +153,6 @@ func (s *WiFiScannerNL80211) ScanNetworks(iface string) ([]AccessPoint, error) {
 		if accessPoints[i].MIMOStreams == 0 {
 			accessPoints[i].MIMOStreams = 1
 		}
-		if accessPoints[i].BSSLoadStations == 0 && accessPoints[i].BSSLoadUtilization == -1 {
-			accessPoints[i].BSSLoadStations = -1
-			accessPoints[i].BSSLoadUtilization = -1
-		}
 		if noise, ok := noiseByFreq[accessPoints[i].Frequency]; ok && noise != 0 {
 			accessPoints[i].Noise = noise
 			accessPoints[i].SNR = accessPoints[i].Signal - noise
@@ -221,14 +217,12 @@ func (p *mdlayherParser) convertBSSToAccessPoint(bss *wifi.BSS) []AccessPoint {
 
 	ap.MIMOStreams = 1
 
-	ap.BSSLoadStations = -1
-	ap.BSSLoadUtilization = -1
-
 	if bss.Load.StationCount > 0 {
-		ap.BSSLoadStations = int(bss.Load.StationCount)
+		ap.BSSLoadStations = intPtr(int(bss.Load.StationCount))
 	}
 	if bss.Load.ChannelUtilization > 0 {
-		ap.BSSLoadUtilization = int(bss.Load.ChannelUtilization)
+		// Channel utilization IE carries a raw byte (0-255) that maps to 0-100%.
+		ap.BSSLoadUtilization = intPtr(int(bss.Load.ChannelUtilization) * 100 / 255)
 	}
 
 	if bss.RSN.IsInitialized() {

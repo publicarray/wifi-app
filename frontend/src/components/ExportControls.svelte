@@ -1,5 +1,5 @@
 <script>
-    import { SaveReport } from "../../wailsjs/go/main/App.js";
+    import { SaveReport, ExportNetworks } from "../../wailsjs/go/main/App.js";
 
     export let networks = null;
     export let clientStats = null;
@@ -31,6 +31,50 @@
             console.warn("SaveReport failed, falling back to download:", err);
         }
         downloadFile(content, filename, type);
+    }
+
+    // exportNetworksCsv delegates to the backend so the CSV schema and
+    // quoting rules stay consistent across UI and any other callers of
+    // ExportNetworks. Falls back to the client-side builder if the Wails
+    // runtime is unavailable (e.g. browser-only dev mode).
+    async function exportNetworksCsv() {
+        if (typeof ExportNetworks === "function") {
+            try {
+                const csv = await ExportNetworks("csv");
+                if (csv) {
+                    await saveFile(csv, "networks.csv", "text/csv");
+                    return;
+                }
+            } catch (err) {
+                console.warn(
+                    "ExportNetworks(csv) failed, falling back to client-side CSV:",
+                    err,
+                );
+            }
+        }
+        await saveFile(buildNetworkCsv(), "networks.csv", "text/csv");
+    }
+
+    async function exportNetworksJson() {
+        if (typeof ExportNetworks === "function") {
+            try {
+                const json = await ExportNetworks("json");
+                if (json) {
+                    await saveFile(json, "networks.json", "application/json");
+                    return;
+                }
+            } catch (err) {
+                console.warn(
+                    "ExportNetworks(json) failed, falling back to client-side JSON:",
+                    err,
+                );
+            }
+        }
+        await saveFile(
+            JSON.stringify(sanitizeNetworks(networks), null, 2),
+            "networks.json",
+            "application/json",
+        );
     }
 
     function escapeHtml(value) {
@@ -305,14 +349,33 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>WiFi Report</title>
   <style>
-    body { font-family: "Inter", "Segoe UI", Arial, sans-serif; margin: 24px; color: #0f172a; }
+    :root {
+      color-scheme: light dark;
+      --report-bg: #ffffff;
+      --report-text: #0f172a;
+      --report-meta: #475569;
+      --report-card-bg: #f8fafc;
+      --report-border: #e2e8f0;
+      --report-th-bg: #f1f5f9;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --report-bg: #14171c;
+        --report-text: #e6e8eb;
+        --report-meta: #9aa3ad;
+        --report-card-bg: #1a1f24;
+        --report-border: rgba(255,255,255,0.12);
+        --report-th-bg: #20252b;
+      }
+    }
+    body { font-family: "Inter", "Segoe UI", Arial, sans-serif; margin: 24px; color: var(--report-text); background: var(--report-bg); }
     h1 { margin: 0 0 4px; }
-    .meta { color: #475569; margin-bottom: 16px; }
+    .meta { color: var(--report-meta); margin-bottom: 16px; }
     .summary { display: grid; grid-template-columns: repeat(auto-fit,minmax(200px,1fr)); gap: 12px; margin-bottom: 20px; }
-    .card { border: 1px solid #e2e8f0; border-radius: 10px; padding: 12px; background: #f8fafc; }
+    .card { border: 1px solid var(--report-border); border-radius: 10px; padding: 12px; background: var(--report-card-bg); }
     table { width: 100%; border-collapse: collapse; margin-top: 12px; }
-    th, td { border-bottom: 1px solid #e2e8f0; padding: 8px 10px; text-align: left; font-size: 13px; }
-    th { background: #f1f5f9; font-weight: 600; }
+    th, td { border-bottom: 1px solid var(--report-border); padding: 8px 10px; text-align: left; font-size: 13px; }
+    th { background: var(--report-th-bg); font-weight: 600; }
   </style>
 </head>
 <body>
@@ -376,20 +439,14 @@
             <span class="export-label">Export Networks:</span>
             <button
                 class="export-btn btn-csv"
-                on:click={() =>
-                    saveFile(buildNetworkCsv(), "networks.csv", "text/csv")}
+                on:click={exportNetworksCsv}
                 title="Export networks to CSV"
             >
                 CSV
             </button>
             <button
                 class="export-btn btn-json"
-                on:click={() =>
-                    saveFile(
-                        JSON.stringify(sanitizeNetworks(networks), null, 2),
-                        "networks.json",
-                        "application/json",
-                    )}
+                on:click={exportNetworksJson}
                 title="Export networks to JSON"
             >
                 JSON

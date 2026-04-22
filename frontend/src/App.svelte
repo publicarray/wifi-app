@@ -43,28 +43,62 @@
             errorMessage = "Failed to get WiFi interfaces: " + err;
         }
 
+        // Hydrate tabs from whatever the service has cached so they aren't
+        // blank until the next 4 s scan tick. Also sync local scanning state
+        // in case the backend was already scanning from a previous session.
+        try {
+            const [n, c, ch, alreadyScanning] = await Promise.all([
+                GetNetworks(),
+                GetClientStats(),
+                GetChannelAnalysis(),
+                IsScanning(),
+            ]);
+            if (n) networks = n;
+            if (c) clientStats = c;
+            if (ch) channelAnalysis = ch;
+            scanning = !!alreadyScanning;
+        } catch (err) {
+            // Non-fatal: events will populate state on the next tick.
+        }
+
         EventsOn("networks:updated", (data) => {
-            console.log("Networks updated event received:", data);
-            console.log("Networks count:", data ? data.length : 0);
+            if (typeof window !== "undefined" && import.meta.env?.development) {
+                const networksCount = data ? data.length : 0;
+                console.debug(`[wifi-app] Networks updated: ${networksCount} networks received`);
+            }
             networks = data || [];
         });
 
         EventsOn("client:updated", (data) => {
-            console.log("Client updated event received:", data);
+            if (typeof window !== "undefined" && import.meta.env?.development) {
+                console.debug(
+                    `[wifi-app] Client stats updated for ${data?.bssid || "?"} at channel ${data?.channel || "?"}`,
+                );
+            }
             clientStats = data;
         });
 
+        EventsOn("channels:updated", (data) => {
+            channelAnalysis = data || [];
+        });
+
         EventsOn("scan:error", (error) => {
-            console.error("Scan error event received:", error);
+            if (typeof window !== "undefined" && import.meta.env?.development) {
+                console.error(`[wifi-app] Scan error: ${error}`);
+            }
             errorMessage = error;
         });
 
         EventsOn("scan:debug", (message) => {
-            console.log("Scan debug:", message);
+            if (typeof window !== "undefined" && import.meta.env?.development) {
+                console.debug(`[wifi-app] Scan debug: ${message}`);
+            }
         });
 
         EventsOn("scan:status", (status) => {
-            console.log("Scan status:", status);
+            if (typeof window !== "undefined" && import.meta.env?.development) {
+                console.log(`[wifi-app] Scan ${status}`);
+            }
         });
 
         EventsOn("client:warning", (warning) => {
@@ -72,13 +106,16 @@
         });
 
         EventsOn("roaming:detected", (event) => {
-            console.log("Roaming detected:", event);
+            if (typeof window !== "undefined" && import.meta.env?.development) {
+                console.debug("[wifi-app] Roaming detected:", event);
+            }
         });
     });
 
     onDestroy(() => {
         EventsOff("networks:updated");
         EventsOff("client:updated");
+        EventsOff("channels:updated");
         EventsOff("scan:error");
         EventsOff("scan:debug");
         EventsOff("scan:status");
@@ -187,7 +224,7 @@
             </div>
         {:else if activeTab === "channels"}
             <div class="content-panel channel-panel">
-                <ChannelAnalyzer {networks} />
+                <ChannelAnalyzer {networks} {channelAnalysis} />
             </div>
         {:else if activeTab === "stats"}
             <div class="content-panel stats-panel">
