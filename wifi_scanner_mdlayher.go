@@ -5,6 +5,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"log"
 	"strings"
 	"time"
 
@@ -51,15 +52,27 @@ func (s *WiFiScannerNL80211) GetInterfaces() ([]string, error) {
 		return nil, fmt.Errorf("failed to get interfaces: %w", err)
 	}
 
-	var ifaces []string
+	// nl80211 returns every virtual interface attached to a radio, including
+	// p2p-dev-* (WiFi Direct), AP-mode, monitor, etc. Put Station-mode
+	// (managed client) interfaces first so the frontend's default-select-first
+	// behaviour lands on something that can actually scan. Other modes are
+	// kept as a fallback in case the user's setup has no Station interface.
+	var stations, others []string
 	for _, iface := range interfaces {
-		ifaces = append(ifaces, iface.Name)
+		if iface.Name == "" {
+			continue
+		}
+		if iface.Type == wifi.InterfaceTypeStation {
+			stations = append(stations, iface.Name)
+		} else {
+			others = append(others, iface.Name)
+		}
 	}
 
+	ifaces := append(stations, others...)
 	if len(ifaces) == 0 {
 		return nil, fmt.Errorf("no WiFi interfaces found")
 	}
-
 	return ifaces, nil
 }
 
@@ -85,7 +98,15 @@ func (s *WiFiScannerNL80211) ScanNetworks(iface string) ([]AccessPoint, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), activeScanTimeout)
 	defer cancel()
 	if err := s.client.Scan(ctx, targetInterface); err != nil {
-		return nil, fmt.Errorf("failed to initiate scan: %w", err)
+		// EBUSY on the trigger means someone else (NetworkManager,
+		// wpa_supplicant, our own previous scan) has an active scan in flight
+		// on this radio. The kernel still has the last scan results cached
+		// and AccessPoints() can dump them — slightly stale, but real, and
+		// the next tick will usually trigger successfully.
+		if !isTransientScanError(err) {
+			return nil, fmt.Errorf("failed to initiate scan: %w", err)
+		}
+		log.Printf("wifi-app: scan trigger transient on %s, falling back to cached BSS dump: %v", iface, err)
 	}
 
 	bssList, err := s.client.AccessPoints(targetInterface)

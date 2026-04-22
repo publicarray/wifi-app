@@ -1,3 +1,17 @@
+<script context="module">
+    // apHistory lives at module scope so the per-other-AP signal traces
+    // survive switching away from the Signal tab and back. The connected
+    // AP's history is read from clientStats.signalHistory (backend-managed),
+    // so without a persistent module-scope store the connected line would
+    // appear "complete" while the other-AP lines look like they reset on
+    // every remount.
+    //
+    // Growth is bounded by the per-AP window+max-points filter and the
+    // sliding-window cleanup pass in recordNetworkSignals, so the Map is
+    // capped to "BSSIDs seen in the last HISTORY_WINDOW_MS".
+    const moduleApHistory = new Map();
+</script>
+
 <script>
     import { onMount, onDestroy } from "svelte";
     import { Chart, registerables } from "chart.js";
@@ -12,10 +26,7 @@
     let connectedChart = null;
     let othersChart = null;
     let themeMedia = null;
-    // History is component-scoped so navigating away from the Signal tab
-    // (which unmounts this component) frees the Map; previously this state
-    // lived at module scope and grew without bound across tab switches.
-    let apHistory = new Map();
+    let apHistory = moduleApHistory;
     let historyPoints = 0;
     let historyAPs = 0;
     const HISTORY_WINDOW_MS = 30 * 60 * 1000;
