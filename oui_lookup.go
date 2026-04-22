@@ -214,6 +214,16 @@ func normalizeOUIPrefix(prefix string) string {
 		return ""
 	}
 	p = p[:6]
+	// Reject anything that isn't 6 hex digits — guards against header rows
+	// in CSV input (e.g. "Mac Prefix") or other junk being silently inserted
+	// as a key the lookup will never hit.
+	for i := 0; i < 6; i++ {
+		c := p[i]
+		isHex := (c >= '0' && c <= '9') || (c >= 'A' && c <= 'F')
+		if !isHex {
+			return ""
+		}
+	}
 	return fmt.Sprintf("%s:%s:%s", p[0:2], p[2:4], p[4:6])
 }
 
