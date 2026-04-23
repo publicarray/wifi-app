@@ -12,7 +12,9 @@ on:
 jobs:
   test:
     name: Test & lint (Linux)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    env:
+      LINUX_WAILS_TAGS: webkit2_41
     steps:
       - uses: actions/checkout@v4
         with:
@@ -25,24 +27,24 @@ jobs:
           cache: true
 
       - name: Install Linux build dependencies
-        # nl80211 + Wails desktop deps so go build / staticcheck can see all
-        # platform-tagged Linux source files.
+        # ubuntu-latest currently tracks Ubuntu 24.04, where WebKitGTK moved
+        # from the 4.0 development package to 4.1.
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            libgtk-3-dev libwebkit2gtk-4.0-dev pkg-config
+            libgtk-3-dev libwebkit2gtk-4.1-dev pkg-config
 
       - name: go vet (default tags)
-        run: go vet ./...
+        run: go vet -tags "${LINUX_WAILS_TAGS}" ./...
 
       - name: go vet (with iw tag)
-        run: go vet -tags iw ./...
+        run: go vet -tags "${LINUX_WAILS_TAGS} iw" ./...
 
       - name: go test -race (default tags)
-        run: go test -race -count=1 ./...
+        run: go test -tags "${LINUX_WAILS_TAGS}" -race -count=1 ./...
 
       - name: go test -race (with iw tag)
-        run: go test -tags iw -race -count=1 ./...
+        run: go test -tags "${LINUX_WAILS_TAGS} iw" -race -count=1 ./...
 
       - name: Install staticcheck
         # Installed fresh per-run rather than pinned: staticcheck releases
@@ -51,10 +53,10 @@ jobs:
         run: go install honnef.co/go/tools/cmd/staticcheck@latest
 
       - name: staticcheck (default tags)
-        run: $(go env GOPATH)/bin/staticcheck ./...
+        run: $(go env GOPATH)/bin/staticcheck -tags "${LINUX_WAILS_TAGS}" ./...
 
       - name: staticcheck (with iw tag)
-        run: $(go env GOPATH)/bin/staticcheck -tags iw ./...
+        run: $(go env GOPATH)/bin/staticcheck -tags "${LINUX_WAILS_TAGS} iw" ./...
 
       - name: Cross-compile sanity (windows/amd64)
         env:
@@ -86,20 +88,23 @@ jobs:
             {
               name: wifi-app,
               platform: linux/amd64,
-              os: ubuntu-latest,
+              os: ubuntu-24.04,
               out: wifi-app-linux-amd64,
+              tags: webkit2_41,
             },
             {
               name: wifi-app.exe,
               platform: windows/amd64,
               os: windows-latest,
               out: wifi-app-windows-amd64.exe,
+              tags: "",
             },
             {
               name: wifi-app,
               platform: darwin/universal,
               os: macos-latest,
               out: wifi-app-macos-universal.zip,
+              tags: "",
             },
           ]
     runs-on: ${{ matrix.build.os }}
@@ -109,10 +114,18 @@ jobs:
         with:
           submodules: recursive
 
+      - name: Install Linux build dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libgtk-3-dev libwebkit2gtk-4.1-dev pkg-config
+
       - uses: snider/build@main
         with:
           build-name: ${{ matrix.build.name }}
           build-platform: ${{ matrix.build.platform }}
+          build-tags: ${{ matrix.build.tags }}
 
       # -------------------------
       # Rename binaries
