@@ -1,0 +1,15 @@
+     agrCtlRSSI: 0
+     agrExtRSSI: 0
+    agrCtlNoise: 0
+    agrExtNoise: 0
+          state: init
+        op mode: station
+     lastTxRate: 0
+        maxRate: 0
+lastAssocStatus: 0
+    802.11 auth: open
+      link auth: none
+          BSSID:
+           SSID:
+            MCS: 0
+        channel: 0

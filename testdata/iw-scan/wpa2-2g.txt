@@ -1,0 +1,37 @@
+BSS aa:bb:cc:11:22:33(on wlan0)
+	TSF: 1234567890 usec (0d, 00:00:00)
+	freq: 2462
+	beacon interval: 100 TUs
+	capability: ESS Privacy ShortSlotTime (0x0411)
+	signal: -45.00 dBm
+	last seen: 100 ms ago
+	Information elements from Probe Response frame:
+	SSID: MyNetwork
+	Supported rates: 1.0* 2.0* 5.5* 11.0* 18.0 24.0 36.0 54.0
+	DS Parameter set: channel 11
+	TIM: DTIM Count 1 DTIM Period 2 Bitmap Control 0x0 Bitmap[0] 0x0
+	Country: AU	Environment: Indoor/Outdoor
+	BSS Load:
+		 * station count: 5
+		 * channel utilisation: 153/255
+		 * available admission capacity: 31250 [*32us]
+	HT capabilities:
+		Capabilities: 0x9ef
+			RX LDPC
+			HT20
+			SM Power Save disabled
+		HT RX MCS rate indexes supported: 0-15, 32
+			1 streams: MCS 0-7
+			2 streams: MCS 8-15
+	HT operation:
+		 * primary channel: 11
+		 * secondary channel offset: no secondary
+		 * STA channel width: 20 MHz
+	WMM:	 * Parameter version 1
+	RSN:	 * Version: 1
+		 * Group cipher: CCMP
+		 * Pairwise ciphers: CCMP
+		 * Authentication suites: PSK
+		 * Capabilities: 16-PTKSA-RC 1-GTKSA-RC MFP-capable (0x0080)
+	WPS:	 * Version: 1.0
+		 * Wi-Fi Protected Setup State: 2 (Configured)

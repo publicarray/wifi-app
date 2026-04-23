@@ -1,0 +1,12 @@
+Connected to aa:bb:cc:11:22:33 (on wlan0)
+	SSID: MyNetwork
+	freq: 2462
+	RX: 9876543 bytes (12345 packets)
+	TX: 1234567 bytes (5678 packets)
+	signal: -45 dBm
+	rx bitrate: 144.4 MBit/s MCS 15 short GI
+	tx bitrate: 130.0 MBit/s MCS 14 short GI
+
+	bss flags:	short-slot-time
+	dtim period:	2
+	beacon int:	100

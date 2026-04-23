@@ -1,0 +1,42 @@
+BSS de:ad:be:ef:00:01(on wlan0)
+	TSF: 9876543210 usec (1d, 02:34:56)
+	freq: 5180
+	beacon interval: 100 TUs
+	capability: ESS Privacy ShortSlotTime (0x0411)
+	signal: -55.00 dBm
+	last seen: 50 ms ago
+	SSID: HomeWiFi-5G
+	DS Parameter set: channel 36
+	TIM: DTIM Count 0 DTIM Period 3 Bitmap Control 0x0 Bitmap[0] 0x0
+	Country: AU	Environment: Indoor/Outdoor
+	HT capabilities:
+		Capabilities: 0x9ef
+			HT20
+		HT RX MCS rate indexes supported: 0-23
+			1 streams: MCS 0-7
+			2 streams: MCS 8-15
+			3 streams: MCS 16-23
+	VHT capabilities:
+		VHT80
+		MU Beamformer
+	HE capabilities:
+		HE PHY Capabilities: (0x0d... )
+		HE RX MCS and NSS set
+			1 streams: MCS 0-11
+			2 streams: MCS 0-11
+			3 streams: MCS 0-11
+			4 streams: MCS 0-11
+	HE Operation:
+		 * BSS Color: 7
+		 * Default PE Duration: 0
+	BSS Color: 7
+	HE PHY OBSS PD level
+	WMM:	 * Parameter version 1
+	BSS Transition Management
+	Neighbor Report
+	1024-QAM
+	RSN:	 * Version: 1
+		 * Group cipher: CCMP
+		 * Pairwise ciphers: CCMP
+		 * Authentication suites: SAE FT/SAE
+		 * Capabilities: MFP-required (0x00c0)

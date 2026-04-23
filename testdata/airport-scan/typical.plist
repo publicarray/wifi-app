@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<array>
+	<dict>
+		<key>SSID_STR</key>
+		<string>HomeWiFi</string>
+		<key>BSSID</key>
+		<string>aa:bb:cc:11:22:33</string>
+		<key>RSSI</key>
+		<integer>-55</integer>
+		<key>NOISE</key>
+		<integer>-92</integer>
+		<key>CHANNEL</key>
+		<integer>36</integer>
+		<key>CHANNEL_WIDTH</key>
+		<integer>80</integer>
+		<key>SECURITY</key>
+		<string>WPA2(PSK/AES,TKIP/AES) WPA3(SAE/AES) MFP</string>
+		<key>COUNTRY_CODE</key>
+		<string>au</string>
+		<key>HT</key>
+		<true/>
+		<key>VHT</key>
+		<true/>
+		<key>HE</key>
+		<true/>
+		<key>DTIM_PERIOD</key>
+		<integer>2</integer>
+	</dict>
+	<dict>
+		<key>SSID_STR</key>
+		<string>GuestNetwork</string>
+		<key>BSSID</key>
+		<string>de:ad:be:ef:00:01</string>
+		<key>RSSI</key>
+		<integer>-72</integer>
+		<key>CHANNEL</key>
+		<integer>6</integer>
+		<key>SECURITY</key>
+		<string>OPEN</string>
+		<key>HT</key>
+		<true/>
+	</dict>
+	<dict>
+		<key>SSID_STR</key>
+		<string></string>
+		<key>BSSID</key>
+		<string>00:11:22:33:44:55</string>
+		<key>RSSI</key>
+		<integer>-80</integer>
+		<key>CHANNEL</key>
+		<integer>11</integer>
+		<key>SECURITY</key>
+		<string>WPA2(PSK/AES) MFP-required</string>
+	</dict>
+</array>
+</plist>

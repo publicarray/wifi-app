@@ -1,0 +1,14 @@
+Station aa:bb:cc:11:22:33 (on wlan0)
+	inactive time:	100 ms
+	rx bytes:	9876543
+	rx packets:	12345
+	tx bytes:	1234567
+	tx packets:	5678
+	tx retries:	123
+	tx failed:	5
+	signal:		-45 [-46, -45] dBm
+	signal avg:	-46 [-47, -46] dBm
+	tx bitrate:	130.0 MBit/s MCS 14 short GI
+	rx bitrate:	144.4 MBit/s MCS 15 short GI
+	last ack signal: -44 dBm
+	connected time:	3600 seconds

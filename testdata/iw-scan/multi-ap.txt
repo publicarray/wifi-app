@@ -1,0 +1,16 @@
+BSS 11:22:33:44:55:66(on wlan0)
+	freq: 2412
+	signal: -60.00 dBm
+	SSID: GuestWiFi
+	capability: ESS (0x0001)
+	DS Parameter set: channel 1
+BSS 77:88:99:aa:bb:cc(on wlan0)
+	freq: 5240
+	signal: -70.00 dBm
+	SSID:
+	capability: ESS Privacy (0x0411)
+	DS Parameter set: channel 48
+	RSN:	 * Version: 1
+		 * Group cipher: CCMP
+		 * Pairwise ciphers: CCMP
+		 * Authentication suites: PSK
