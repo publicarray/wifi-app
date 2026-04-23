@@ -5,7 +5,7 @@ package main
 import (
 	"context"
 	"fmt"
-	"log"
+	"log/slog"
 	"strings"
 	"time"
 
@@ -106,7 +106,8 @@ func (s *WiFiScannerNL80211) ScanNetworks(iface string) ([]AccessPoint, error) {
 		if !isTransientScanError(err) {
 			return nil, fmt.Errorf("failed to initiate scan: %w", err)
 		}
-		log.Printf("wifi-app: scan trigger transient on %s, falling back to cached BSS dump: %v", iface, err)
+		slog.Info("scan trigger transient, using cached BSS dump",
+			"event", "scan_ebusy", "interface", iface, "err", err)
 	}
 
 	bssList, err := s.client.AccessPoints(targetInterface)
@@ -117,7 +118,7 @@ func (s *WiFiScannerNL80211) ScanNetworks(iface string) ([]AccessPoint, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to scan BSS: %w", err)
 	}
-	if bssList == nil || len(bssList) == 0 {
+	if len(bssList) == 0 {
 		return []AccessPoint{}, nil
 	}
 	var accessPoints []AccessPoint

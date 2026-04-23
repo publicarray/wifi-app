@@ -2,6 +2,7 @@ package main
 
 import (
 	"embed"
+	"log/slog"
 
 	"github.com/wailsapp/wails/v2"
 	"github.com/wailsapp/wails/v2/pkg/options"
@@ -32,6 +33,6 @@ func main() {
 	})
 
 	if err != nil {
-		println("Error:", err.Error())
+		slog.Error("wails run failed", "err", err)
 	}
 }

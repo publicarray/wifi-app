@@ -14,11 +14,15 @@ export function GetChannelAnalysis():Promise<Array<main.ChannelInfo>>;
 
 export function GetClientStats():Promise<main.ClientStats>;
 
+export function GetConfig():Promise<main.Config>;
+
 export function GetNetworks():Promise<Array<main.Network>>;
 
 export function GetRoamingAnalysis():Promise<main.RoamingQualityReport>;
 
 export function IsScanning():Promise<boolean>;
+
+export function SaveConfig(arg1:main.Config):Promise<void>;
 
 export function SaveReport(arg1:string,arg2:string):Promise<string>;
 

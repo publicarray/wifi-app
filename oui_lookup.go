@@ -4,6 +4,7 @@ import (
 	"encoding/csv"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"os"
 	"strings"
@@ -69,7 +70,9 @@ func (o *OUILookup) loadFullDatabaseAsync() {
 	}
 
 	if !useCache {
-		_ = o.downloadWithRetry(o.cacheFile)
+		if err := o.downloadWithRetry(o.cacheFile); err != nil {
+			slog.Warn("oui database download failed", "err", err)
+		}
 	}
 
 	full, err := loadOUIMapFromFile(o.cacheFile)
@@ -81,6 +84,8 @@ func (o *OUILookup) loadFullDatabaseAsync() {
 	}
 	if len(full) == 0 {
 		// Stick with the minimal database already loaded by LoadOUIDatabase.
+		slog.Warn("oui database unavailable, vendor lookups will use minimal embedded table",
+			"cache", o.cacheFile)
 		return
 	}
 

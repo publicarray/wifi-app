@@ -26,6 +26,10 @@ export function GetClientStats() {
   return window['go']['main']['App']['GetClientStats']();
 }
 
+export function GetConfig() {
+  return window['go']['main']['App']['GetConfig']();
+}
+
 export function GetNetworks() {
   return window['go']['main']['App']['GetNetworks']();
 }
@@ -36,6 +40,10 @@ export function GetRoamingAnalysis() {
 
 export function IsScanning() {
   return window['go']['main']['App']['IsScanning']();
+}
+
+export function SaveConfig(arg1) {
+  return window['go']['main']['App']['SaveConfig'](arg1);
 }
 
 export function SaveReport(arg1, arg2) {

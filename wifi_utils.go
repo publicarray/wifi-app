@@ -312,6 +312,11 @@ func heMcsRate20(maxMcs int) float64 {
 	}
 }
 
+// maxHEMCSFromMap derives the max HE-MCS index encoded in a 2-bits-per-stream
+// HE TX/RX MCS map. Used by the windows and mdlayher (nl80211) scanners; the
+// `-tags iw` build excludes both, hence the staticcheck suppression.
+//
+//lint:ignore U1000 used by windows + mdlayher backends, excluded under -tags iw
 func maxHEMCSFromMap(mcsMap uint16) int {
 	maxMcs := 0
 	for ss := 0; ss < 8; ss++ {

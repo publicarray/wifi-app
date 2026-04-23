@@ -141,6 +141,45 @@ type RoamingQualityReport struct {
 	RoamingAdvice     string `json:"roamingAdvice"`
 }
 
+// LatencyProbe is a single RTT measurement toward a target. One probe per
+// target per sampler tick. Lost probes have RTTMs == 0 and Lost == true so
+// the frontend can plot them as gaps rather than zeros.
+type LatencyProbe struct {
+	Timestamp time.Time `json:"timestamp"`
+	Target    string    `json:"target"`    // resolved IP or hostname
+	Label     string    `json:"label"`     // user-facing label (e.g. "gateway", "1.1.1.1")
+	RTTMs     float64   `json:"rttMs"`     // round-trip time in milliseconds; 0 if lost
+	Lost      bool      `json:"lost"`      // true when the probe timed out or failed
+	Transport string    `json:"transport"` // "icmp", "tcp", or "udp"
+}
+
+// LatencyStats rolls up probes for a target over a single window (1s / 10s /
+// 60s). Loss percent is population, not moving average — "N lost / N total in
+// window". A Samples count of 0 means the window hasn't accumulated any data
+// yet (typical right after the sampler starts).
+type LatencyStats struct {
+	WindowSeconds int     `json:"windowSeconds"`
+	Samples       int     `json:"samples"`
+	MinMs         float64 `json:"minMs"`
+	AvgMs         float64 `json:"avgMs"`
+	MaxMs         float64 `json:"maxMs"`
+	StddevMs      float64 `json:"stddevMs"`
+	LossPercent   float64 `json:"lossPercent"`
+}
+
+// LatencyTargetSummary is everything the frontend needs to render a summary
+// card + chart series for one target: the label, the resolved address, the
+// latest probe, rolling stats across windows, and a bounded raw history.
+type LatencyTargetSummary struct {
+	Label      string         `json:"label"`
+	Target     string         `json:"target"`
+	Transport  string         `json:"transport"`
+	Available  bool           `json:"available"` // false when the target can't currently be resolved (e.g. no gateway)
+	LastProbe  *LatencyProbe  `json:"lastProbe,omitempty"`
+	Windows    []LatencyStats `json:"windows"` // 1s / 10s / 60s windows
+	History    []LatencyProbe `json:"history"` // bounded raw history for the chart
+}
+
 // ScanResult represents the complete result of a WiFi scan
 type ScanResult struct {
 	Timestamp     time.Time     `json:"timestamp"`

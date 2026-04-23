@@ -5,6 +5,7 @@ import (
 	"encoding/csv"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"os"
 	"strconv"
 	"strings"
@@ -29,6 +30,7 @@ func NewApp() *App {
 // so we can call the runtime methods
 func (a *App) startup(ctx context.Context) {
 	a.ctx = ctx
+	installWailsForwarding(ctx)
 	a.wifiService.SetContext(ctx)
 }
 
@@ -73,6 +75,19 @@ func (a *App) IsScanning() bool {
 
 func (a *App) GetRoamingAnalysis() RoamingQualityReport {
 	return a.wifiService.AnalyzeRoamingQuality()
+}
+
+// GetConfig returns the current persisted configuration. Used by the
+// Settings UI to populate inputs.
+func (a *App) GetConfig() Config {
+	return a.wifiService.GetConfig()
+}
+
+// SaveConfig validates, persists, and applies the new configuration. The
+// scan loop reads the live config at the top of each iteration, so changes
+// take effect on the next scan tick.
+func (a *App) SaveConfig(cfg Config) error {
+	return a.wifiService.UpdateConfig(cfg)
 }
 
 func (a *App) GetAPPlacementRecommendations() []string {
@@ -202,16 +217,8 @@ func (a *App) SaveReport(filename string, content string) (string, error) {
 	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
 		return "", err
 	}
-	if sudoUID := os.Getenv("SUDO_UID"); sudoUID != "" {
-		if sudoGID := os.Getenv("SUDO_GID"); sudoGID != "" {
-			uid, uidErr := strconv.Atoi(sudoUID)
-			gid, gidErr := strconv.Atoi(sudoGID)
-			if uidErr == nil && gidErr == nil {
-				if err := os.Chown(path, uid, gid); err != nil {
-					runtime.LogWarningf(a.ctx, "SaveReport: failed to chown %s to %d:%d: %v", path, uid, gid, err)
-				}
-			}
-		}
+	if err := chownToSudoUser(path); err != nil {
+		slog.Warn("failed to chown saved report", "path", path, "err", err)
 	}
 	return path, nil
 }

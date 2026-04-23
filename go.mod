@@ -3,8 +3,10 @@ module wifi-app
 go 1.24.0
 
 require (
+	github.com/BurntSushi/toml v1.6.0
 	github.com/mdlayher/wifi v0.7.2
 	github.com/wailsapp/wails/v2 v2.11.0
+	golang.org/x/net v0.47.0
 	golang.org/x/sys v0.39.0
 )
 
@@ -41,7 +43,6 @@ require (
 	github.com/wailsapp/go-webview2 v1.0.22 // indirect
 	github.com/wailsapp/mimetype v1.4.1 // indirect
 	golang.org/x/crypto v0.46.0 // indirect
-	golang.org/x/net v0.47.0 // indirect
 	golang.org/x/sync v0.19.0 // indirect
 	golang.org/x/text v0.32.0 // indirect
 )

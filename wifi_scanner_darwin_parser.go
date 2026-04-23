@@ -24,7 +24,11 @@ func (p *airportParser) ParseScan(output []byte) ([]AccessPoint, error) {
 	for _, entry := range entries {
 		ssid := getString(entry, "SSID_STR", "SSID")
 		bssid := getString(entry, "BSSID")
-		if ssid == "" || bssid == "" {
+		// A missing BSSID is fatal (we can't identify the AP), but an empty
+		// SSID is just a hidden network — keep it. The aggregation layer in
+		// wifi_service.go.aggregateData buckets hidden APs by BSSID so each
+		// shows up as its own row labelled "(hidden)" in the UI.
+		if bssid == "" {
 			continue
 		}
 

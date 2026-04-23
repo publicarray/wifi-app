@@ -56,8 +56,8 @@ func (p *iwParser) ParseScan(output []byte) ([]AccessPoint, error) {
 	muMimoRegex := regexp.MustCompile(`MU Beamformer|MU Beamformee`)
 	qosRegex := regexp.MustCompile(`WMM:`)
 	qamRegex := regexp.MustCompile(`1024-QAM|4096-QAM`)
-	countryRegex := regexp.MustCompile(`Country:\\s+(\\w+)`)
-	apNameRegex := regexp.MustCompile(`AP name:\\s*(.+)`)
+	countryRegex := regexp.MustCompile(`Country:\s+(\w+)`)
+	apNameRegex := regexp.MustCompile(`AP name:\s*(.+)`)
 
 	for _, line := range lines {
 		if matches := bssRegex.FindStringSubmatch(line); matches != nil {
@@ -155,11 +155,15 @@ func (p *iwParser) ParseScan(output []byte) ([]AccessPoint, error) {
 			if strings.Contains(line, "WPA3") {
 				currentAP.Security = "WPA3"
 			} else if strings.Contains(line, "RSN") || strings.Contains(line, "WPA2") {
-				if currentAP.Security == "" {
+				// Allow RSN/WPA2 to override an earlier "WEP" guess: modern
+				// WPA2 APs still set the Privacy capability bit, which the
+				// branch below mistakes for WEP if the capability line is
+				// parsed before the RSN block (line ordering is not guaranteed).
+				if currentAP.Security == "" || currentAP.Security == "WEP" {
 					currentAP.Security = "WPA2"
 				}
 			} else if strings.Contains(line, "WPA") {
-				if currentAP.Security == "" {
+				if currentAP.Security == "" || currentAP.Security == "WEP" {
 					currentAP.Security = "WPA"
 				}
 			} else if strings.Contains(line, "capability:") && strings.Contains(line, "Privacy") {
@@ -317,6 +321,9 @@ func (p *iwParser) ParseScan(output []byte) ([]AccessPoint, error) {
 							currentAP.AuthMethods = append(currentAP.AuthMethods, auth)
 						}
 					}
+					if strings.Contains(authText, "SAE") || strings.Contains(authText, "OWE") {
+						currentAP.Security = "WPA3"
+					}
 				}
 			}
 
@@ -409,9 +416,9 @@ func (p *iwParser) ParseLink(output []byte) (map[string]string, error) {
 	bssidRegex := regexp.MustCompile(`Connected to ([0-9a-f:]+)`)
 	ssidRegex := regexp.MustCompile(`SSID:\s+(.*)$`)
 	freqRegex := regexp.MustCompile(`freq:\s+([\d.]+)`)
-	signalRegex := regexp.MustCompile(`signal:\s+([-\d]+)\s+dBm`)
-	rxBitrateRegex := regexp.MustCompile(`rx bitrate:\s+([\d.]+)\s+MBit/s(?:\s+([\dMHz\sHE-VHT]+))?`)
-	txBitrateRegex := regexp.MustCompile(`tx bitrate:\s+([\d.]+)\s+MBit/s(?:\s+([\dMHz\sHE-VHT]+))?`)
+	signalRegex := regexp.MustCompile(`^\s*signal:\s+([-\d]+)\s+dBm`)
+	rxBitrateRegex := regexp.MustCompile(`rx bitrate:\s+([\d.]+)\s+MBit/s(?:\s+(.+))?$`)
+	txBitrateRegex := regexp.MustCompile(`tx bitrate:\s+([\d.]+)\s+MBit/s(?:\s+(.+))?$`)
 	rxBytesRegex := regexp.MustCompile(`RX:\s+(\d+)\s+bytes`)
 	txBytesRegex := regexp.MustCompile(`TX:\s+(\d+)\s+bytes`)
 
@@ -462,10 +469,13 @@ func (p *iwParser) ParseStation(output []byte) (map[string]string, error) {
 	lines := strings.Split(outputStr, "\n")
 
 	stationRegex := regexp.MustCompile(`^Station ([0-9a-f:]+)`)
-	signalRegex := regexp.MustCompile(`signal:\s+([-\d]+)(?:\s+\[([-\d,\s]+)\])?\s+dBm`)
-	signalAvgRegex := regexp.MustCompile(`signal avg:\s+([-\d]+)(?:\s+\[([-\d,\s]+)\])?\s+dBm`)
-	txBitrateRegex := regexp.MustCompile(`tx bitrate:\s+([\d.]+)\s+MBit/s\s+(\S+)`)
-	rxBitrateRegex := regexp.MustCompile(`rx bitrate:\s+([\d.]+)\s+MBit/s\s+(\S+)`)
+	// Anchor signal/signal-avg regexes at start-of-line (after optional
+	// leading whitespace) so they don't accidentally match inside
+	// "last ack signal: -44 dBm" or similar substrings.
+	signalRegex := regexp.MustCompile(`^\s*signal:\s+([-\d]+)(?:\s+\[([-\d,\s]+)\])?\s+dBm`)
+	signalAvgRegex := regexp.MustCompile(`^\s*signal avg:\s+([-\d]+)(?:\s+\[([-\d,\s]+)\])?\s+dBm`)
+	txBitrateRegex := regexp.MustCompile(`tx bitrate:\s+([\d.]+)\s+MBit/s(?:\s+(.+))?$`)
+	rxBitrateRegex := regexp.MustCompile(`rx bitrate:\s+([\d.]+)\s+MBit/s(?:\s+(.+))?$`)
 	txRetriesRegex := regexp.MustCompile(`tx retries:\s+(\d+)`)
 	txFailedRegex := regexp.MustCompile(`tx failed:\s+(\d+)`)
 	rxBytesRegex := regexp.MustCompile(`rx bytes:\s+(\d+)`)
@@ -487,11 +497,15 @@ func (p *iwParser) ParseStation(output []byte) (map[string]string, error) {
 		}
 		if matches := txBitrateRegex.FindStringSubmatch(line); matches != nil {
 			stats["tx_bitrate"] = matches[1]
-			stats["tx_bitrate_info"] = matches[2]
+			if len(matches) > 2 && matches[2] != "" {
+				stats["tx_bitrate_info"] = matches[2]
+			}
 		}
 		if matches := rxBitrateRegex.FindStringSubmatch(line); matches != nil {
 			stats["rx_bitrate"] = matches[1]
-			stats["rx_bitrate_info"] = matches[2]
+			if len(matches) > 2 && matches[2] != "" {
+				stats["rx_bitrate_info"] = matches[2]
+			}
 		}
 		if matches := txRetriesRegex.FindStringSubmatch(line); matches != nil {
 			stats["tx_retries"] = matches[1]

@@ -1,0 +1,33 @@
+Station 02:11:22:33:44:55 (on wlan0)
+	authorized:	yes
+	authenticated:	yes
+	associated:	yes
+	preamble:	long
+	WMM/WME:	yes
+	MFP:		yes
+	TDLS peer:	no
+	inactive time:	3 ms
+	rx bytes:	123457120
+	rx packets:	456790
+	tx bytes:	98765560
+	tx packets:	400000
+	tx retries:	50000
+	tx failed:	12
+	beacon loss:	0
+	rx drop misc:	0
+	signal:  	-51 [-52, -55] dBm
+	signal avg:	-52 [-53, -56] dBm
+	tx bitrate:	458.8 MBit/s 40MHz HE-MCS 9 HE-NSS 2 HE-GI 0 HE-DCM 0
+	tx duration:	200000000000 us
+	rx bitrate:	137.6 MBit/s 40MHz HE-MCS 3 HE-NSS 2 HE-GI 0 HE-DCM 0
+	rx duration:	300000000000 us
+	last ack signal:-50 dBm
+	avg ack signal:	-50 dBm
+	airtime weight: 256
+	DTIM period:	3
+	beacon interval:100
+	short slot time:yes
+	connected time:	7200 seconds
+	associated at [boottime]:	120000.250s
+	associated at:	1700000000000 ms
+	current time:	1700007200000 ms

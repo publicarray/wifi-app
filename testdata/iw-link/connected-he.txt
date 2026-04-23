@@ -1,0 +1,11 @@
+Connected to 02:11:22:33:44:55 (on wlan0)
+	SSID: ExampleNet-5G
+	freq: 5220.0
+	RX: 123456789 bytes (456789 packets)
+	TX: 98765432 bytes (400000 packets)
+	signal: -53 dBm
+	rx bitrate: 413.0 MBit/s 40MHz HE-MCS 8 HE-NSS 2 HE-GI 0 HE-DCM 0
+	tx bitrate: 458.8 MBit/s 40MHz HE-MCS 9 HE-NSS 2 HE-GI 0 HE-DCM 0
+	bss flags: short-slot-time
+	dtim period: 3
+	beacon int: 100

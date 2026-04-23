@@ -299,6 +299,28 @@ export namespace main {
 		    return a;
 		}
 	}
+	export class Config {
+	    scanIntervalSeconds: number;
+	    signalHistoryMinutes: number;
+	    roamingHistorySize: number;
+	    defaultInterface: string;
+	    latencyTargets: string[];
+	    reportTemplatePath: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new Config(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.scanIntervalSeconds = source["scanIntervalSeconds"];
+	        this.signalHistoryMinutes = source["signalHistoryMinutes"];
+	        this.roamingHistorySize = source["roamingHistorySize"];
+	        this.defaultInterface = source["defaultInterface"];
+	        this.latencyTargets = source["latencyTargets"];
+	        this.reportTemplatePath = source["reportTemplatePath"];
+	    }
+	}
 	export class Network {
 	    ssid: string;
 	    accessPoints: AccessPoint[];

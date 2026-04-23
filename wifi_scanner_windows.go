@@ -4,6 +4,7 @@ package main
 
 import (
 	"fmt"
+	"log/slog"
 	"sync"
 	"syscall"
 	"time"
@@ -259,7 +260,7 @@ func NewWiFiScanner(cacheFile string) WiFiBackend {
 	}
 
 	if err := scanner.openHandle(); err != nil {
-		fmt.Printf("Warning: Failed to open WLAN handle on init: %v\n", err)
+		slog.Error("failed to open WLAN handle on init", "err", err)
 	}
 
 	return scanner
@@ -367,7 +368,7 @@ func (s *windowsScanner) ScanNetworks(iface string) ([]AccessPoint, error) {
 	)
 
 	if ret != 0 {
-		fmt.Printf("Warning: WlanScan failed with error: %d\n", ret)
+		slog.Warn("WlanScan failed", "ret", ret)
 	}
 
 	time.Sleep(100 * time.Millisecond)

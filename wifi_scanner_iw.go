@@ -11,9 +11,8 @@ import (
 
 // WiFiScanner handles WiFi scanning operations on Linux using iw
 type WiFiScanner struct {
-	currentInterface string
-	ouiLookup        *OUILookup
-	parser           ScanParser
+	ouiLookup *OUILookup
+	parser    ScanParser
 }
 
 // NewWiFiScanner creates a new WiFi scanner instance

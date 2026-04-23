@@ -10,6 +10,7 @@
         IsScanning,
         GetRoamingAnalysis,
         GetAPPlacementRecommendations,
+        GetConfig,
     } from "../wailsjs/go/main/App.js";
     import { EventsOn, EventsOff } from "../wailsjs/runtime/runtime.js";
 
@@ -18,6 +19,7 @@
     import ChannelAnalyzer from "./components/ChannelAnalyzer.svelte";
     import ClientStatsPanel from "./components/ClientStatsPanel.svelte";
     import RoamingAnalysis from "./components/RoamingAnalysis.svelte";
+    import SettingsPanel from "./components/SettingsPanel.svelte";
     import Toolbar from "./components/Toolbar.svelte";
     import ReportWindow from "./components/ReportWindow.svelte";
 
@@ -35,12 +37,26 @@
 
     onMount(async () => {
         try {
-            interfaces = await GetAvailableInterfaces();
-            if (interfaces.length > 0) {
-                selectedInterface = interfaces[0];
-            }
+            interfaces = (await GetAvailableInterfaces()) || [];
         } catch (err) {
             errorMessage = "Failed to get WiFi interfaces: " + err;
+        }
+
+        if (interfaces.length > 0) {
+            // Honour config.defaultInterface when it's still present on this
+            // host; otherwise fall back to the first available interface so
+            // the dropdown is never empty on launch.
+            let configured = "";
+            try {
+                const cfg = await GetConfig();
+                configured = cfg?.defaultInterface || "";
+            } catch {
+                // Non-fatal — defaults apply.
+            }
+            selectedInterface =
+                configured && interfaces.includes(configured)
+                    ? configured
+                    : interfaces[0];
         }
 
         // Hydrate tabs from whatever the service has cached so they aren't
@@ -178,6 +194,8 @@
                 return "📋";
             case "roaming":
                 return "🔀";
+            case "settings":
+                return "⚙️";
             default:
                 return "";
         }
@@ -199,7 +217,7 @@
     />
 
     <div class="main-tabs">
-        {#each ["networks", "signal", "channels", "stats", "roaming"] as tab}
+        {#each ["networks", "signal", "channels", "stats", "roaming", "settings"] as tab}
             <button
                 class="main-tab"
                 class:active={activeTab === tab}
@@ -233,6 +251,10 @@
         {:else if activeTab === "roaming"}
             <div class="content-panel channel-panel">
                 <RoamingAnalysis {roamingMetrics} {placementRecommendations} />
+            </div>
+        {:else if activeTab === "settings"}
+            <div class="content-panel stats-panel">
+                <SettingsPanel />
             </div>
         {/if}
     </div>

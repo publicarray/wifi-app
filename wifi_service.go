@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"sort"
@@ -14,15 +15,9 @@ import (
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
-const (
-	maxSignalHistory  = 600 // Keep 10 minutes at 1 second intervals
-	maxRoamingHistory = 100
-	scanInterval      = 4 * time.Second
-)
-
 // scanBackoffDelays are the delays between retry attempts when a scan fails.
 // After exhausting these, the loop emits `scan:error` and waits out the next
-// scanInterval tick rather than thrashing the driver.
+// scan interval tick rather than thrashing the driver.
 var scanBackoffDelays = []time.Duration{500 * time.Millisecond, 1 * time.Second, 2 * time.Second}
 
 // WiFiService manages WiFi scanning and data aggregation
@@ -34,6 +29,18 @@ type WiFiService struct {
 	cancelFunc       context.CancelFunc
 	currentInterface string
 	scanInFlight     atomic.Bool
+
+	// Live config — read at the top of each scan iteration so SaveConfig()
+	// changes (e.g. scan_interval) take effect on the next tick without
+	// restarting the scan loop.
+	config *liveConfig
+
+	// latencySampler runs independently of the scan loop at a fixed 1 Hz so
+	// RTT/jitter/loss measurements aren't throttled by scan_interval. Started
+	// on first SetContext and stopped from Close.
+	latencySampler *LatencySampler
+	samplerOnce    sync.Once
+	samplerCancel  context.CancelFunc
 
 	// Aggregated data
 	networks       []Network
@@ -59,13 +66,38 @@ func NewWiFiService() *WiFiService {
 		cacheFile = filepath.Join(os.TempDir(), "oui.txt")
 	}
 
-	return &WiFiService{
+	// Load config eagerly so the first scan respects user settings. A failed
+	// load (corrupted file, etc.) falls back to defaults inside LoadConfig.
+	cfg, err := LoadConfig()
+	if err != nil {
+		slog.Warn("config load failed, using defaults", "err", err)
+	}
+
+	ws := &WiFiService{
 		scanner:        NewWiFiScanner(cacheFile),
+		config:         newLiveConfig(cfg),
 		networks:       []Network{},
 		channelInfo:    []ChannelInfo{},
 		signalHistory:  []SignalDataPoint{},
 		roamingHistory: []RoamingEvent{},
 	}
+	ws.latencySampler = NewLatencySampler(ws.config)
+	return ws
+}
+
+// GetConfig returns the current live config snapshot.
+func (ws *WiFiService) GetConfig() Config {
+	return ws.config.Get()
+}
+
+// UpdateConfig validates, persists, and applies a new config. The next scan
+// loop iteration picks up the new values; ongoing work isn't interrupted.
+func (ws *WiFiService) UpdateConfig(cfg Config) error {
+	if err := SaveConfig(cfg); err != nil {
+		return err
+	}
+	ws.config.Set(cfg)
+	return nil
 }
 
 // SetContext sets the Wails runtime context
@@ -131,9 +163,13 @@ func (ws *WiFiService) scanLoop(ctx context.Context, iface string) {
 		}
 
 		start := time.Now()
-		ws.performScan(iface)
+		ws.performScan(ctx, iface)
 		elapsed := time.Since(start)
-		sleepFor := scanInterval - elapsed
+		// Read the interval fresh each loop so a SaveConfig-driven change
+		// (e.g. user drops scan_interval from 4 s to 1 s in the Settings
+		// tab) takes effect on the next tick rather than requiring a scan
+		// stop/start.
+		sleepFor := ws.config.Get().ScanInterval() - elapsed
 		if sleepFor < 0 {
 			sleepFor = 0
 		}
@@ -146,15 +182,17 @@ func (ws *WiFiService) scanLoop(ctx context.Context, iface string) {
 	}
 }
 
-// performScan executes a single scan operation
-func (ws *WiFiService) performScan(iface string) {
+// performScan executes a single scan operation. ctx is propagated into
+// scanWithBackoff so a pending retry-backoff doesn't block app shutdown.
+func (ws *WiFiService) performScan(ctx context.Context, iface string) {
 	if !ws.scanInFlight.CompareAndSwap(false, true) {
 		return
 	}
 	defer ws.scanInFlight.Store(false)
 
-	aps, err := ws.scanWithBackoff(iface)
+	aps, err := ws.scanWithBackoff(ctx, iface)
 	if err != nil {
+		slog.Error("scan failed", "event", "scan_error", "interface", iface, "err", err)
 		runtime.EventsEmit(ws.ctx, "scan:error", err.Error())
 		return
 	}
@@ -185,7 +223,9 @@ func (ws *WiFiService) performScan(iface string) {
 
 // scanWithBackoff retries a failing scan with short exponential backoff so a
 // single transient driver hiccup doesn't surface as a scan:error toast.
-func (ws *WiFiService) scanWithBackoff(iface string) ([]AccessPoint, error) {
+// The backoff wait is ctx-aware so app shutdown doesn't have to wait for the
+// full backoff window before the scan goroutine exits.
+func (ws *WiFiService) scanWithBackoff(ctx context.Context, iface string) ([]AccessPoint, error) {
 	var lastErr error
 	for attempt := 0; attempt <= len(scanBackoffDelays); attempt++ {
 		aps, err := ws.scanner.ScanNetworks(iface)
@@ -197,6 +237,8 @@ func (ws *WiFiService) scanWithBackoff(iface string) ([]AccessPoint, error) {
 			break
 		}
 		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
 		case <-time.After(scanBackoffDelays[attempt]):
 		}
 	}
@@ -452,7 +494,8 @@ func (ws *WiFiService) updateSignalHistoryLocked() {
 
 	// appendCapped allocates a fresh backing array when truncating, so prior
 	// slice headers handed out via GetClientStats remain valid and immutable.
-	ws.signalHistory = appendCapped(ws.signalHistory, dataPoint, maxSignalHistory)
+	cfg := ws.config.Get()
+	ws.signalHistory = appendCapped(ws.signalHistory, dataPoint, cfg.SignalHistorySize())
 
 	// Detect roaming events
 	if ws.lastBSSID != "" && ws.lastBSSID != ws.clientStats.BSSID {
@@ -472,7 +515,7 @@ func (ws *WiFiService) updateSignalHistoryLocked() {
 			PreviousSignal: prevSignal,
 			NewSignal:      ws.clientStats.Signal,
 		}
-		ws.roamingHistory = appendCapped(ws.roamingHistory, roamingEvent, maxRoamingHistory)
+		ws.roamingHistory = appendCapped(ws.roamingHistory, roamingEvent, cfg.RoamingHistorySize)
 
 		runtime.EventsEmit(ws.ctx, "roaming:detected", roamingEvent)
 	}
