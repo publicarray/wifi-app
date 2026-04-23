@@ -26,6 +26,13 @@ jobs:
           go-version-file: go.mod
           cache: true
 
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
       - name: Install Linux build dependencies
         # ubuntu-latest currently tracks Ubuntu 24.04, where WebKitGTK moved
         # from the 4.0 development package to 4.1.
@@ -33,6 +40,12 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             libgtk-3-dev libwebkit2gtk-4.1-dev pkg-config
+
+      - name: Build frontend assets
+        run: |
+          npm ci
+          npm run build
+        working-directory: frontend
 
       - name: go vet (default tags)
         run: go vet -tags "${LINUX_WAILS_TAGS}" ./...
