@@ -30,6 +30,10 @@ export function GetConfig() {
   return window['go']['main']['App']['GetConfig']();
 }
 
+export function GetLatency() {
+  return window['go']['main']['App']['GetLatency']();
+}
+
 export function GetNetworks() {
   return window['go']['main']['App']['GetNetworks']();
 }

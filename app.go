@@ -94,6 +94,13 @@ func (a *App) GetAPPlacementRecommendations() []string {
 	return a.wifiService.GetAPPlacementRecommendations()
 }
 
+// GetLatency returns the current per-target latency summaries. The sampler
+// also emits `latency:updated` events every second — this binding is the
+// synchronous hydrate path the UI uses on tab switch.
+func (a *App) GetLatency() []LatencyTargetSummary {
+	return a.wifiService.GetLatencySummaries()
+}
+
 func (a *App) ExportNetworks(format string) (string, error) {
 	networks := a.wifiService.GetNetworks()
 

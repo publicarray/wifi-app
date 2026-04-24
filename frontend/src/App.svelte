@@ -20,6 +20,7 @@
     import ClientStatsPanel from "./components/ClientStatsPanel.svelte";
     import RoamingAnalysis from "./components/RoamingAnalysis.svelte";
     import SettingsPanel from "./components/SettingsPanel.svelte";
+    import LatencyChart from "./components/LatencyChart.svelte";
     import Toolbar from "./components/Toolbar.svelte";
     import ReportWindow from "./components/ReportWindow.svelte";
 
@@ -192,6 +193,8 @@
                 return "📈";
             case "stats":
                 return "📋";
+            case "latency":
+                return "⚡";
             case "roaming":
                 return "🔀";
             case "settings":
@@ -217,7 +220,7 @@
     />
 
     <div class="main-tabs">
-        {#each ["networks", "signal", "channels", "stats", "roaming", "settings"] as tab}
+        {#each ["networks", "signal", "channels", "stats", "latency", "roaming", "settings"] as tab}
             <button
                 class="main-tab"
                 class:active={activeTab === tab}
@@ -247,6 +250,10 @@
         {:else if activeTab === "stats"}
             <div class="content-panel stats-panel">
                 <ClientStatsPanel {clientStats} />
+            </div>
+        {:else if activeTab === "latency"}
+            <div class="content-panel signal-panel">
+                <LatencyChart />
             </div>
         {:else if activeTab === "roaming"}
             <div class="content-panel channel-panel">

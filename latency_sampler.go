@@ -10,6 +10,7 @@ import (
 	goruntime "runtime"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	wailsruntime "github.com/wailsapp/wails/v2/pkg/runtime"
@@ -78,10 +79,17 @@ type LatencySampler struct {
 
 	// pending tracks in-flight ICMP echoes. The reader goroutine routes an
 	// incoming reply to the probe goroutine waiting for it by keying on
-	// (id<<16 | seq). Without this, two concurrent probes sharing the
-	// socket would race and one would swallow the other's reply.
+	// seq only — not (id, seq) — because Linux's unprivileged datagram ICMP
+	// socket ("udp4") rewrites the identifier field on send and rewrites it
+	// back on receive to match the kernel-assigned socket id. Our Echo.ID on
+	// the wire is silently ignored on that path, so a reply can never carry
+	// the id we registered with. Seq is preserved end-to-end on both
+	// transports, so it's the only field we can trust to demux. Concurrent
+	// probes get unique seqs from a process-wide atomic counter, so there's
+	// no collision risk even under a full probe fan-out.
 	pendingMu sync.Mutex
-	pending   map[uint32]chan *icmp.Echo
+	pending   map[uint16]chan *icmp.Echo
+	seqCtr    uint32 // atomic; lower 16 bits used as Echo.Seq
 	readerWG  sync.WaitGroup
 }
 
@@ -93,7 +101,7 @@ func NewLatencySampler(cfg *liveConfig) *LatencySampler {
 		cfg:       cfg,
 		eventName: "latency:updated",
 		history:   make(map[string][]LatencyProbe),
-		pending:   make(map[uint32]chan *icmp.Echo),
+		pending:   make(map[uint16]chan *icmp.Echo),
 	}
 }
 
@@ -270,13 +278,11 @@ func (s *LatencySampler) probeOne(ctx context.Context, t *probeTarget) LatencyPr
 }
 
 // probeICMP sends a single echo request and waits for the matching reply
-// routed to us by the shared icmpReader goroutine. Concurrent probes over
-// one socket are safe because each target gets a unique (id, seq) pair and
-// the reader demultiplexes replies into per-probe channels.
-//
-// A stale sequence counter (e.g. after a clock skew) could in theory collide
-// with an in-flight probe; the 16-bit sequence space + 900 ms timeout make
-// that functionally impossible during normal operation.
+// routed to us by the shared icmpReader goroutine. Demux is by Seq alone
+// (see seqCtr docs on LatencySampler) so the same code path works for both
+// the privileged raw socket and the unprivileged kernel-rewritten datagram
+// socket. The process-wide atomic counter guarantees uniqueness across all
+// in-flight probes.
 func (s *LatencySampler) probeICMP(ctx context.Context, t *probeTarget) (float64, error) {
 	s.mu.RLock()
 	conn := s.icmpConn
@@ -285,17 +291,16 @@ func (s *LatencySampler) probeICMP(ctx context.Context, t *probeTarget) (float64
 		return 0, fmt.Errorf("icmp socket unavailable")
 	}
 
-	id := icmpIDFromLabel(t.label)
-	seq := int(time.Now().UnixNano()/int64(time.Millisecond)) & 0xFFFF
-	key := pendingKey(id, seq)
+	seq := uint16(atomic.AddUint32(&s.seqCtr, 1) & 0xFFFF)
+	id := icmpIDFromLabel(t.label) // ignored on udp4 but harmless on ip4:icmp
 
 	ch := make(chan *icmp.Echo, 1)
 	s.pendingMu.Lock()
-	s.pending[key] = ch
+	s.pending[seq] = ch
 	s.pendingMu.Unlock()
 	defer func() {
 		s.pendingMu.Lock()
-		delete(s.pending, key)
+		delete(s.pending, seq)
 		s.pendingMu.Unlock()
 	}()
 
@@ -304,7 +309,7 @@ func (s *LatencySampler) probeICMP(ctx context.Context, t *probeTarget) (float64
 		Code: 0,
 		Body: &icmp.Echo{
 			ID:   id,
-			Seq:  seq,
+			Seq:  int(seq),
 			Data: []byte("wifi-app-latency"),
 		},
 	}
@@ -387,9 +392,9 @@ func (s *LatencySampler) icmpReader(ctx context.Context) {
 		if !ok {
 			continue
 		}
-		key := pendingKey(echo.ID, echo.Seq)
+		seq := uint16(echo.Seq & 0xFFFF)
 		s.pendingMu.Lock()
-		ch, found := s.pending[key]
+		ch, found := s.pending[seq]
 		s.pendingMu.Unlock()
 		if !found {
 			continue
@@ -400,10 +405,6 @@ func (s *LatencySampler) icmpReader(ctx context.Context) {
 		default:
 		}
 	}
-}
-
-func pendingKey(id, seq int) uint32 {
-	return (uint32(id&0xFFFF) << 16) | uint32(seq&0xFFFF)
 }
 
 func isTimeout(err error) bool {

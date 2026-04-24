@@ -100,9 +100,19 @@ func (ws *WiFiService) UpdateConfig(cfg Config) error {
 	return nil
 }
 
-// SetContext sets the Wails runtime context
+// SetContext sets the Wails runtime context. First call boots the latency
+// sampler — its lifecycle is tied to the Wails app context, not to the scan
+// loop, so probes keep flowing even when the user pauses scanning.
 func (ws *WiFiService) SetContext(ctx context.Context) {
 	ws.ctx = ctx
+	if ws.latencySampler != nil {
+		ws.latencySampler.SetWailsContext(ctx)
+		ws.samplerOnce.Do(func() {
+			samplerCtx, cancel := context.WithCancel(ctx)
+			ws.samplerCancel = cancel
+			ws.latencySampler.Start(samplerCtx)
+		})
+	}
 }
 
 // StartScanning begins periodic WiFi scanning
@@ -147,10 +157,26 @@ func (ws *WiFiService) StopScanning() {
 // Close stops scanning and releases scanner resources.
 func (ws *WiFiService) Close() error {
 	ws.StopScanning()
+	if ws.samplerCancel != nil {
+		ws.samplerCancel()
+	}
+	if ws.latencySampler != nil {
+		ws.latencySampler.Stop()
+	}
 	if ws.scanner != nil {
 		return ws.scanner.Close()
 	}
 	return nil
+}
+
+// GetLatencySummaries returns the current per-target latency snapshot. Used
+// by the GetLatency binding so the frontend can populate the panel synchronously
+// on tab switch without waiting for the next sampler tick.
+func (ws *WiFiService) GetLatencySummaries() []LatencyTargetSummary {
+	if ws.latencySampler == nil {
+		return []LatencyTargetSummary{}
+	}
+	return ws.latencySampler.SnapshotSummaries()
 }
 
 // scanLoop runs the periodic scanning loop

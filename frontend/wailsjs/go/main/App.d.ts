@@ -16,6 +16,8 @@ export function GetClientStats():Promise<main.ClientStats>;
 
 export function GetConfig():Promise<main.Config>;
 
+export function GetLatency():Promise<Array<main.LatencyTargetSummary>>;
+
 export function GetNetworks():Promise<Array<main.Network>>;
 
 export function GetRoamingAnalysis():Promise<main.RoamingQualityReport>;
