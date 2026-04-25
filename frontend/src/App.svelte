@@ -394,6 +394,7 @@
                             {roamingMetrics}
                             {placementRecommendations}
                             {clientStats}
+                            {networks}
                         />
                     </div>
                 {:else if activeTab === "settings"}

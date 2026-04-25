@@ -1,4 +1,6 @@
 <script>
+    import { onMount, onDestroy } from "svelte";
+
     export let networks = [];
     // Optional per-channel stats straight from the backend (utilization,
     // congestion level, overlap counts). Not yet consumed by the derivation
@@ -164,6 +166,196 @@
         const key = `${channel}-${band}`;
         return channelWidthMap[key] || 20;
     }
+
+    // ── Spectrum bell-curve chart ─────────────────────────────
+    // Mirrors the design's `screen-channels.jsx` SpectrumChart. Each AP is
+    // drawn as a smooth bell at its channel center freq, with width scaled to
+    // the AP's channel width and height to its signal level. Clicking a
+    // channel column highlights it.
+    let spectrumBand = "5GHz";
+    let selectedSpectrumChannel = null;
+    let spectrumWidth = 900;
+    let spectrumWrapper;
+
+    const SPECTRUM_HEIGHT = 240;
+    const SPECTRUM_PAD = { top: 16, right: 16, bottom: 30, left: 44 };
+    const SPECTRUM_Y_TICKS = [-40, -50, -60, -70, -80];
+    const SPECTRUM_Y_MIN = -90;
+    const SPECTRUM_Y_MAX = -30;
+
+    const BAND_DEFS_SPEC = {
+        "2.4GHz": {
+            channels: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14],
+            stepMHz: 5,
+            widthDefault: 20,
+            dfs: [],
+        },
+        "5GHz": {
+            channels: [
+                36, 40, 44, 48, 52, 56, 60, 64, 100, 104, 108, 112, 116, 120,
+                124, 128, 132, 136, 140, 144, 149, 153, 157, 161, 165,
+            ],
+            stepMHz: 20,
+            widthDefault: 40,
+            dfs: [
+                52, 56, 60, 64, 100, 104, 108, 112, 116, 120, 124, 128, 132,
+                136, 140, 144,
+            ],
+        },
+        "6GHz": {
+            channels: [
+                1, 5, 9, 13, 17, 21, 25, 29, 33, 37, 41, 45, 49, 53, 57, 61,
+            ],
+            stepMHz: 20,
+            widthDefault: 80,
+            dfs: [],
+        },
+    };
+
+    $: spectrumDef = BAND_DEFS_SPEC[spectrumBand];
+    $: spectrumAPs = collectSpectrumAPs(networks, spectrumBand);
+    $: connectedAP = findConnectedAP(networks);
+
+    function collectSpectrumAPs(allNetworks, band) {
+        const out = [];
+        for (const network of allNetworks || []) {
+            for (const ap of network.accessPoints || []) {
+                const apBand = ap.band || apBandFromFreq(ap.frequency);
+                if (apBand !== band) continue;
+                if (typeof ap.signal !== "number") continue;
+                if (typeof ap.channel !== "number") continue;
+                out.push({ ...ap, ssid: ap.ssid || network.ssid || "" });
+            }
+        }
+        return out;
+    }
+
+    function findConnectedAP(allNetworks) {
+        for (const network of allNetworks || []) {
+            const ap = (network.accessPoints || []).find(
+                (a) => a && a.bssid && a.bssid.toLowerCase() === (clientStatsBSSIDLower() || ""),
+            );
+            if (ap) return ap;
+        }
+        return null;
+    }
+
+    function clientStatsBSSIDLower() {
+        // ChannelAnalyzer doesn't currently receive clientStats; fall back to
+        // matching nothing. Connected highlight comes from the bestSignalAP /
+        // network.connected attribute instead in the bell renderer.
+        return "";
+    }
+
+    function apBandFromFreq(freq) {
+        if (!freq) return "";
+        if (freq >= 5925) return "6GHz";
+        if (freq >= 4900) return "5GHz";
+        if (freq > 0) return "2.4GHz";
+        return "";
+    }
+
+    function spectrumXForChannel(ch) {
+        const def = spectrumDef;
+        if (!def) return 0;
+        const i = def.channels.indexOf(ch);
+        if (i < 0) {
+            // Off-grid channel — position by interpolation to the nearest two.
+            for (let j = 0; j < def.channels.length - 1; j++) {
+                const a = def.channels[j];
+                const b = def.channels[j + 1];
+                if (ch > a && ch < b) {
+                    const t = (ch - a) / (b - a);
+                    const innerW =
+                        spectrumWidth - SPECTRUM_PAD.left - SPECTRUM_PAD.right;
+                    const stepPx = innerW / (def.channels.length - 1);
+                    return SPECTRUM_PAD.left + (j + t) * stepPx;
+                }
+            }
+            return SPECTRUM_PAD.left;
+        }
+        const innerW =
+            spectrumWidth - SPECTRUM_PAD.left - SPECTRUM_PAD.right;
+        return (
+            SPECTRUM_PAD.left +
+            (i / Math.max(1, def.channels.length - 1)) * innerW
+        );
+    }
+
+    function spectrumYForSignal(dBm) {
+        const innerH =
+            SPECTRUM_HEIGHT - SPECTRUM_PAD.top - SPECTRUM_PAD.bottom;
+        return (
+            SPECTRUM_PAD.top +
+            ((SPECTRUM_Y_MAX - dBm) / (SPECTRUM_Y_MAX - SPECTRUM_Y_MIN)) *
+                innerH
+        );
+    }
+
+    function spectrumWidthPx(channelWidthMHz) {
+        const def = spectrumDef;
+        if (!def) return 0;
+        const innerW =
+            spectrumWidth - SPECTRUM_PAD.left - SPECTRUM_PAD.right;
+        const stepPx = innerW / Math.max(1, def.channels.length - 1);
+        // Convert: each "step" between adjacent listed channels equals
+        // stepMHz. So an AP with channelWidth W spans W / stepMHz steps.
+        return stepPx * (channelWidthMHz / def.stepMHz);
+    }
+
+    function bellPath(cx, cy, w, baseY) {
+        const w2 = w / 2;
+        return (
+            `M${cx - w2},${baseY} ` +
+            `C${cx - w2 * 0.35},${baseY} ${cx - w2 * 0.45},${cy} ${cx},${cy} ` +
+            `C${cx + w2 * 0.45},${cy} ${cx + w2 * 0.35},${baseY} ${cx + w2},${baseY} Z`
+        );
+    }
+
+    function spectrumColorForSignal(dBm, isConnected) {
+        if (isConnected) return "var(--acc-1)";
+        if (dBm >= -60) return "var(--ok)";
+        if (dBm >= -72) return "var(--warn)";
+        return "var(--bad)";
+    }
+
+    function spectrumOnSelect(ch) {
+        selectedSpectrumChannel =
+            selectedSpectrumChannel === ch ? null : ch;
+    }
+
+    function spectrumTrunc(text, n) {
+        if (!text) return "";
+        return text.length > n ? text.slice(0, n - 1) + "…" : text;
+    }
+
+    function spectrumChannelLabel(ch, idx, totalCount, selected) {
+        // Always label the selected channel; for crowded bands, label every Nth.
+        if (ch === selected) return true;
+        if (totalCount <= 14) return true;
+        return idx % Math.ceil(totalCount / 10) === 0;
+    }
+
+    // ResizeObserver wires width to the SVG so the spectrum stays responsive.
+    let spectrumRO = null;
+    onMount(() => {
+        if (!spectrumWrapper || typeof ResizeObserver === "undefined") return;
+        spectrumRO = new ResizeObserver((entries) => {
+            const r = entries[0]?.contentRect;
+            if (r && r.width > 0) {
+                spectrumWidth = Math.max(400, Math.round(r.width));
+            }
+        });
+        spectrumRO.observe(spectrumWrapper);
+    });
+    onDestroy(() => {
+        spectrumRO?.disconnect();
+    });
+
+    // Sort APs weakest-first so the strongest paint on top.
+    $: spectrumAPsSorted = [...spectrumAPs].sort(
+        (a, b) => a.signal - b.signal,
+    );
 </script>
 
 <div class="channel-analyzer-container">
@@ -196,6 +388,229 @@
                         : `Ch ${overallBusiest.number}`}
                 </span>
             </div>
+        </div>
+    </div>
+
+    <!-- Spectrum bell-curve chart -->
+    <div class="spectrum-panel">
+        <div class="spectrum-header">
+            <div>
+                <div class="spectrum-title">{spectrumBand} spectrum</div>
+                <div class="spectrum-sub">
+                    {#if spectrumBand === "2.4GHz"}
+                        Crowded, longer range — 1, 6, 11 are the only
+                        non-overlapping channels at 20 MHz.
+                    {:else if spectrumBand === "5GHz"}
+                        UNII bands — DFS channels may pause briefly for
+                        radar detection.
+                    {:else}
+                        UNII-5..8 — WiFi 6E/7 only — clean spectrum, short
+                        range.
+                    {/if}
+                </div>
+            </div>
+            <div class="spectrum-spacer"></div>
+            <div class="spectrum-band-tabs">
+                {#each ["2.4GHz", "5GHz", "6GHz"] as band}
+                    <button
+                        type="button"
+                        class:active={spectrumBand === band}
+                        on:click={() => {
+                            spectrumBand = band;
+                            selectedSpectrumChannel = null;
+                        }}
+                    >{band}</button>
+                {/each}
+            </div>
+            <div class="spectrum-legend">
+                <span class="leg-dot" style="background: var(--ok)"></span>Strong
+                <span class="leg-dot" style="background: var(--warn)"></span>Fair
+                <span class="leg-dot" style="background: var(--bad)"></span>Weak
+            </div>
+        </div>
+
+        <div class="spectrum-svg-wrapper" bind:this={spectrumWrapper}>
+            {#if spectrumDef}
+                {@const innerW =
+                    spectrumWidth - SPECTRUM_PAD.left - SPECTRUM_PAD.right}
+                {@const innerH =
+                    SPECTRUM_HEIGHT - SPECTRUM_PAD.top - SPECTRUM_PAD.bottom}
+                {@const stepPx =
+                    innerW / Math.max(1, spectrumDef.channels.length - 1)}
+                {@const baseY = SPECTRUM_PAD.top + innerH}
+                <svg
+                    class="spectrum-svg"
+                    width={spectrumWidth}
+                    height={SPECTRUM_HEIGHT}
+                    viewBox={`0 0 ${spectrumWidth} ${SPECTRUM_HEIGHT}`}
+                    preserveAspectRatio="none"
+                >
+                    <!-- Y grid + dBm labels -->
+                    {#each SPECTRUM_Y_TICKS as tick}
+                        <line
+                            x1={SPECTRUM_PAD.left}
+                            y1={spectrumYForSignal(tick)}
+                            x2={spectrumWidth - SPECTRUM_PAD.right}
+                            y2={spectrumYForSignal(tick)}
+                            stroke="var(--line-1)"
+                            stroke-dasharray="2,4"
+                        />
+                        <text
+                            x={SPECTRUM_PAD.left - 8}
+                            y={spectrumYForSignal(tick)}
+                            fill="var(--fg-3)"
+                            font-size="10"
+                            font-family="var(--font-mono)"
+                            text-anchor="end"
+                            dominant-baseline="middle"
+                        >{tick}</text>
+                    {/each}
+
+                    <!-- Selected channel column (translucent accent) -->
+                    {#if selectedSpectrumChannel != null}
+                        <rect
+                            x={spectrumXForChannel(selectedSpectrumChannel) -
+                                stepPx * 0.45}
+                            y={SPECTRUM_PAD.top}
+                            width={stepPx * 0.9}
+                            height={innerH}
+                            fill="var(--acc-1)"
+                            opacity="0.06"
+                        />
+                        <line
+                            x1={spectrumXForChannel(selectedSpectrumChannel)}
+                            x2={spectrumXForChannel(selectedSpectrumChannel)}
+                            y1={SPECTRUM_PAD.top}
+                            y2={baseY}
+                            stroke="var(--acc-1)"
+                            stroke-dasharray="3,3"
+                            stroke-width="1"
+                            opacity="0.6"
+                        />
+                    {/if}
+
+                    <!-- DFS markers -->
+                    {#each spectrumDef.dfs as dfsCh}
+                        <line
+                            x1={spectrumXForChannel(dfsCh)}
+                            x2={spectrumXForChannel(dfsCh)}
+                            y1={baseY - 2}
+                            y2={baseY + 4}
+                            stroke="#a78bfa"
+                            stroke-width="2"
+                        />
+                    {/each}
+
+                    <!-- AP bells -->
+                    {#each spectrumAPsSorted as ap (ap.bssid + ap.channel)}
+                        {@const cx = spectrumXForChannel(ap.channel)}
+                        {@const cy = spectrumYForSignal(ap.signal)}
+                        {@const w = spectrumWidthPx(
+                            ap.channelWidth || spectrumDef.widthDefault,
+                        )}
+                        {@const color = spectrumColorForSignal(ap.signal, false)}
+                        <path
+                            d={bellPath(cx, cy, w, baseY)}
+                            fill={color}
+                            fill-opacity="0.18"
+                            stroke={color}
+                            stroke-width="1.2"
+                            stroke-linejoin="round"
+                        />
+                        <text
+                            x={cx}
+                            y={cy - 6}
+                            fill={color}
+                            font-size="10.5"
+                            font-weight="600"
+                            text-anchor="middle"
+                            style="pointer-events: none"
+                        >{spectrumTrunc(ap.ssid, 14)}</text>
+                        <text
+                            x={cx}
+                            y={cy - 18}
+                            fill="var(--fg-3)"
+                            font-size="9"
+                            font-family="var(--font-mono)"
+                            text-anchor="middle"
+                            style="pointer-events: none"
+                        >{ap.signal}</text>
+                    {/each}
+
+                    <!-- X axis -->
+                    <line
+                        x1={SPECTRUM_PAD.left}
+                        y1={baseY}
+                        x2={spectrumWidth - SPECTRUM_PAD.right}
+                        y2={baseY}
+                        stroke="var(--line-2)"
+                    />
+
+                    <!-- Channel ticks + labels (clickable) -->
+                    {#each spectrumDef.channels as ch, idx}
+                        {@const x = spectrumXForChannel(ch)}
+                        <!-- svelte-ignore a11y-click-events-have-key-events -->
+                        <g
+                            class="spectrum-tick"
+                            on:click={() => spectrumOnSelect(ch)}
+                            style="cursor: pointer"
+                        >
+                            <rect
+                                x={x - stepPx * 0.45}
+                                y={SPECTRUM_PAD.top}
+                                width={stepPx * 0.9}
+                                height={innerH + 18}
+                                fill="transparent"
+                            />
+                            <line
+                                x1={x}
+                                y1={baseY}
+                                x2={x}
+                                y2={baseY + 3}
+                                stroke="var(--line-3)"
+                            />
+                            {#if spectrumChannelLabel(ch, idx, spectrumDef.channels.length, selectedSpectrumChannel)}
+                                <text
+                                    x={x}
+                                    y={baseY + 16}
+                                    fill={ch === selectedSpectrumChannel
+                                        ? "var(--acc-1)"
+                                        : "var(--fg-2)"}
+                                    font-size="10"
+                                    font-family="var(--font-mono)"
+                                    font-weight={ch === selectedSpectrumChannel
+                                        ? 600
+                                        : 400}
+                                    text-anchor="middle"
+                                >{ch}</text>
+                            {/if}
+                        </g>
+                    {/each}
+
+                    <!-- Axis labels -->
+                    <text
+                        x={SPECTRUM_PAD.left - 36}
+                        y={SPECTRUM_PAD.top - 2}
+                        fill="var(--fg-3)"
+                        font-size="9"
+                        font-family="var(--font-mono)"
+                        transform={`rotate(-90 ${SPECTRUM_PAD.left - 36} ${SPECTRUM_PAD.top - 2})`}
+                    >dBm</text>
+                    <text
+                        x={spectrumWidth / 2}
+                        y={SPECTRUM_HEIGHT - 4}
+                        fill="var(--fg-3)"
+                        font-size="10"
+                        text-anchor="middle"
+                    >Channel</text>
+                </svg>
+            {/if}
+            {#if spectrumAPs.length === 0}
+                <div class="spectrum-empty">
+                    No APs detected on the {spectrumBand} band yet — start a
+                    scan or switch bands.
+                </div>
+            {/if}
         </div>
     </div>
 
@@ -440,6 +855,119 @@
 </div>
 
 <style>
+    /* ── Spectrum bell-curve panel ───────────────────────────── */
+    .spectrum-panel {
+        background: var(--bg-2);
+        border: 1px solid var(--line-1);
+        border-radius: 8px;
+        margin-bottom: 16px;
+        overflow: hidden;
+    }
+
+    .spectrum-header {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 12px 16px;
+        border-bottom: 1px solid var(--line-1);
+        flex-wrap: wrap;
+    }
+
+    .spectrum-title {
+        font-size: 12px;
+        font-weight: 600;
+        color: var(--fg-1);
+        letter-spacing: 0.01em;
+    }
+
+    .spectrum-sub {
+        font-size: 11px;
+        color: var(--fg-3);
+        margin-top: 2px;
+        max-width: 60ch;
+    }
+
+    .spectrum-spacer {
+        flex: 1;
+    }
+
+    .spectrum-band-tabs {
+        display: inline-flex;
+        background: var(--bg-3);
+        border: 1px solid var(--line-2);
+        border-radius: 6px;
+        padding: 2px;
+        gap: 2px;
+    }
+
+    .spectrum-band-tabs button {
+        background: transparent;
+        border: none;
+        color: var(--fg-2);
+        font-size: 12px;
+        padding: 4px 12px;
+        border-radius: 4px;
+        cursor: pointer;
+        font-weight: 500;
+        font-family: inherit;
+    }
+
+    .spectrum-band-tabs button.active {
+        background: var(--bg-1);
+        color: var(--fg-1);
+        box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+    }
+
+    .spectrum-legend {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        font-size: 11px;
+        color: var(--fg-3);
+        font-family: var(--font-mono);
+    }
+
+    .leg-dot {
+        display: inline-block;
+        width: 8px;
+        height: 8px;
+        border-radius: 2px;
+        margin-right: 2px;
+        opacity: 0.85;
+    }
+
+    .leg-dot + .leg-dot {
+        margin-left: 6px;
+    }
+
+    .spectrum-svg-wrapper {
+        padding: 14px;
+        position: relative;
+        min-height: 240px;
+    }
+
+    .spectrum-svg {
+        display: block;
+        width: 100%;
+        height: 240px;
+    }
+
+    .spectrum-tick:hover rect {
+        fill: var(--bg-3);
+        opacity: 0.4;
+    }
+
+    .spectrum-empty {
+        position: absolute;
+        inset: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: var(--fg-3);
+        font-size: 12px;
+        pointer-events: none;
+    }
+
     .channel-analyzer-container {
         min-height: 100%;
         overflow: visible;

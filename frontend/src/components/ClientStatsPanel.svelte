@@ -60,12 +60,95 @@
         if (retryRate < 10) return "rate-medium";
         return "rate-poor";
     }
+
+    // ── KPI tiles at the top of the screen ────────────────────
+    // Derived from clientStats so the strip stays in sync with the live
+    // backend feed. Tones map onto the design's {ok, warn, bad} palette.
+    function signalTone(dBm) {
+        if (!isNumber(dBm)) return "muted";
+        if (dBm >= -60) return "ok";
+        if (dBm >= -72) return "warn";
+        return "bad";
+    }
+
+    function snrTone(snr) {
+        if (!isNumber(snr) || snr <= 0) return "muted";
+        if (snr >= 25) return "ok";
+        if (snr >= 15) return "warn";
+        return "bad";
+    }
+
+    function retryTone(retry) {
+        if (!isNumber(retry)) return "muted";
+        if (retry < 5) return "ok";
+        if (retry < 10) return "warn";
+        return "bad";
+    }
+
+    $: kpiSignal = clientStats?.signal;
+    $: kpiSNR = clientStats?.snr;
+    $: kpiTx = clientStats?.txBitrate;
+    $: kpiRx = clientStats?.rxBitrate;
+    $: kpiUptime = clientStats?.connectedTime;
+    $: kpiRetry = clientStats?.retryRate;
 </script>
 
 <div class="client-stats-panel">
-    <div class="panel-header">
-        <h3>Client Connection Stats</h3>
-    </div>
+    {#if clientStats && clientStats.connected}
+        <!-- KPI strip — primary live metrics -->
+        <div class="kpi-strip">
+            <div class="kpi-tile">
+                <div class="kpi-label">Signal</div>
+                <div class="kpi-value mono kpi-{signalTone(kpiSignal)}">
+                    {isNumber(kpiSignal) ? `${kpiSignal} dBm` : "—"}
+                </div>
+                <div class="kpi-sub mono">
+                    {isNumber(kpiSignal)
+                        ? getSignalQuality(kpiSignal).text
+                        : "—"}
+                </div>
+            </div>
+            <div class="kpi-tile">
+                <div class="kpi-label">SNR</div>
+                <div class="kpi-value mono kpi-{snrTone(kpiSNR)}">
+                    {isNumber(kpiSNR) && kpiSNR > 0 ? `${kpiSNR} dB` : "—"}
+                </div>
+                <div class="kpi-sub mono">
+                    {isNumber(clientStats?.noise) && clientStats.noise < 0
+                        ? `noise ${clientStats.noise} dBm`
+                        : "noise n/a"}
+                </div>
+            </div>
+            <div class="kpi-tile">
+                <div class="kpi-label">TX rate</div>
+                <div class="kpi-value mono kpi-accent">
+                    {isNumber(kpiTx) ? kpiTx.toFixed(1) : "—"}
+                </div>
+                <div class="kpi-sub mono">Mbps</div>
+            </div>
+            <div class="kpi-tile">
+                <div class="kpi-label">RX rate</div>
+                <div class="kpi-value mono kpi-ok">
+                    {isNumber(kpiRx) ? kpiRx.toFixed(1) : "—"}
+                </div>
+                <div class="kpi-sub mono">Mbps</div>
+            </div>
+            <div class="kpi-tile">
+                <div class="kpi-label">Retries</div>
+                <div class="kpi-value mono kpi-{retryTone(kpiRetry)}">
+                    {isNumber(kpiRetry) ? `${kpiRetry.toFixed(1)}%` : "—"}
+                </div>
+                <div class="kpi-sub mono">last 60s</div>
+            </div>
+            <div class="kpi-tile">
+                <div class="kpi-label">Uptime</div>
+                <div class="kpi-value mono">
+                    {isNumber(kpiUptime) ? formatDuration(kpiUptime) : "—"}
+                </div>
+                <div class="kpi-sub mono">since associate</div>
+            </div>
+        </div>
+    {/if}
 
     {#if clientStats && clientStats.connected}
         <div class="section">
@@ -432,45 +515,111 @@
         overflow-y: auto;
         display: flex;
         flex-direction: column;
-    }
-
-    .panel-header {
+        gap: 12px;
         padding: 16px;
-        background: var(--panel-soft);
-        border-bottom: 1px solid var(--border);
+        font-family: var(--font-ui);
     }
 
-    .panel-header h3 {
-        margin: 0;
-        font-size: 16px;
+    .mono {
+        font-family: var(--font-mono);
+        font-variant-numeric: tabular-nums;
+    }
+
+    /* ── KPI strip ───────────────────────────────────────────── */
+    .kpi-strip {
+        display: grid;
+        grid-template-columns: repeat(6, 1fr);
+        gap: 8px;
+    }
+
+    .kpi-tile {
+        padding: 12px 14px;
+        border: 1px solid var(--line-1);
+        border-radius: 6px;
+        background: var(--bg-2);
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        min-width: 0;
+    }
+
+    .kpi-label {
+        font-size: 10px;
+        text-transform: uppercase;
+        letter-spacing: 0.1em;
+        color: var(--fg-3);
         font-weight: 600;
-        color: var(--text);
     }
 
+    .kpi-value {
+        font-size: 18px;
+        font-weight: 500;
+        color: var(--fg-1);
+        line-height: 1.1;
+        letter-spacing: -0.01em;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    .kpi-value.kpi-ok {
+        color: var(--ok);
+    }
+
+    .kpi-value.kpi-warn {
+        color: var(--warn);
+    }
+
+    .kpi-value.kpi-bad {
+        color: var(--bad);
+    }
+
+    .kpi-value.kpi-accent {
+        color: var(--acc-1);
+    }
+
+    .kpi-value.kpi-muted {
+        color: var(--fg-2);
+    }
+
+    .kpi-sub {
+        font-size: 10.5px;
+        color: var(--fg-3);
+    }
+
+    /* ── Section panels ──────────────────────────────────────── */
     .section {
-        padding: 16px;
-        border-bottom: 1px solid var(--border);
+        padding: 14px 16px;
+        border: 1px solid var(--line-1);
+        border-radius: 8px;
+        background: var(--bg-2);
     }
 
     .section h4 {
         margin: 0 0 12px 0;
-        font-size: 14px;
+        font-size: 10px;
         font-weight: 600;
-        color: var(--muted);
+        color: var(--fg-3);
         text-transform: uppercase;
-        letter-spacing: 0.5px;
+        letter-spacing: 0.12em;
     }
 
     .info-grid {
         display: grid;
         grid-template-columns: 1fr 1fr;
-        gap: 12px;
+        gap: 10px 16px;
     }
 
     .info-item {
         display: flex;
         flex-direction: column;
-        gap: 4px;
+        gap: 3px;
+        padding: 5px 0;
+        border-bottom: 1px dashed var(--line-1);
+    }
+
+    .info-item:last-child {
+        border-bottom: none;
     }
 
     .info-item.full-width {
@@ -478,15 +627,19 @@
     }
 
     .label {
-        font-size: 12px;
-        color: var(--muted-2);
+        font-size: 10.5px;
+        color: var(--fg-3);
         font-weight: 500;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
     }
 
     .value {
-        font-size: 14px;
-        color: var(--text);
+        font-size: 12.5px;
+        color: var(--fg-1);
         font-weight: 500;
+        font-family: var(--font-mono);
+        font-variant-numeric: tabular-nums;
     }
 
     .value.ssid {

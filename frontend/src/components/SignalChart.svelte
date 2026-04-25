@@ -33,6 +33,82 @@
     const HISTORY_MAX_POINTS = 300;
     const STALE_HOLD_MS = 30000;
 
+    // Inline Chart.js plugin — paints horizontal RSSI quality zones
+    // (Excellent/Good/Fair/Weak/Poor) behind the data series, with right-edge
+    // band labels. Mirrors the design's reference SVG chart in
+    // screenshots/design/screen-signal.jsx (see ll. 147–193). Inline (not
+    // registered globally) so it only affects this component's charts.
+    const qualityZonesPlugin = {
+        id: "qualityZones",
+        beforeDatasetsDraw(chart) {
+            const { ctx, chartArea, scales } = chart;
+            if (!chartArea || !scales || !scales.y) return;
+            const yScale = scales.y;
+            const left = chartArea.left;
+            const width = chartArea.right - chartArea.left;
+
+            const zones = [
+                { from: -30, to: -50, fill: "rgba(74, 222, 128, 0.07)" },
+                { from: -50, to: -60, fill: "rgba(74, 222, 128, 0.03)" },
+                { from: -60, to: -67, fill: "rgba(251, 191, 36, 0.05)" },
+                { from: -67, to: -75, fill: "rgba(251, 191, 36, 0.11)" },
+                { from: -75, to: -100, fill: "rgba(248, 113, 113, 0.13)" },
+            ];
+            ctx.save();
+            for (const z of zones) {
+                const yA = yScale.getPixelForValue(z.from);
+                const yB = yScale.getPixelForValue(z.to);
+                const top = Math.min(yA, yB);
+                const height = Math.abs(yB - yA);
+                if (height <= 0) continue;
+                ctx.fillStyle = z.fill;
+                ctx.fillRect(left, top, width, height);
+            }
+
+            // Dashed dividers at the Fair→Weak (-67) and Weak→Poor (-75)
+            // boundaries. Helps identify "below this line, expect issues".
+            ctx.setLineDash([4, 4]);
+            ctx.lineWidth = 1;
+
+            ctx.strokeStyle = "rgba(251, 191, 36, 0.4)";
+            const y67 = yScale.getPixelForValue(-67);
+            ctx.beginPath();
+            ctx.moveTo(left, y67);
+            ctx.lineTo(chartArea.right, y67);
+            ctx.stroke();
+
+            ctx.strokeStyle = "rgba(248, 113, 113, 0.4)";
+            const y75 = yScale.getPixelForValue(-75);
+            ctx.beginPath();
+            ctx.moveTo(left, y75);
+            ctx.lineTo(chartArea.right, y75);
+            ctx.stroke();
+
+            ctx.setLineDash([]);
+            ctx.restore();
+
+            // Right-edge band labels
+            ctx.save();
+            ctx.font =
+                "600 9px 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, monospace";
+            ctx.textAlign = "right";
+            ctx.textBaseline = "middle";
+            const labels = [
+                { y: -40, text: "EXCELLENT", color: "rgba(74, 222, 128, 0.75)" },
+                { y: -63.5, text: "FAIR", color: "rgba(251, 191, 36, 0.75)" },
+                { y: -71, text: "WEAK", color: "rgba(251, 191, 36, 0.85)" },
+                { y: -82, text: "POOR", color: "rgba(248, 113, 113, 0.85)" },
+            ];
+            for (const l of labels) {
+                const y = yScale.getPixelForValue(l.y);
+                if (y < chartArea.top || y > chartArea.bottom) continue;
+                ctx.fillStyle = l.color;
+                ctx.fillText(l.text, chartArea.right - 4, y);
+            }
+            ctx.restore();
+        },
+    };
+
     onMount(() => {
         Chart.register(...registerables, zoomPlugin);
         initializeChart();
@@ -58,6 +134,7 @@
             data: {
                 datasets: [],
             },
+            plugins: [qualityZonesPlugin],
             options: {
                 responsive: true,
                 maintainAspectRatio: false,
