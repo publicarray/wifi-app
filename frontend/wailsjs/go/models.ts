@@ -150,6 +150,7 @@ export namespace main {
 	    newSignal: number;
 	    previousChannel: number;
 	    newChannel: number;
+	    durationMs: number;
 	
 	    static createFrom(source: any = {}) {
 	        return new RoamingEvent(source);
@@ -164,6 +165,7 @@ export namespace main {
 	        this.newSignal = source["newSignal"];
 	        this.previousChannel = source["previousChannel"];
 	        this.newChannel = source["newChannel"];
+	        this.durationMs = source["durationMs"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
@@ -484,6 +486,9 @@ export namespace main {
 	    stickyClient: boolean;
 	    timeSinceLastRoam?: string;
 	    roamingAdvice: string;
+	    avgRoamDurationMs: number;
+	    maxRoamDurationMs: number;
+	    slowRoamCount: number;
 	
 	    static createFrom(source: any = {}) {
 	        return new RoamingQualityReport(source);
@@ -499,6 +504,9 @@ export namespace main {
 	        this.stickyClient = source["stickyClient"];
 	        this.timeSinceLastRoam = source["timeSinceLastRoam"];
 	        this.roamingAdvice = source["roamingAdvice"];
+	        this.avgRoamDurationMs = source["avgRoamDurationMs"];
+	        this.maxRoamDurationMs = source["maxRoamDurationMs"];
+	        this.slowRoamCount = source["slowRoamCount"];
 	    }
 	}
 

@@ -1,6 +1,50 @@
+<script context="module">
+    // Per-network bestSignal history. Kept at module scope so sparkline trails
+    // survive a tab switch — same pattern as SignalChart.svelte. Bounded to
+    // SPARK_MAX_POINTS samples per BSSID; entries for BSSIDs that vanish from
+    // the scan results are dropped after the next two updates that don't
+    // mention them, so the map can't grow unboundedly across long sessions.
+    const moduleSignalHistory = new Map(); // key: bssid, value: number[]
+    const moduleSeenAt = new Map();        // key: bssid, value: counter
+    const SPARK_MAX_POINTS = 13;
+    let updateCounter = 0;
+
+    function recordNetworkSamples(networks) {
+        updateCounter += 1;
+        const seen = new Set();
+        for (const n of networks || []) {
+            const bssid = n.bestSignalAP || (n.accessPoints && n.accessPoints[0] && n.accessPoints[0].bssid);
+            if (!bssid) continue;
+            seen.add(bssid);
+            const arr = moduleSignalHistory.get(bssid) || [];
+            arr.push(n.bestSignal);
+            if (arr.length > SPARK_MAX_POINTS) arr.shift();
+            moduleSignalHistory.set(bssid, arr);
+            moduleSeenAt.set(bssid, updateCounter);
+        }
+        // Drop entries not seen in the last two updates.
+        for (const [bssid, lastSeen] of moduleSeenAt) {
+            if (!seen.has(bssid) && updateCounter - lastSeen > 2) {
+                moduleSignalHistory.delete(bssid);
+                moduleSeenAt.delete(bssid);
+            }
+        }
+    }
+
+    function getSamples(network) {
+        const bssid = network && (network.bestSignalAP || (network.accessPoints && network.accessPoints[0] && network.accessPoints[0].bssid));
+        return (bssid && moduleSignalHistory.get(bssid)) || [];
+    }
+</script>
+
 <script>
     export let networks = [];
     export let clientStats = null;
+
+    // Append the latest scan into the per-BSSID history store so the sparkline
+    // column has data to draw. Reactive on `networks` so it fires once per
+    // backend update tick.
+    $: recordNetworkSamples(networks);
 
     // Derivation helpers used to highlight the currently-connected network in
     // the table. Previously these were referenced in the template without
@@ -48,7 +92,64 @@
     let filterText = "";
     let filterChannel = "";
     let filterSecurity = "";
+    let filterBand = "All";
+    let filterSecurityChip = "All";
     let showHidden = true;
+
+    function networkBand(network) {
+        const ap = network && network.accessPoints && network.accessPoints[0];
+        if (ap && ap.band) return ap.band;
+        if (!ap) return "";
+        // Fallback: derive from frequency.
+        if (ap.frequency >= 5925) return "6GHz";
+        if (ap.frequency >= 4900) return "5GHz";
+        if (ap.frequency > 0) return "2.4GHz";
+        return "";
+    }
+
+    function networkChannelWidth(network) {
+        const ap = network && network.accessPoints && network.accessPoints[0];
+        return ap && ap.channelWidth ? ap.channelWidth : 0;
+    }
+
+    function signalQualityLabel(dBm) {
+        if (dBm == null) return "";
+        if (dBm >= -50) return "Excellent";
+        if (dBm >= -60) return "Good";
+        if (dBm >= -67) return "Fair";
+        if (dBm >= -75) return "Weak";
+        return "Poor";
+    }
+
+    function sparklinePath(samples, width, height) {
+        if (!samples || samples.length < 2) return { d: "", area: "", last: null };
+        const min = Math.min(...samples) - 2;
+        const max = Math.max(...samples) + 2;
+        const range = max - min || 1;
+        const step = width / (samples.length - 1);
+        const points = samples.map((v, i) => [
+            i * step,
+            height - ((v - min) / range) * height,
+        ]);
+        const d = points
+            .map((p, i) => `${i === 0 ? "M" : "L"}${p[0].toFixed(1)},${p[1].toFixed(1)}`)
+            .join(" ");
+        const area = `${d} L${width.toFixed(1)},${height} L0,${height} Z`;
+        return { d, area, last: points[points.length - 1] };
+    }
+
+    function sparklineColor(dBm) {
+        if (dBm > -60) return "var(--ok)";
+        if (dBm > -72) return "var(--warn)";
+        return "var(--bad)";
+    }
+
+    // KPI derivations for the strip above the filters.
+    $: connectedClient = clientStats && clientStats.connected ? clientStats : null;
+    $: kpiNetworks = (networks || []).filter((n) =>
+        showHidden ||
+        !(typeof n.ssid !== "string" || n.ssid === "" || n.ssid === "<Hidden Network>"),
+    ).length;
 
     function collectAPs(source) {
         return (source || []).flatMap((network) => network.accessPoints || []);
@@ -108,6 +209,8 @@
         filterText,
         filterChannel,
         filterSecurity,
+        filterBand,
+        filterSecurityChip,
         showHidden,
     );
     $: sortedNetworks = sortNetworks(filteredNetworks, sortBy, sortOrder);
@@ -117,20 +220,24 @@
         filterText,
         filterChannel,
         filterSecurity,
+        filterBand,
+        filterSecurityChip,
         showHidden,
     ) {
         return networksToFilter.filter((network) => {
-            // Text filter
+            // Text filter — match SSID or any AP's BSSID.
             const ssidValue =
                 typeof network.ssid === "string" ? network.ssid : "";
-            if (
-                filterText !== "" &&
-                !ssidValue.toLowerCase().includes(filterText.toLowerCase())
-            ) {
-                return false;
+            if (filterText !== "") {
+                const q = filterText.toLowerCase();
+                const ssidHit = ssidValue.toLowerCase().includes(q);
+                const bssidHit = (network.accessPoints || []).some((ap) =>
+                    (ap.bssid || "").toLowerCase().includes(q),
+                );
+                if (!ssidHit && !bssidHit) return false;
             }
 
-            // Channel filter
+            // Channel filter (legacy dropdown)
             if (
                 filterChannel !== "" &&
                 Number(network.channel) !== Number(filterChannel)
@@ -138,9 +245,22 @@
                 return false;
             }
 
-            // Security filter
+            // Security filter (legacy dropdown)
             if (filterSecurity !== "" && network.security !== filterSecurity) {
                 return false;
+            }
+
+            // Band segmented filter
+            if (filterBand && filterBand !== "All") {
+                if (networkBand(network) !== filterBand) return false;
+            }
+
+            // Security chip — coarse buckets that map to the design.
+            if (filterSecurityChip && filterSecurityChip !== "All") {
+                const sec = (network.security || "").toUpperCase();
+                if (filterSecurityChip === "Open" && sec !== "OPEN") return false;
+                if (filterSecurityChip === "WPA2" && !sec.includes("WPA2")) return false;
+                if (filterSecurityChip === "WPA3" && !sec.includes("WPA3")) return false;
             }
 
             // Hidden networks filter - only filter if explicitly hiding
@@ -337,48 +457,113 @@
 </script>
 
 <div class="network-list-container">
-    <!-- Filters -->
-    <div class="filters">
-        <div class="filter-row">
+    <!-- KPI strip -->
+    <div class="kpi-strip">
+        <div class="kpi-tile">
+            <div class="kpi-label">Networks</div>
+            <div class="kpi-value mono">{kpiNetworks}</div>
+            <div class="kpi-sub mono">visible SSIDs</div>
+        </div>
+        <div class="kpi-tile">
+            <div class="kpi-label">Connected</div>
+            <div class="kpi-value kpi-accent" class:kpi-empty={!connectedClient}>
+                {connectedClient ? (connectedClient.ssid || "(hidden)") : "—"}
+            </div>
+            <div class="kpi-sub mono">
+                {connectedClient ? connectedClient.bssid : "not connected"}
+            </div>
+        </div>
+        <div class="kpi-tile">
+            <div class="kpi-label">Signal</div>
+            <div
+                class="kpi-value mono"
+                style={connectedClient ? `color: ${sparklineColor(connectedClient.signal)};` : ""}
+            >
+                {connectedClient ? `${connectedClient.signal} dBm` : "—"}
+            </div>
+            <div class="kpi-sub mono">
+                {connectedClient ? signalQualityLabel(connectedClient.signal) : ""}
+            </div>
+        </div>
+        <div class="kpi-tile">
+            <div class="kpi-label">Band / Width</div>
+            <div class="kpi-value mono">
+                {#if connectedClient}
+                    {connectedClient.frequency >= 5925
+                        ? "6GHz"
+                        : connectedClient.frequency >= 4900
+                          ? "5GHz"
+                          : "2.4GHz"}
+                {:else}
+                    —
+                {/if}
+            </div>
+            <div class="kpi-sub mono">
+                {connectedClient && connectedClient.channelWidth
+                    ? `${connectedClient.channelWidth} MHz · ch ${connectedClient.channel}`
+                    : ""}
+            </div>
+        </div>
+        <div class="kpi-tile">
+            <div class="kpi-label">Link rate</div>
+            <div class="kpi-value mono">
+                {connectedClient && connectedClient.txBitrate
+                    ? `${connectedClient.txBitrate.toFixed(1)} Mbps`
+                    : "—"}
+            </div>
+            <div class="kpi-sub mono">TX bitrate</div>
+        </div>
+    </div>
+
+    <!-- Filter bar -->
+    <div class="filter-bar">
+        <div class="input-group">
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none" class="search-icon">
+                <circle cx="6" cy="6" r="4" stroke="currentColor" stroke-width="1.4"/>
+                <path d="M9 9l3 3" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
+            </svg>
             <input
                 type="text"
-                placeholder="Filter by SSID..."
+                placeholder="Filter by SSID or BSSID…"
                 bind:value={filterText}
                 on:keydown={(e) => e.key === "Enter" && e.preventDefault()}
-                class="filter-input"
-                title="Filter networks by SSID name"
+                title="Filter networks by SSID or BSSID"
             />
-
-            <select
-                bind:value={filterChannel}
-                class="filter-select"
-                title="Filter networks by primary channel"
-            >
-                <option value="">All Channels</option>
-                {#each availableChannels as channel}
-                    <option value={channel}>Channel {channel}</option>
-                {/each}
-            </select>
-
-            <select
-                bind:value={filterSecurity}
-                class="filter-select"
-                title="Filter networks by security type"
-            >
-                <option value="">All Security</option>
-                {#each availableSecurityTypes as security}
-                    <option value={security}>{security}</option>
-                {/each}
-            </select>
-
-            <label
-                class="checkbox-label"
-                title="Include networks with hidden SSIDs"
-            >
-                <input type="checkbox" bind:checked={showHidden} />
-                Show Hidden
-            </label>
         </div>
+
+        <div class="segmented" role="tablist">
+            {#each ["All", "2.4GHz", "5GHz", "6GHz"] as band}
+                <button
+                    type="button"
+                    class:active={filterBand === band}
+                    on:click={() => (filterBand = band)}
+                >{band}</button>
+            {/each}
+        </div>
+
+        <div class="segmented" role="tablist">
+            {#each ["All", "WPA3", "WPA2", "Open"] as sec}
+                <button
+                    type="button"
+                    class:active={filterSecurityChip === sec}
+                    on:click={() => (filterSecurityChip = sec)}
+                >{sec}</button>
+            {/each}
+        </div>
+
+        <label
+            class="hidden-toggle"
+            class:on={showHidden}
+            title="Include networks with hidden SSIDs"
+        >
+            <input type="checkbox" bind:checked={showHidden} />
+            Hidden
+        </label>
+
+        <div class="filter-spacer"></div>
+        <span class="count-chip mono">
+            {filteredNetworks.length} / {networks.length}
+        </span>
     </div>
 
     <!-- Network Table -->
@@ -466,6 +651,10 @@ Received signal strength indicator.
                         {/if}
                     </th>
                     <th
+                        class="history-col"
+                        title="Recent signal trend across the last few scans"
+                    >History</th>
+                    <th
                         class="sortable"
                         on:click={() => toggleSort("security")}
                         title="Security protocol (e.g., WPA2, WPA3)
@@ -505,6 +694,9 @@ Network health and connection state.
                 {#each sortedNetworks as network (networkKey(network))}
                     {@const key = networkKey(network)}
                     {@const isConnectedNetwork = isConnected(clientStats) && ((network.ssid && getConnectedSSID(clientStats) === network.ssid) || (!network.ssid && network.accessPoints && network.accessPoints.some((ap) => (ap.bssid || "").toLowerCase() === getConnectedBSSID(clientStats))))}
+                    {@const samples = getSamples(network)}
+                    {@const sp = sparklinePath(samples, 80, 18)}
+                    {@const trendColor = sparklineColor(network.bestSignal)}
                     <tr
                         class="network-row"
                         class:has-issues={network.hasIssues}
@@ -548,6 +740,29 @@ Network health and connection state.
                                 {network.bestSignal} dBm
                             </span>
                         </td>
+                        <td class="history-cell">
+                            {#if sp.last}
+                                <svg width="80" height="18" class="sparkline" aria-hidden="true">
+                                    <path d={sp.area} fill={trendColor} opacity="0.18"/>
+                                    <path
+                                        d={sp.d}
+                                        fill="none"
+                                        stroke={trendColor}
+                                        stroke-width="1.5"
+                                        stroke-linecap="round"
+                                        stroke-linejoin="round"
+                                    />
+                                    <circle
+                                        cx={sp.last[0]}
+                                        cy={sp.last[1]}
+                                        r="1.8"
+                                        fill={trendColor}
+                                    />
+                                </svg>
+                            {:else}
+                                <span class="history-empty mono">—</span>
+                            {/if}
+                        </td>
                         <td class="security-cell">
                             <span class={getSecurityClass(network.security)}>
                                 {network.security}
@@ -569,7 +784,7 @@ Network health and connection state.
                     <!-- Expanded AP Details -->
                     {#if expandedNetworks.has(key)}
                         <tr class="ap-details-row">
-                            <td colspan="6">
+                            <td colspan="7">
                                 <div class="ap-details">
                                     {#each network.accessPoints as ap}
                                         <div class="ap-card">
@@ -1735,105 +1950,242 @@ UNIFI CONSIDERATIONS:
         height: 100%;
         display: flex;
         flex-direction: column;
-        background: var(--bg-0);
-    }
-
-    .filters {
-        padding: 16px;
-        background: var(--panel-soft);
-        border-bottom: 1px solid var(--border);
-    }
-
-    .filter-row {
-        display: flex;
+        background: var(--bg-1);
         gap: 12px;
+        padding: 16px;
+        min-height: 0;
+    }
+
+    /* ── KPI strip ───────────────────────────────────────────── */
+    .kpi-strip {
+        display: grid;
+        grid-template-columns: repeat(5, 1fr);
+        gap: 8px;
+        flex-shrink: 0;
+    }
+
+    .kpi-tile {
+        padding: 12px 14px;
+        border: 1px solid var(--line-1);
+        border-radius: 6px;
+        background: var(--bg-2);
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        min-width: 0;
+    }
+
+    .kpi-label {
+        font-size: 10px;
+        text-transform: uppercase;
+        letter-spacing: 0.1em;
+        color: var(--fg-3);
+        font-weight: 600;
+    }
+
+    .kpi-value {
+        font-size: 18px;
+        font-weight: 500;
+        color: var(--fg-1);
+        line-height: 1.1;
+        letter-spacing: -0.01em;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    .kpi-value.kpi-accent {
+        color: var(--acc-1);
+        font-family: var(--font-ui);
+        font-weight: 600;
+    }
+
+    .kpi-value.kpi-empty {
+        color: var(--fg-2);
+    }
+
+    .kpi-sub {
+        font-size: 10.5px;
+        color: var(--fg-3);
+    }
+
+    /* ── Filter bar ──────────────────────────────────────────── */
+    .filter-bar {
+        display: flex;
         align-items: center;
+        gap: 8px;
+        padding: 10px 12px;
+        background: var(--bg-2);
+        border: 1px solid var(--line-1);
+        border-radius: 8px;
+        flex-shrink: 0;
         flex-wrap: wrap;
     }
 
-    .filter-input {
+    .input-group {
+        display: inline-flex;
+        align-items: center;
+        background: var(--bg-4);
+        border: 1px solid var(--line-2);
+        border-radius: 5px;
+        padding: 0 10px;
+        gap: 6px;
         flex: 1;
+        max-width: 340px;
         min-width: 200px;
-        padding: 8px 12px;
-        background: var(--field-bg);
-        color: var(--text);
-        border: 1px solid var(--border-strong);
-        border-radius: 4px;
-        font-size: 14px;
+        transition: border-color 0.1s;
     }
 
-    .filter-input:focus {
+    .input-group:focus-within {
+        border-color: var(--acc-1-line);
+    }
+
+    .input-group .search-icon {
+        color: var(--fg-3);
+        flex-shrink: 0;
+    }
+
+    .input-group input {
+        background: transparent;
+        border: none;
         outline: none;
-        border-color: var(--accent-strong);
+        padding: 6px 0;
+        font-size: 12px;
+        color: var(--fg-1);
+        width: 100%;
+        font-family: inherit;
     }
 
-    .filter-select {
-        padding: 8px 12px;
-        background: var(--field-bg);
-        color: var(--text);
-        border: 1px solid var(--border-strong);
+    .segmented {
+        display: inline-flex;
+        background: var(--bg-3);
+        border: 1px solid var(--line-2);
+        border-radius: 6px;
+        padding: 2px;
+        gap: 2px;
+    }
+
+    .segmented button {
+        background: transparent;
+        border: none;
+        color: var(--fg-2);
+        font-size: 12px;
+        padding: 4px 10px;
         border-radius: 4px;
-        font-size: 14px;
-        min-width: 120px;
-        color-scheme: light dark;
+        cursor: pointer;
+        font-weight: 500;
+        font-family: inherit;
     }
 
-    .filter-select option {
-        background: var(--field-bg);
-        color: var(--text);
+    .segmented button.active {
+        background: var(--bg-1);
+        color: var(--fg-1);
+        box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
     }
 
-    .checkbox-label {
-        display: flex;
+    .segmented button:hover:not(.active) {
+        color: var(--fg-1);
+    }
+
+    .hidden-toggle {
+        display: inline-flex;
         align-items: center;
         gap: 6px;
-        font-size: 14px;
-        color: var(--muted);
+        padding: 5px 10px;
+        font-size: 12px;
+        color: var(--fg-2);
         cursor: pointer;
+        border: 1px solid var(--line-2);
+        border-radius: 5px;
+        background: transparent;
+        transition: background 0.1s;
+    }
+
+    .hidden-toggle.on {
+        background: var(--bg-3);
+    }
+
+    .hidden-toggle input {
+        accent-color: var(--acc-1);
+        margin: 0;
+    }
+
+    .filter-spacer {
+        flex: 1;
+    }
+
+    .count-chip {
+        font-size: 11px;
+        color: var(--fg-3);
     }
 
     .network-table-wrapper {
         flex: 1;
         overflow: auto;
-        border-radius: 0;
+        background: var(--bg-2);
+        border: 1px solid var(--line-1);
+        border-radius: 8px;
+        min-height: 0;
     }
 
     .network-table {
         width: 100%;
         border-collapse: collapse;
-        font-size: 14px;
+        font-size: 12px;
     }
 
     .network-table th {
-        background: var(--panel-soft);
-        padding: 12px 16px;
+        background: var(--bg-2);
+        padding: 8px 12px;
         text-align: left;
         font-weight: 600;
-        color: var(--muted);
-        border-bottom: 2px solid var(--border);
+        font-size: 10px;
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+        color: var(--fg-3);
+        border-bottom: 1px solid var(--line-1);
         position: sticky;
         top: 0;
         z-index: 10;
+        user-select: none;
     }
 
     .network-table th.sortable {
         cursor: pointer;
-        user-select: none;
-        transition: background-color 0.2s ease;
+        transition: color 0.15s ease;
     }
 
     .network-table th.sortable:hover {
-        background: var(--panel-strong);
+        color: var(--fg-1);
     }
 
     .sort-indicator {
         margin-left: 4px;
-        color: var(--accent-strong);
+        color: var(--acc-1);
+    }
+
+    .history-col {
+        width: 100px;
     }
 
     .network-table td {
-        padding: 12px 16px;
-        border-bottom: 1px solid var(--border);
+        padding: 10px 12px;
+        border-bottom: 1px solid var(--line-1);
+        vertical-align: middle;
+        color: var(--fg-1);
+    }
+
+    .history-cell {
+        width: 100px;
+    }
+
+    .sparkline {
+        display: block;
+    }
+
+    .history-empty {
+        font-size: 11px;
+        color: var(--fg-4);
     }
 
     .network-row {

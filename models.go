@@ -67,7 +67,21 @@ type Network struct {
 	IssueMessages []string      `json:"issueMessages"` // List of detected issues
 }
 
-// RoamingEvent represents a client roaming from one AP to another
+// RoamingEvent represents a client roaming from one AP to another.
+//
+// DurationMs is an approximate measurement: wall-clock time between the last
+// scan tick that confirmed the previous BSSID as active and the first scan
+// tick that observed the new BSSID. It includes any intervening disconnect
+// gap (lastBSSIDSeenAt is not updated while disconnected) and is naturally
+// overestimated by up to one scan interval — the period between the real
+// roam and our next opportunity to observe it. For sub-second resolution,
+// drop `scan_interval_seconds` in the config; the default 4 s caps the
+// useful precision of this metric.
+//
+// Severity thresholds used by the UI / report:
+//   - < 500 ms:  healthy (802.11r/k/v typical)
+//   - 500–2000 ms: slow (plain WPA2 re-association)
+//   - ≥ 2000 ms:  bad (auth issues, 802.1X delays, AP co-op breakdown)
 type RoamingEvent struct {
 	Timestamp       time.Time `json:"timestamp"`
 	PreviousBSSID   string    `json:"previousBssid"`
@@ -76,6 +90,7 @@ type RoamingEvent struct {
 	NewSignal       int       `json:"newSignal"`
 	PreviousChannel int       `json:"previousChannel"`
 	NewChannel      int       `json:"newChannel"`
+	DurationMs      int64     `json:"durationMs"` // 0 when we can't bound it (first-ever observed BSSID)
 }
 
 // SignalDataPoint represents a signal measurement at a specific time
@@ -130,6 +145,12 @@ type ChannelInfo struct {
 // RoamingQualityReport is the typed result of AnalyzeRoamingQuality.
 // Previously this was returned as map[string]interface{}, which made the
 // frontend type-cast every field.
+//
+// Duration aggregates (AvgRoamDurationMs, MaxRoamDurationMs, SlowRoamCount)
+// are derived from RoamingEvent.DurationMs and inherit its "±1 scan
+// interval" uncertainty — see RoamingEvent for details. SlowRoamCount uses
+// the 2000 ms "auth issues" threshold from the plan; a small number of slow
+// roams is a quality-of-service indicator, not a fault.
 type RoamingQualityReport struct {
 	TotalRoams        int    `json:"totalRoams"`
 	GoodRoams         int    `json:"goodRoams"`
@@ -139,6 +160,9 @@ type RoamingQualityReport struct {
 	StickyClient      bool   `json:"stickyClient"`
 	TimeSinceLastRoam string `json:"timeSinceLastRoam,omitempty"`
 	RoamingAdvice     string `json:"roamingAdvice"`
+	AvgRoamDurationMs int64  `json:"avgRoamDurationMs"`
+	MaxRoamDurationMs int64  `json:"maxRoamDurationMs"`
+	SlowRoamCount     int    `json:"slowRoamCount"`
 }
 
 // LatencyProbe is a single RTT measurement toward a target. One probe per

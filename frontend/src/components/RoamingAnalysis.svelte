@@ -1,8 +1,17 @@
 <script>
     export let roamingMetrics = null;
     export let placementRecommendations = [];
+    export let clientStats = null;
 
-    function getMetricsClass(value, goodThreshold = true) {
+    // Recent roaming events live on clientStats.roamingHistory — the backend
+    // populates it via cloneClientStatsLocked on every tick, so we just need
+    // to read the tail. Oldest-first in the backend; we reverse here so the
+    // newest roam is at the top of the list.
+    $: recentRoams = clientStats?.roamingHistory
+        ? [...clientStats.roamingHistory].reverse().slice(0, 15)
+        : [];
+
+    function getMetricsClass(value) {
         if (value === false) return "metric-good";
         if (value === true) return "metric-bad";
         if (value > 0) return "metric-good";
@@ -10,11 +19,53 @@
         return "metric-neutral";
     }
 
-    function formatDuration(seconds) {
-        if (seconds < 60) return `${seconds}s`;
-        if (seconds < 3600)
-            return `${Math.floor(seconds / 60)}m ${seconds % 60}s`;
-        return `${Math.floor(seconds / 3600)}h ${Math.floor((seconds % 3600) / 60)}m`;
+    // Duration tiers match the plan's guidance + the DurationMs doc on the Go
+    // side: <500 ms healthy, 500–2000 ms slow, >=2000 ms bad ("auth issues").
+    function durationTier(ms) {
+        if (!Number.isFinite(ms) || ms <= 0) return "unknown";
+        if (ms < 500) return "good";
+        if (ms < 2000) return "slow";
+        return "bad";
+    }
+
+    function durationClass(ms) {
+        const t = durationTier(ms);
+        if (t === "good") return "metric-good";
+        if (t === "slow") return "metric-neutral";
+        if (t === "bad") return "metric-bad";
+        return "";
+    }
+
+    function formatDuration(ms) {
+        if (!Number.isFinite(ms) || ms <= 0) return "—";
+        if (ms < 1000) return `${Math.round(ms)} ms`;
+        return `${(ms / 1000).toFixed(1)} s`;
+    }
+
+    function formatTime(ts) {
+        if (!ts) return "";
+        const d = new Date(ts);
+        return d.toLocaleTimeString();
+    }
+
+    function signalDeltaClass(delta) {
+        if (delta > 0) return "metric-good";
+        if (delta < 0) return "metric-bad";
+        return "";
+    }
+
+    function signalDelta(event) {
+        const d = (event.newSignal || 0) - (event.previousSignal || 0);
+        return (d > 0 ? "+" : "") + d + " dBm";
+    }
+
+    function shortBssid(b) {
+        if (!b) return "—";
+        // Keep the last 5 chars (":AA:BB") so adjacent APs in the same
+        // vendor space are still visually distinguishable without hogging
+        // the row width.
+        if (b.length <= 8) return b;
+        return "…" + b.slice(-8);
     }
 </script>
 
@@ -65,7 +116,42 @@
                             : ""}{roamingMetrics.avgSignalChange} dBm
                     </div>
                 </div>
+                <div class="metric-card">
+                    <div class="metric-label">Avg Roam Duration</div>
+                    <div
+                        class="metric-value {durationClass(
+                            roamingMetrics.avgRoamDurationMs,
+                        )}"
+                    >
+                        {formatDuration(roamingMetrics.avgRoamDurationMs)}
+                    </div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-label">Max Roam Duration</div>
+                    <div
+                        class="metric-value {durationClass(
+                            roamingMetrics.maxRoamDurationMs,
+                        )}"
+                    >
+                        {formatDuration(roamingMetrics.maxRoamDurationMs)}
+                    </div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-label">Slow Roams (≥ 2 s)</div>
+                    <div
+                        class="metric-value {roamingMetrics.slowRoamCount > 0
+                            ? 'metric-bad'
+                            : 'metric-good'}"
+                    >
+                        {roamingMetrics.slowRoamCount || 0}
+                    </div>
+                </div>
             </div>
+            <p class="metric-caveat">
+                Duration resolution is capped by the scan interval (default
+                4 s). Lower <code>scan_interval_seconds</code> in Settings for
+                finer-grained roam timing.
+            </p>
         </div>
 
         <div class="section">
@@ -102,17 +188,66 @@
             </div>
         </div>
 
+        {#if recentRoams.length > 0}
+            <div class="section">
+                <h3>Recent Roams</h3>
+                <div class="roams-table">
+                    <div class="roams-head">
+                        <span>Time</span>
+                        <span>Previous BSSID</span>
+                        <span>New BSSID</span>
+                        <span class="numeric">Signal Δ</span>
+                        <span class="numeric">Duration</span>
+                    </div>
+                    {#each recentRoams as event}
+                        <div class="roam-row">
+                            <span class="time">{formatTime(event.timestamp)}</span>
+                            <span class="bssid" title={event.previousBssid}>
+                                {shortBssid(event.previousBssid)}
+                                <small
+                                    >{event.previousSignal} dBm</small
+                                >
+                            </span>
+                            <span class="bssid" title={event.newBssid}>
+                                {shortBssid(event.newBssid)}
+                                <small>{event.newSignal} dBm</small>
+                            </span>
+                            <span
+                                class="numeric {signalDeltaClass(
+                                    event.newSignal - event.previousSignal,
+                                )}"
+                            >
+                                {signalDelta(event)}
+                            </span>
+                            <span
+                                class="numeric duration-badge {durationClass(
+                                    event.durationMs,
+                                )}"
+                                title={durationTier(event.durationMs) === "bad"
+                                    ? "Roam took over 2 s — likely auth delay"
+                                    : ""}
+                            >
+                                {formatDuration(event.durationMs)}
+                            </span>
+                        </div>
+                    {/each}
+                </div>
+            </div>
+        {/if}
+
         <div class="section">
             <h3>Analysis & Advice</h3>
             <div
                 class="advice-box {roamingMetrics.excessiveRoaming ||
-                roamingMetrics.stickyClient
+                roamingMetrics.stickyClient ||
+                roamingMetrics.slowRoamCount > 0
                     ? 'advice-warning'
                     : 'advice-good'}"
             >
                 <span class="advice-icon">
                     {roamingMetrics.excessiveRoaming ||
-                    roamingMetrics.stickyClient
+                    roamingMetrics.stickyClient ||
+                    roamingMetrics.slowRoamCount > 0
                         ? "⚠️"
                         : "✓"}
                 </span>
@@ -198,6 +333,19 @@
         color: var(--text);
     }
 
+    .metric-caveat {
+        margin: 12px 0 0;
+        font-size: 12px;
+        color: var(--muted-2);
+    }
+
+    .metric-caveat code {
+        background: var(--panel);
+        padding: 1px 5px;
+        border-radius: 3px;
+        font-size: 11px;
+    }
+
     .metric-good {
         color: var(--success);
     }
@@ -235,6 +383,66 @@
     .behavior-value {
         font-size: 14px;
         font-weight: 600;
+    }
+
+    .roams-table {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+    }
+
+    .roams-head,
+    .roam-row {
+        display: grid;
+        grid-template-columns: 100px 1fr 1fr 110px 110px;
+        gap: 12px;
+        align-items: center;
+        padding: 8px 12px;
+    }
+
+    .roams-head {
+        color: var(--muted-2);
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        border-bottom: 1px solid var(--border);
+        padding-bottom: 10px;
+    }
+
+    .roam-row {
+        background: var(--panel);
+        border: 1px solid var(--border);
+        border-radius: 4px;
+        font-size: 13px;
+        color: var(--text);
+    }
+
+    .roam-row .time {
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        font-size: 12px;
+        color: var(--muted);
+    }
+
+    .roam-row .bssid {
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        font-size: 12px;
+        display: flex;
+        flex-direction: column;
+    }
+
+    .roam-row .bssid small {
+        color: var(--muted-2);
+        font-size: 11px;
+        font-family: inherit;
+    }
+
+    .roam-row .numeric {
+        text-align: right;
+        font-weight: 600;
+    }
+
+    .duration-badge {
+        font-variant-numeric: tabular-nums;
     }
 
     .advice-box {
@@ -334,6 +542,16 @@
 
         .metric-value {
             font-size: 18px;
+        }
+
+        .roams-head,
+        .roam-row {
+            grid-template-columns: 1fr 1fr 80px 80px;
+        }
+
+        .roams-head span:nth-child(1),
+        .roam-row .time {
+            display: none;
         }
     }
 </style>

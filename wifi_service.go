@@ -52,6 +52,12 @@ type WiFiService struct {
 	signalHistory  []SignalDataPoint
 	roamingHistory []RoamingEvent
 	lastBSSID      string
+	// lastBSSIDSeenAt is the wall-clock time of the last scan tick that
+	// observed lastBSSID as the active (connected) BSSID. Used to estimate
+	// RoamingEvent.DurationMs on the next BSSID transition. Stays frozen
+	// across disconnects so a reconnect to a different BSSID naturally
+	// reports duration-including-the-gap rather than duration-since-reconnect.
+	lastBSSIDSeenAt time.Time
 }
 
 // NewWiFiService creates a new WiFi service
@@ -511,9 +517,21 @@ func (ws *WiFiService) updateClientStatsLocked(iface string) {
 
 // updateSignalHistoryLocked appends the current signal reading and detects
 // roaming events. Caller must hold ws.mu.Lock.
+//
+// This function only runs on scan ticks where the client is connected —
+// updateClientStatsLocked early-returns on a disconnected interface. That
+// means ws.lastBSSIDSeenAt stays frozen across disconnect gaps, so the
+// DurationMs computation below naturally covers "old BSSID last observed"
+// through "new BSSID first observed", including any mid-roam outage.
+//
+// Duration resolution is capped by the scan interval. With the default 4 s
+// cadence a 200 ms real roam and a 1500 ms real roam will both report
+// somewhere in the 0–4000 ms range depending on tick phase. Tighten
+// `scan_interval_seconds` in config for finer granularity.
 func (ws *WiFiService) updateSignalHistoryLocked() {
+	now := time.Now()
 	dataPoint := SignalDataPoint{
-		Timestamp: time.Now(),
+		Timestamp: now,
 		Signal:    ws.clientStats.Signal,
 		BSSID:     ws.clientStats.BSSID,
 	}
@@ -534,12 +552,18 @@ func (ws *WiFiService) updateSignalHistoryLocked() {
 			}
 		}
 
+		var durationMs int64
+		if !ws.lastBSSIDSeenAt.IsZero() {
+			durationMs = now.Sub(ws.lastBSSIDSeenAt).Milliseconds()
+		}
+
 		roamingEvent := RoamingEvent{
-			Timestamp:      time.Now(),
+			Timestamp:      now,
 			PreviousBSSID:  ws.lastBSSID,
 			NewBSSID:       ws.clientStats.BSSID,
 			PreviousSignal: prevSignal,
 			NewSignal:      ws.clientStats.Signal,
+			DurationMs:     durationMs,
 		}
 		ws.roamingHistory = appendCapped(ws.roamingHistory, roamingEvent, cfg.RoamingHistorySize)
 
@@ -547,6 +571,7 @@ func (ws *WiFiService) updateSignalHistoryLocked() {
 	}
 
 	ws.lastBSSID = ws.clientStats.BSSID
+	ws.lastBSSIDSeenAt = now
 	// Note: SignalHistory/RoamingHistory on ClientStats are populated lazily
 	// via cloneClientStatsLocked when a caller asks for a snapshot; we never
 	// hand out the live backing slices anymore.
@@ -617,6 +642,16 @@ func (ws *WiFiService) AnalyzeRoamingQuality() RoamingQualityReport {
 	badRoams := 0
 	totalSignalChange := 0
 
+	// Duration aggregates. We skip DurationMs==0 entries when computing the
+	// average so a single "unbounded" first roam doesn't pull the mean down.
+	// Max is similarly skipped. SlowRoamCount uses the 2000 ms threshold as
+	// per the plan — anything over that is the "auth issues" tier, not just
+	// "a bit slower than 802.11r would manage".
+	var totalDurationMs int64
+	var maxDurationMs int64
+	durationSamples := 0
+	slowRoamCount := 0
+
 	for _, event := range ws.roamingHistory {
 		signalChange := event.NewSignal - event.PreviousSignal
 		totalSignalChange += signalChange
@@ -625,11 +660,26 @@ func (ws *WiFiService) AnalyzeRoamingQuality() RoamingQualityReport {
 		} else {
 			badRoams++
 		}
+		if event.DurationMs > 0 {
+			totalDurationMs += event.DurationMs
+			durationSamples++
+			if event.DurationMs > maxDurationMs {
+				maxDurationMs = event.DurationMs
+			}
+			if event.DurationMs >= 2000 {
+				slowRoamCount++
+			}
+		}
 	}
 
 	avgSignalChange := 0
 	if totalRoams > 0 {
 		avgSignalChange = totalSignalChange / totalRoams
+	}
+
+	var avgDurationMs int64
+	if durationSamples > 0 {
+		avgDurationMs = totalDurationMs / int64(durationSamples)
 	}
 
 	excessiveRoaming := totalRoams > 10 && len(ws.signalHistory) > 0 &&
@@ -663,6 +713,12 @@ func (ws *WiFiService) AnalyzeRoamingQuality() RoamingQualityReport {
 
 	var advice string
 	switch {
+	case slowRoamCount > 0 && slowRoamCount*2 >= durationSamples && durationSamples > 0:
+		// Majority of roams over the 2 s "auth issues" threshold — promote
+		// this over the generic excessive/sticky messaging because a slow
+		// roam is the diagnostic pattern that points at 802.1X / radius /
+		// AKM-mismatch problems the tech can actually fix.
+		advice = "Multiple roams exceeded 2 s. Common causes: 802.1X / RADIUS latency, missing 802.11r/k/v support, or AKM mismatches between APs. Check the authentication path first."
 	case excessiveRoaming:
 		advice = "Your device is roaming excessively. This may indicate overlapping AP coverage or unstable connections. Consider adjusting AP placement or roaming aggressiveness settings."
 	case stickyClient:
@@ -684,6 +740,9 @@ func (ws *WiFiService) AnalyzeRoamingQuality() RoamingQualityReport {
 		StickyClient:      stickyClient,
 		TimeSinceLastRoam: timeSinceLastRoam,
 		RoamingAdvice:     advice,
+		AvgRoamDurationMs: avgDurationMs,
+		MaxRoamDurationMs: maxDurationMs,
+		SlowRoamCount:     slowRoamCount,
 	}
 }
 
