@@ -38,6 +38,7 @@
 </script>
 
 <script>
+    import { isNumber as isNumberDefined, getSignalClass, signalBarCount, signalToneClass as signalBarTone } from "../utils.js";
     export let networks = [];
     export let clientStats = null;
 
@@ -167,9 +168,7 @@
         return Array.isArray(value) && value.length > 0;
     }
 
-    function isNumberDefined(value) {
-        return typeof value === "number" && !Number.isNaN(value);
-    }
+
 
     $: apList = collectAPs(networks);
 
@@ -338,11 +337,7 @@
         expandedNetworks = new Set(expandedNetworks);
     }
 
-    function getSignalClass(signal) {
-        if (signal > -60) return "signal-good";
-        if (signal > -75) return "signal-medium";
-        return "signal-poor";
-    }
+
 
     function getSecurityClass(security) {
         if (security === "Open" || security === "WEP") return "security-poor";
@@ -440,22 +435,7 @@
         return base;
     }
 
-    // Convert dBm into 0–4 bars for the inline visual signal indicator.
-    function signalBarCount(dBm) {
-        if (dBm == null) return 0;
-        if (dBm >= -55) return 4;
-        if (dBm >= -65) return 3;
-        if (dBm >= -75) return 2;
-        if (dBm >= -85) return 1;
-        return 0;
-    }
 
-    function signalBarTone(dBm) {
-        if (dBm == null) return "";
-        if (dBm > -60) return "ok";
-        if (dBm > -72) return "warn";
-        return "bad";
-    }
 
     function bssidVendorLine(network) {
         const ap = network && network.accessPoints && network.accessPoints[0];

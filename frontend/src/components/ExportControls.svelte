@@ -4,6 +4,7 @@
         ExportNetworks,
         GetRoamingAnalysis,
     } from "../../wailsjs/go/main/App.js";
+    import { escapeHtml, pad2, signalToneClass, signalBarCount } from "../utils.js";
     import { createEventDispatcher } from "svelte";
 
     export let networks = null;
@@ -112,15 +113,6 @@
             "networks.json",
             "application/json",
         );
-    }
-
-    function escapeHtml(value) {
-        return String(value ?? "")
-            .replaceAll("&", "&amp;")
-            .replaceAll("<", "&lt;")
-            .replaceAll(">", "&gt;")
-            .replaceAll('"', "&quot;")
-            .replaceAll("'", "&#39;");
     }
 
     function sanitizeAccessPoint(ap) {
@@ -333,10 +325,6 @@
         return `${(v / 1000).toFixed(1)} s`;
     }
 
-    function pad2(n) {
-        return n < 10 ? "0" + n : "" + n;
-    }
-
     function reportTimestamp() {
         const d = new Date();
         const yyyy = d.getFullYear();
@@ -363,19 +351,10 @@
         return "poor";
     }
 
-    function signalToneClass(dBm) {
-        const b = signalQualityBucket(dBm);
-        if (b === "excellent" || b === "good") return "ok";
-        if (b === "fair" || b === "weak") return "warn";
-        if (b === "poor") return "bad";
-        return "";
-    }
-
     function sigBarsHTML(dBm) {
         if (typeof dBm !== "number" || Number.isNaN(dBm)) return "—";
         const tone = signalToneClass(dBm) || "bad";
-        const bars =
-            dBm >= -55 ? 4 : dBm >= -65 ? 3 : dBm >= -75 ? 2 : dBm >= -85 ? 1 : 0;
+        const bars = signalBarCount(dBm);
         const heights = [3, 5, 7, 9];
         let html = '<span class="sig-bar">';
         for (let i = 0; i < 4; i++) {

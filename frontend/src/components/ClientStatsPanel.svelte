@@ -4,26 +4,7 @@
     export let clientStats = null;
     export let networks = [];
 
-    function isNumber(value) {
-        return typeof value === "number" && !Number.isNaN(value);
-    }
-
-    function formatBytes(bytes) {
-        if (bytes === 0) return "0 B";
-        if (!isNumber(bytes)) return "—";
-        const k = 1024;
-        const sizes = ["B", "KB", "MB", "GB", "TB"];
-        const i = Math.min(
-            sizes.length - 1,
-            Math.floor(Math.log(bytes) / Math.log(k)),
-        );
-        return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + " " + sizes[i];
-    }
-
-    function formatCount(n) {
-        if (!isNumber(n)) return "—";
-        return n.toLocaleString();
-    }
+    import { isNumber, formatBytes, formatCount, signalTone } from "../utils.js";
 
     function formatDuration(seconds) {
         if (!isNumber(seconds)) return "—";
@@ -56,12 +37,7 @@
         return Math.round(((clamped + 90) / 60) * 100);
     }
 
-    function signalTone(dBm) {
-        if (!isNumber(dBm)) return "muted";
-        if (dBm >= -60) return "ok";
-        if (dBm >= -72) return "warn";
-        return "bad";
-    }
+
 
     function snrPct(snr) {
         if (!isNumber(snr) || snr <= 0) return 0;
