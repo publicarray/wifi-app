@@ -39,12 +39,18 @@ static CWInterface *cw_select_interface(const char *name) {
 }
 
 // cw_detect_network_security maps CWNetwork's supportsSecurity: responses
-// to our Security enum integers (Open=0 .. WPA3=4). CoreWLAN does not expose
-// a single security-type property on CWNetwork, so we probe in priority
-// order (strongest first) and return the best-supported mode.
+// to our Security enum integers (Open=0, WEP=1, WPA=2, WPA2=3, WPA3=4,
+// OWE=5). CoreWLAN does not expose a single security-type property on
+// CWNetwork, so we probe in priority order (strongest first) and return the
+// best-supported mode. OWE (Enhanced Open) is a distinct category that we
+// detect first so it's not accidentally collapsed into "Open" or "WPA3".
 static int cw_detect_network_security(CWNetwork *net) {
 	if (!net) {
 		return 0;
+	}
+	if ([net supportsSecurity:kCWSecurityOWE] ||
+	    [net supportsSecurity:kCWSecurityOWETransition]) {
+		return 5; // OWE / Enhanced Open
 	}
 	if ([net supportsSecurity:kCWSecurityWPA3Personal] ||
 	    [net supportsSecurity:kCWSecurityWPA3Enterprise] ||
@@ -67,6 +73,36 @@ static int cw_detect_network_security(CWNetwork *net) {
 	return 0; // Open / unknown
 }
 
+// cw_supported_phy_modes returns an NSArray of CWPHYMode integers the
+// network advertises. Used by the Go side to populate Capabilities
+// (HT/VHT/HE/EHT). We probe newest-first; older modes are implied by newer
+// ones in practice but we report each separately so the caller can decide.
+static NSArray *cw_supported_phy_modes(CWNetwork *net) {
+	NSMutableArray *modes = [NSMutableArray array];
+	if (!net) {
+		return modes;
+	}
+	if ([net supportsPHYMode:kCWPHYMode11ax]) {
+		[modes addObject:@(kCWPHYMode11ax)];
+	}
+	if ([net supportsPHYMode:kCWPHYMode11ac]) {
+		[modes addObject:@(kCWPHYMode11ac)];
+	}
+	if ([net supportsPHYMode:kCWPHYMode11n]) {
+		[modes addObject:@(kCWPHYMode11n)];
+	}
+	if ([net supportsPHYMode:kCWPHYMode11g]) {
+		[modes addObject:@(kCWPHYMode11g)];
+	}
+	if ([net supportsPHYMode:kCWPHYMode11a]) {
+		[modes addObject:@(kCWPHYMode11a)];
+	}
+	if ([net supportsPHYMode:kCWPHYMode11b]) {
+		[modes addObject:@(kCWPHYMode11b)];
+	}
+	return modes;
+}
+
 static NSDictionary *cw_network_to_dict(CWNetwork *net) {
 	NSMutableDictionary *dict = [NSMutableDictionary dictionary];
 	if (net.ssid) {
@@ -76,11 +112,18 @@ static NSDictionary *cw_network_to_dict(CWNetwork *net) {
 		dict[@"bssid"] = net.bssid;
 	}
 	dict[@"rssi"] = @(net.rssiValue);
+	dict[@"noise"] = @(net.noiseMeasurement);
+	dict[@"beaconInterval"] = @(net.beaconInterval);
+	if (net.countryCode) {
+		dict[@"countryCode"] = net.countryCode;
+	}
 	if (net.wlanChannel) {
 		dict[@"channel"] = @(net.wlanChannel.channelNumber);
 		dict[@"channelWidth"] = @(net.wlanChannel.channelWidth);
+		dict[@"channelBand"] = @(net.wlanChannel.channelBand);
 	}
 	dict[@"security"] = @(cw_detect_network_security(net));
+	dict[@"phyModes"] = cw_supported_phy_modes(net);
 	return dict;
 }
 
@@ -96,13 +139,27 @@ static NSDictionary *cw_interface_current_dict(CWInterface *iface) {
 		dict[@"bssid"] = iface.bssid;
 	}
 	dict[@"rssi"] = @(iface.rssiValue);
+	dict[@"noise"] = @(iface.noiseMeasurement);
 	dict[@"txRate"] = @(iface.transmitRate);
+	dict[@"txPower"] = @(iface.transmitPower);
+	dict[@"phyMode"] = @(iface.activePHYMode);
+	if (iface.countryCode) {
+		dict[@"countryCode"] = iface.countryCode;
+	}
 	if (iface.wlanChannel) {
 		dict[@"channel"] = @(iface.wlanChannel.channelNumber);
 		dict[@"channelWidth"] = @(iface.wlanChannel.channelWidth);
+		dict[@"channelBand"] = @(iface.wlanChannel.channelBand);
 	}
-	// CWInterface exposes the active security directly.
+	// CWInterface exposes the active security directly. kCWSecurityPersonal
+	// and kCWSecurityEnterprise are "OS-picked" buckets that don't tell us
+	// the actual mode in use; we conservatively report them as WPA2 so the
+	// UI doesn't claim "Open" on a secured network.
 	switch ((int)iface.security) {
+		case kCWSecurityOWE:
+		case kCWSecurityOWETransition:
+			dict[@"security"] = @(5); // OWE
+			break;
 		case kCWSecurityWPA3Personal:
 		case kCWSecurityWPA3Enterprise:
 		case kCWSecurityWPA3Transition:
@@ -110,6 +167,8 @@ static NSDictionary *cw_interface_current_dict(CWInterface *iface) {
 			break;
 		case kCWSecurityWPA2Personal:
 		case kCWSecurityWPA2Enterprise:
+		case kCWSecurityPersonal:
+		case kCWSecurityEnterprise:
 			dict[@"security"] = @(3);
 			break;
 		case kCWSecurityWPAPersonal:
@@ -184,21 +243,31 @@ import (
 )
 
 type coreWLANNetwork struct {
-	SSID         string `json:"ssid"`
-	BSSID        string `json:"bssid"`
-	RSSI         int    `json:"rssi"`
-	Channel      int    `json:"channel"`
-	ChannelWidth int    `json:"channelWidth"`
-	Security     int    `json:"security"`
+	SSID           string `json:"ssid"`
+	BSSID          string `json:"bssid"`
+	RSSI           int    `json:"rssi"`
+	Noise          int    `json:"noise"`
+	BeaconInterval int    `json:"beaconInterval"`
+	CountryCode    string `json:"countryCode"`
+	Channel        int    `json:"channel"`
+	ChannelWidth   int    `json:"channelWidth"`
+	ChannelBand    int    `json:"channelBand"`
+	Security       int    `json:"security"`
+	PhyModes       []int  `json:"phyModes"`
 }
 
 type coreWLANCurrent struct {
 	SSID         string  `json:"ssid"`
 	BSSID        string  `json:"bssid"`
 	RSSI         int     `json:"rssi"`
+	Noise        int     `json:"noise"`
 	TxRate       float64 `json:"txRate"`
+	TxPower      int     `json:"txPower"`
+	PhyMode      int     `json:"phyMode"`
+	CountryCode  string  `json:"countryCode"`
 	Channel      int     `json:"channel"`
 	ChannelWidth int     `json:"channelWidth"`
+	ChannelBand  int     `json:"channelBand"`
 	Security     int     `json:"security"`
 }
 
@@ -253,16 +322,17 @@ func coreWLANScanNetworks(iface string) ([]AccessPoint, error) {
 		if channelWidth == 0 {
 			channelWidth = 20
 		}
-		freq := channelToFrequency(net.Channel)
-		band := "2.4GHz"
-		if freq > 5900 {
-			band = "6GHz"
-		} else if freq > 5000 {
-			band = "5GHz"
-		}
+		band, freq := cwBandAndFrequency(net.Channel, net.ChannelBand)
 
 		securityField := mapCWSecurity(net.Security)
 		security, ciphers, authMethods, pmf := parseAirportSecurity(securityField)
+
+		caps := make([]string, 0, len(net.PhyModes))
+		for _, m := range net.PhyModes {
+			if tag := cwPhyModeCapability(m); tag != "" {
+				caps = appendUnique(caps, tag)
+			}
+		}
 
 		ap := AccessPoint{
 			SSID:            net.SSID,
@@ -274,12 +344,18 @@ func coreWLANScanNetworks(iface string) ([]AccessPoint, error) {
 			SignalQuality:   signalToQuality(net.RSSI),
 			Vendor:          "",
 			LastSeen:        time.Now(),
-			Capabilities:    []string{},
+			Capabilities:    caps,
 			ChannelWidth:    channelWidth,
+			BeaconInt:       net.BeaconInterval,
+			CountryCode:     net.CountryCode,
 			Security:        security,
 			SecurityCiphers: ciphers,
 			AuthMethods:     authMethods,
 			PMF:             pmf,
+		}
+		if net.Noise < 0 {
+			ap.Noise = net.Noise
+			ap.SNR = net.RSSI - net.Noise
 		}
 		if ap.Security == "" {
 			ap.Security = "Open"
@@ -303,17 +379,22 @@ func coreWLANConnectionInfo(iface string) (ConnectionInfo, error) {
 		return ConnectionInfo{}, err
 	}
 
+	_, freq := cwBandAndFrequency(current.Channel, current.ChannelBand)
+	standard := cwPhyModeStandard(current.PhyMode)
+	if standard == "" {
+		standard = "802.11ac/n"
+	}
 	conn := ConnectionInfo{
 		Connected:    current.SSID != "" || current.BSSID != "",
 		SSID:         current.SSID,
 		BSSID:        strings.ToLower(current.BSSID),
 		Channel:      current.Channel,
-		Frequency:    channelToFrequency(current.Channel),
+		Frequency:    freq,
 		Signal:       current.RSSI,
 		SignalAvg:    current.RSSI,
 		TxBitrate:    current.TxRate,
 		RxBitrate:    0,
-		WiFiStandard: "802.11ac/n",
+		WiFiStandard: standard,
 		ChannelWidth: mapCWChannelWidth(current.ChannelWidth),
 		MIMOConfig:   "1x1",
 	}
@@ -341,14 +422,25 @@ func coreWLANLinkInfo(iface string) (map[string]string, error) {
 		info["signal"] = strconv.Itoa(current.RSSI)
 		info["signal_avg"] = strconv.Itoa(current.RSSI)
 	}
+	if current.Noise < 0 {
+		info["noise"] = strconv.Itoa(current.Noise)
+		if current.RSSI != 0 {
+			info["snr"] = strconv.Itoa(current.RSSI - current.Noise)
+		}
+	}
 	if current.Channel != 0 {
 		info["channel"] = strconv.Itoa(current.Channel)
 	}
-	if width := mapCWChannelWidth(current.ChannelWidth); width != 0 {
+	width := mapCWChannelWidth(current.ChannelWidth)
+	if width != 0 {
 		info["channel_width"] = strconv.Itoa(width)
 	}
 	if current.TxRate != 0 {
 		info["tx_bitrate"] = strconv.FormatFloat(current.TxRate, 'f', -1, 64)
+	}
+	if rateInfo := cwBitrateInfoString(current.PhyMode, width, current.TxRate); rateInfo != "" {
+		info["tx_bitrate_info"] = rateInfo
+		info["rx_bitrate_info"] = rateInfo
 	}
 	info["rx_bytes"] = "0"
 	info["tx_bytes"] = "0"
@@ -378,8 +470,19 @@ func coreWLANStationInfo(iface string) (map[string]string, error) {
 		stats["signal"] = strconv.Itoa(current.RSSI)
 		stats["signal_avg"] = strconv.Itoa(current.RSSI)
 	}
+	if current.Noise < 0 {
+		stats["noise"] = strconv.Itoa(current.Noise)
+		if current.RSSI != 0 {
+			stats["snr"] = strconv.Itoa(current.RSSI - current.Noise)
+		}
+	}
 	if current.TxRate != 0 {
 		stats["tx_bitrate"] = strconv.FormatFloat(current.TxRate, 'f', -1, 64)
+	}
+	width := mapCWChannelWidth(current.ChannelWidth)
+	if rateInfo := cwBitrateInfoString(current.PhyMode, width, current.TxRate); rateInfo != "" {
+		stats["tx_bitrate_info"] = rateInfo
+		stats["rx_bitrate_info"] = rateInfo
 	}
 	stats["rx_bytes"] = "0"
 	stats["tx_bytes"] = "0"
@@ -410,20 +513,115 @@ func coreWLANCurrentInfo(iface string) (coreWLANCurrent, error) {
 	return current, nil
 }
 
+// mapCWChannelWidth maps Apple's CWChannelWidth enum to MHz.
+// Apple's enum: kCWChannelWidthUnknown=0, 20MHz=1, 40MHz=2, 80MHz=3, 160MHz=4,
+// 320MHz=5 (added in macOS 15 for 802.11be / WiFi 7).
+// Returns 0 for unknown so the caller can apply its own default.
 func mapCWChannelWidth(width int) int {
 	switch width {
-	case 0:
-		return 20
 	case 1:
-		return 40
+		return 20
 	case 2:
-		return 80
+		return 40
 	case 3:
-		return 160
+		return 80
 	case 4:
+		return 160
+	case 5:
 		return 320
 	default:
 		return 0
+	}
+}
+
+// cwPhyModeStandard maps Apple's CWPHYMode enum to the WiFi standard string
+// the rest of the app uses. kCWPHYMode11be=7 was added in macOS 15.
+func cwPhyModeStandard(mode int) string {
+	switch mode {
+	case 1:
+		return "Legacy (802.11a/b/g)"
+	case 2:
+		return "Legacy (802.11a/b/g)"
+	case 3:
+		return "Legacy (802.11a/b/g)"
+	case 4:
+		return "WiFi 4 (802.11n)"
+	case 5:
+		return "WiFi 5 (802.11ac)"
+	case 6:
+		return "WiFi 6 (802.11ax)"
+	case 7:
+		return "WiFi 7 (802.11be)"
+	default:
+		return ""
+	}
+}
+
+// cwPhyModeCapability returns the capability tag (HT/VHT/HE/EHT) for a
+// CWPHYMode value, or "" for legacy / unknown modes.
+func cwPhyModeCapability(mode int) string {
+	switch mode {
+	case 4:
+		return "HT"
+	case 5:
+		return "VHT"
+	case 6:
+		return "HE"
+	case 7:
+		return "EHT"
+	default:
+		return ""
+	}
+}
+
+// cwBitrateInfoString synthesises a bitrate-info string in the format
+// parseBitrateInfo (wifi_utils.go) understands, so the existing service code
+// can derive WiFiStandard / ChannelWidth / MIMOConfig from CoreWLAN data.
+// CoreWLAN does not expose spatial-stream count, so MIMO ends up as the
+// default 1x1.
+func cwBitrateInfoString(phyMode, channelWidthMHz int, txRate float64) string {
+	parts := make([]string, 0, 3)
+	if txRate > 0 {
+		parts = append(parts, fmt.Sprintf("%.1f MBit/s", txRate))
+	}
+	if cap := cwPhyModeCapability(phyMode); cap != "" {
+		parts = append(parts, cap)
+	}
+	if channelWidthMHz > 0 {
+		parts = append(parts, fmt.Sprintf("%dMHz", channelWidthMHz))
+	}
+	return strings.Join(parts, " ")
+}
+
+// cwBandAndFrequency converts a CoreWLAN (channel, channelBand) pair into our
+// band string and a center frequency in MHz. CWChannelBand disambiguates the
+// 2.4 / 5 / 6 GHz bands, which is required because 6 GHz channel numbers
+// (1, 5, 9, ...) collide with 2.4 GHz. When the band is unknown, fall back to
+// channelToFrequency, which guesses 2.4 GHz for low channel numbers.
+//
+// Apple enum: kCWChannelBandUnknown=0, 2GHz=1, 5GHz=2, 6GHz=3.
+func cwBandAndFrequency(channel, band int) (string, int) {
+	switch band {
+	case 1:
+		if channel == 14 {
+			return "2.4GHz", 2484
+		}
+		if channel >= 1 && channel <= 13 {
+			return "2.4GHz", 2407 + channel*5
+		}
+	case 2:
+		return "5GHz", 5000 + channel*5
+	case 3:
+		return "6GHz", 5950 + channel*5
+	}
+	freq := channelToFrequency(channel)
+	switch {
+	case freq > 5900:
+		return "6GHz", freq
+	case freq > 5000:
+		return "5GHz", freq
+	default:
+		return "2.4GHz", freq
 	}
 }
 
@@ -439,6 +637,8 @@ func mapCWSecurity(sec int) string {
 		return "WPA2"
 	case 4:
 		return "WPA3"
+	case 5:
+		return "OWE"
 	default:
 		return ""
 	}

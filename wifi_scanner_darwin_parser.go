@@ -228,6 +228,8 @@ func parseAirportSecurity(security string) (string, []string, []string, string) 
 		securityType = "WPA"
 	case strings.Contains(upper, "WEP"):
 		securityType = "WEP"
+	case strings.Contains(upper, "OWE"):
+		securityType = "OWE"
 	case strings.Contains(upper, "OPEN"):
 		securityType = "Open"
 	default:
