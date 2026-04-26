@@ -9,6 +9,8 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
+	"time"
 )
 
 type darwinScanner struct {
@@ -22,6 +24,17 @@ type darwinScanner struct {
 	hasCoreWLAN       bool
 	airportParser     *airportParser
 	systemParser      *systemProfilerParser
+	baselineStats     map[string]trafficStats
+	connectionStart   map[string]time.Time
+	mu                sync.Mutex
+}
+
+type trafficStats struct {
+	inOctets   uint64
+	outOctets  uint64
+	inPackets  uint64
+	outPackets uint64
+	timestamp  time.Time
 }
 
 func NewWiFiScanner(cacheFile string) WiFiBackend {
@@ -43,6 +56,8 @@ func NewWiFiScanner(cacheFile string) WiFiBackend {
 		hasCoreWLAN:       coreWLANAvailable(),
 		airportParser:     &airportParser{ouiLookup: ouiLookup},
 		systemParser:      &systemProfilerParser{ouiLookup: ouiLookup},
+		baselineStats:     make(map[string]trafficStats),
+		connectionStart:   make(map[string]time.Time),
 	}
 }
 
@@ -220,7 +235,8 @@ func (s *darwinScanner) GetLinkInfo(iface string) (map[string]string, error) {
 		if err != nil {
 			return map[string]string{"connected": "false"}, fmt.Errorf("failed to get link info with airport: %w", err)
 		}
-		return s.airportParser.ParseLink(output)
+		result, _ := s.airportParser.ParseLink(output)
+		return s.enrichWithTrafficStats(iface, result), nil
 	}
 
 	if s.hasWdutil {
@@ -229,16 +245,18 @@ func (s *darwinScanner) GetLinkInfo(iface string) (map[string]string, error) {
 		if err != nil {
 			return map[string]string{"connected": "false"}, fmt.Errorf("failed to get link info with wdutil: %w (output: %s)", err, string(output))
 		}
-		return parseWdutilLinkInfo(output), nil
+		result := parseWdutilLinkInfo(output)
+		return s.enrichWithTrafficStats(iface, result), nil
 	}
 
 	if s.hasSystemProfiler {
 		cmd := exec.Command("system_profiler", "-json", "SPAirPortDataType")
 		output, err := cmd.CombinedOutput()
 		if err != nil {
-			return map[string]string{"connected": "false"}, fmt.Errorf("failed to get link info with system_profiler: %w (output: %s)", err, string(output))
+			return map[string]string{"connected": "false"}, fmt.Errorf("failed to get link info with system_profiler: %w", err)
 		}
-		return parseSystemProfilerLinkInfo(output), nil
+		result := parseSystemProfilerLinkInfo(output)
+		return s.enrichWithTrafficStats(iface, result), nil
 	}
 
 	if s.hasNetworksetup {
@@ -250,14 +268,180 @@ func (s *darwinScanner) GetLinkInfo(iface string) (map[string]string, error) {
 		if info.BSSID != "" {
 			link["bssid"] = info.BSSID
 		}
-		return link, nil
+		return s.enrichWithTrafficStats(iface, link), nil
 	}
 
 	return map[string]string{"connected": "false"}, fmt.Errorf("no macOS WiFi info command available (airport/wdutil/system_profiler/networksetup missing)")
 }
 
+func (s *darwinScanner) enrichWithTrafficStats(iface string, result map[string]string) map[string]string {
+	if result["connected"] != "true" {
+		s.mu.Lock()
+		delete(s.baselineStats, iface)
+		delete(s.connectionStart, iface)
+		s.mu.Unlock()
+		s.baselineStats[iface] = trafficStats{}
+		s.connectionStart[iface] = time.Time{}
+		return result
+	}
+
+	traffic, err := s.getTrafficStats(iface)
+	if err != nil || traffic["rx_bytes"] == "0" {
+		result["rx_bytes"] = "0"
+		result["tx_bytes"] = "0"
+		result["rx_packets"] = "0"
+		result["tx_packets"] = "0"
+		result["tx_retries"] = "0"
+		result["tx_failed"] = "0"
+		result["connected_time"] = "0"
+		result["retry_rate"] = "0.00"
+		if s.connectionStart[iface].IsZero() {
+			result["rx_bytes"] = "0"
+			return result
+		}
+	}
+
+	s.mu.Lock()
+	baseline, hasBaseline := s.baselineStats[iface]
+	connStart, hasConnStart := s.connectionStart[iface]
+
+	if !hasBaseline {
+		s.updateTrafficBaseline(iface, traffic)
+		baseline = s.baselineStats[iface]
+	}
+	if !hasConnStart {
+		s.connectionStart[iface] = time.Now()
+		connStart = s.connectionStart[iface]
+	}
+	s.mu.Unlock()
+
+	rxBytes, _ := strconv.ParseUint(traffic["rx_bytes"], 10, 64)
+	txBytes, _ := strconv.ParseUint(traffic["tx_bytes"], 10, 64)
+	rxPkts, _ := strconv.ParseUint(traffic["rx_packets"], 10, 64)
+	txPkts, _ := strconv.ParseUint(traffic["tx_packets"], 10, 64)
+
+	rxDelta := rxBytes - baseline.inOctets
+	txDelta := txBytes - baseline.outOctets
+	rxPktsDelta := rxPkts - baseline.inPackets
+	txPktsDelta := txPkts - baseline.outPackets
+	connectedTime := int(time.Since(connStart).Seconds())
+
+	result["rx_bytes"] = strconv.FormatUint(rxDelta, 10)
+	result["tx_bytes"] = strconv.FormatUint(txDelta, 10)
+	result["rx_packets"] = strconv.FormatUint(rxPktsDelta, 10)
+	result["tx_packets"] = strconv.FormatUint(txPktsDelta, 10)
+	result["connected_time"] = strconv.Itoa(connectedTime)
+
+	retries, _ := strconv.ParseUint(traffic["tx_retries"], 10, 64)
+	result["tx_retries"] = strconv.FormatUint(retries, 10)
+
+	failed, _ := strconv.ParseUint(traffic["tx_failed"], 10, 64)
+	result["tx_failed"] = strconv.FormatUint(failed, 10)
+
+	retryRate := 0.0
+	if txPktsDelta > 0 {
+		retryRate = float64(retries) / float64(txPktsDelta) * 100.0
+		if retryRate > 100.0 {
+			retryRate = 100.0
+		}
+	}
+	result["retry_rate"] = fmt.Sprintf("%.2f", retryRate)
+
+	return result
+}
+
 func (s *darwinScanner) Close() error {
 	return nil
+}
+
+func (s *darwinScanner) getTrafficStats(iface string) (map[string]string, error) {
+	result := make(map[string]string)
+
+	cmd := exec.Command("netstat", "-i", "-b")
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return result, err
+	}
+
+	var ifaceData struct {
+		ibytes, obytes    uint64
+		ipkts, opkts      uint64
+		collisions, drops uint64
+	}
+
+	scanner := bufio.NewScanner(bytes.NewReader(output))
+	for scanner.Scan() {
+		line := scanner.Text()
+		if !strings.HasPrefix(line, " ") && !strings.HasPrefix(line, "Name") {
+			continue
+		}
+		fields := strings.Fields(line)
+		if len(fields) < 10 {
+			continue
+		}
+		// Use exact interface name - already validated as WiFi from GetInterfaces()
+		if fields[0] != iface {
+			continue
+		}
+		if ib, err := strconv.ParseUint(fields[4], 10, 64); err == nil {
+			ifaceData.ibytes = ib
+		}
+		if ob, err := strconv.ParseUint(fields[6], 10, 64); err == nil {
+			ifaceData.obytes = ob
+		}
+		if ip, err := strconv.ParseUint(fields[3], 10, 64); err == nil {
+			ifaceData.ipkts = ip
+		}
+		if op, err := strconv.ParseUint(fields[5], 10, 64); err == nil {
+			ifaceData.opkts = op
+		}
+		if len(fields) >= 9 {
+			if coll, err := strconv.ParseUint(fields[8], 10, 64); err == nil {
+				ifaceData.collisions = coll
+			}
+		}
+		if len(fields) >= 10 {
+			if drops, err := strconv.ParseUint(fields[9], 10, 64); err == nil {
+				ifaceData.drops = drops
+			}
+		}
+		break
+	}
+
+	result["rx_bytes"] = strconv.FormatUint(ifaceData.ibytes, 10)
+	result["tx_bytes"] = strconv.FormatUint(ifaceData.obytes, 10)
+	result["rx_packets"] = strconv.FormatUint(ifaceData.ipkts, 10)
+	result["tx_packets"] = strconv.FormatUint(ifaceData.opkts, 10)
+	result["tx_retries"] = strconv.FormatUint(ifaceData.collisions, 10)
+	result["tx_failed"] = strconv.FormatUint(ifaceData.drops, 10)
+
+	return result, nil
+}
+
+func (s *darwinScanner) updateTrafficBaseline(iface string, traffic map[string]string) {
+	if traffic == nil || traffic["rx_bytes"] == "0" {
+		return
+	}
+
+	rxBytes, _ := strconv.ParseUint(traffic["rx_bytes"], 10, 64)
+	txBytes, _ := strconv.ParseUint(traffic["tx_bytes"], 10, 64)
+	rxPkts, _ := strconv.ParseUint(traffic["rx_packets"], 10, 64)
+	txPkts, _ := strconv.ParseUint(traffic["tx_packets"], 10, 64)
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.baselineStats[iface] = trafficStats{
+		inOctets:   rxBytes,
+		outOctets:  txBytes,
+		inPackets:  rxPkts,
+		outPackets: txPkts,
+		timestamp:  time.Now(),
+	}
+
+	if _, ok := s.connectionStart[iface]; !ok {
+		s.connectionStart[iface] = time.Now()
+	}
 }
 
 func findAirportPath() string {
@@ -287,6 +471,7 @@ func parseAirportConnectionInfo(output []byte) ConnectionInfo {
 	noiseRegex := regexp.MustCompile(`\s+agrCtlNoise:\s+(-?\d+)`)
 	rxMcsRegex := regexp.MustCompile(`\s+lastRxRate:\s+(\d+)`)
 	txMcsRegex := regexp.MustCompile(`\s+lastTxRate:\s+(\d+)`)
+	phyTypeRegex := regexp.MustCompile(`\s+phy mode:\s+(\S+)`)
 
 	connInfo := ConnectionInfo{}
 
@@ -332,13 +517,17 @@ func parseAirportConnectionInfo(output []byte) ConnectionInfo {
 				connInfo.TxBitrate = rate
 			}
 		}
+		if matches := phyTypeRegex.FindStringSubmatch(line); matches != nil {
+			connInfo.WiFiStandard = normalizeWiFiStandard(matches[1])
+		}
 	}
 
-	connInfo.WiFiStandard = "802.11ac/n"
 	if connInfo.ChannelWidth == 0 {
 		connInfo.ChannelWidth = 20
 	}
-	connInfo.MIMOConfig = "1x1"
+	if connInfo.MIMOConfig == "" {
+		connInfo.MIMOConfig = "1x1"
+	}
 
 	return connInfo
 }
@@ -383,13 +572,13 @@ func parseWdutilConnectionInfo(output []byte) ConnectionInfo {
 	}
 	if standard := firstValue(values, "phy mode", "phy", "protocol"); standard != "" {
 		connInfo.WiFiStandard = normalizeWiFiStandard(standard)
-	} else {
-		connInfo.WiFiStandard = "802.11ac/n"
 	}
 	if connInfo.ChannelWidth == 0 {
 		connInfo.ChannelWidth = 20
 	}
-	connInfo.MIMOConfig = "1x1"
+	if connInfo.MIMOConfig == "" {
+		connInfo.MIMOConfig = "1x1"
+	}
 	return connInfo
 }
 
@@ -503,13 +692,13 @@ func parseSystemProfilerConnectionInfo(output []byte) ConnectionInfo {
 	}
 	if standard := info["wifi_standard"]; standard != "" {
 		connInfo.WiFiStandard = standard
-	} else {
-		connInfo.WiFiStandard = "802.11ac/n"
 	}
 	if connInfo.ChannelWidth == 0 {
 		connInfo.ChannelWidth = 20
 	}
-	connInfo.MIMOConfig = "1x1"
+	if connInfo.MIMOConfig == "" {
+		connInfo.MIMOConfig = "1x1"
+	}
 	return connInfo
 }
 
