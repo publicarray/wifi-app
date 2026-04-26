@@ -135,7 +135,7 @@ func (a *App) exportToCSV(networks []Network) (string, error) {
 		"Band", "Security", "SecurityCiphers", "AuthMethods", "PMF", "DFS",
 		"BSSLoadStations", "BSSLoadUtilization_pct", "MaxPhyRate_Mbps",
 		"MIMOStreams", "Capabilities", "APCount", "NetworkHasIssues",
-		"NetworkIssues",
+		"NetworkIssues", "WiFiGeneration", "WiFiStandard", "Beamforming",
 	}); err != nil {
 		return "", err
 	}
@@ -172,6 +172,9 @@ func (a *App) exportToCSV(networks []Network) (string, error) {
 				strconv.Itoa(network.APCount),
 				hasIssues,
 				issues,
+				ap.WiFiGeneration,
+				ap.WiFiStandard,
+				fmt.Sprintf("%t", ap.Beamforming),
 			}); err != nil {
 				return "", err
 			}

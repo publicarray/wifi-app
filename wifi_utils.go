@@ -629,3 +629,120 @@ func frequencyToChannel(freq int) int {
 	}
 	return 0
 }
+
+// deriveWiFiGeneration returns the WiFi generation number (5, 6, 7, 8) or
+// "Unknown" if it cannot be determined from the capabilities array.
+func deriveWiFiGeneration(capabilities []string) string {
+	if len(capabilities) == 0 {
+		return "Unknown"
+	}
+
+	lowerCaps := make([]string, len(capabilities))
+	for i, cap := range capabilities {
+		lowerCaps[i] = strings.ToLower(strings.TrimSpace(cap))
+	}
+
+	for _, cap := range lowerCaps {
+		if strings.Contains(cap, "wifi7") || strings.Contains(cap, "802.11be") || strings.Contains(cap, "eht") {
+			return "7"
+		}
+	}
+
+	for _, cap := range lowerCaps {
+		if strings.Contains(cap, "wifi6") || strings.Contains(cap, "he") || strings.Contains(cap, "802.11ax") {
+			return "6"
+		}
+	}
+
+	for _, cap := range lowerCaps {
+		if strings.Contains(cap, "wifi5") || strings.Contains(cap, "vht") || strings.Contains(cap, "802.11ac") {
+			return "5"
+		}
+	}
+
+	for _, cap := range lowerCaps {
+		if strings.Contains(cap, "wifi4") || strings.Contains(cap, "ht") || strings.Contains(cap, "802.11n") {
+			return "4"
+		}
+	}
+
+	return "Unknown"
+}
+
+// getDominantWiFiStandard returns the dominant WiFi standard (e.g. "WiFi 6E (802.11ax)")
+// based on the capabilities array. Returns "Unknown" if it cannot be determined.
+func getDominantWiFiStandard(capabilities []string, band string) string {
+	if len(capabilities) == 0 {
+		return "Unknown"
+	}
+
+	lowerCaps := make([]string, len(capabilities))
+	for i, cap := range capabilities {
+		lowerCaps[i] = strings.ToLower(strings.TrimSpace(cap))
+	}
+
+	for _, cap := range lowerCaps {
+		if strings.Contains(cap, "eht") || strings.Contains(cap, "wifi7") {
+			return "WiFi 7 (802.11be)"
+		}
+	}
+
+	hasHE := false
+	for _, cap := range lowerCaps {
+		if strings.Contains(cap, "he") || strings.Contains(cap, "wifi6") || strings.Contains(cap, "802.11ax") {
+			hasHE = true
+			break
+		}
+	}
+	if hasHE && band == "6GHz" {
+		return "WiFi 6E (802.11ax)"
+	}
+	if hasHE {
+		return "WiFi 6 (802.11ax)"
+	}
+
+	for _, cap := range lowerCaps {
+		if strings.Contains(cap, "vht") || strings.Contains(cap, "wifi5") || strings.Contains(cap, "802.11ac") {
+			return "WiFi 5 (802.11ac)"
+		}
+	}
+
+	for _, cap := range lowerCaps {
+		if strings.Contains(cap, "ht") || strings.Contains(cap, "wifi4") || strings.Contains(cap, "802.11n") {
+			return "WiFi 4 (802.11n)"
+		}
+	}
+
+	for _, cap := range lowerCaps {
+		if strings.Contains(cap, "legacy") || strings.Contains(cap, "802.11a") || strings.Contains(cap, "802.11b") || strings.Contains(cap, "802.11g") {
+			return "Legacy (802.11a/b/g)"
+		}
+	}
+
+	return "Unknown"
+}
+
+// hasBeamformingSupport checks if the AP supports beamforming based on
+// its capabilities array. Returns true if any beamforming indicator is found.
+func hasBeamformingSupport(capabilities []string, muMIMO bool) bool {
+	if muMIMO {
+		return true
+	}
+	if len(capabilities) == 0 {
+		return false
+	}
+
+	for _, cap := range capabilities {
+		lower := strings.ToLower(strings.TrimSpace(cap))
+		if strings.Contains(lower, "txbf") || strings.Contains(lower, "beamform") {
+			return true
+		}
+		if strings.Contains(lower, "vht") || strings.Contains(lower, "he") ||
+			strings.Contains(lower, "802.11ac") || strings.Contains(lower, "802.11ax") ||
+			strings.Contains(lower, "wifi5") || strings.Contains(lower, "wifi6") {
+			return true
+		}
+	}
+
+	return false
+}

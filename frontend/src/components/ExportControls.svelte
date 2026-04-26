@@ -1076,6 +1076,8 @@
                     : escapeHtml(v);
         const capsKV = ap
             ? [
+                  ["WiFi Standard", escapeHtml(ap.wifiStandard || "—")],
+                  ["WiFi Generation", escapeHtml(ap.wifiGeneration || "—")],
                   ["BSS Transition (802.11v)", yesNo(ap.bsstransition)],
                   ["Fast BSS Transition (.11r)", yesNo(ap.fastroaming)],
                   ["Neighbor Report (802.11k)", yesNo(ap.neighborReport)],
@@ -1086,6 +1088,7 @@
                   ["WPS", ap.wps ? "Enabled" : "Disabled"],
                   ["Max QAM", ap.qamSupport ? `${ap.qamSupport}-QAM` : "—"],
                   ["MU-MIMO", yesNo(ap.mumimo)],
+                  ["Beamforming", yesNo(ap.beamforming)],
                   ["BSS Color", escapeHtml(ap.bssColor ?? "—")],
                   ["OBSS PD (Spatial Reuse)", yesNo(ap.obssPD)],
                   ["QoS (WMM)", yesNo(ap.qosSupport)],

@@ -283,7 +283,14 @@ func (ws *WiFiService) aggregateData(aps []AccessPoint, iface string) *ScanResul
 	networkMap := make(map[string]*Network)
 	channelMap := make(map[int]*ChannelInfo)
 
-	for _, ap := range aps {
+	for i := range aps {
+		ap := aps[i]
+
+		ap.WiFiGeneration = deriveWiFiGeneration(ap.Capabilities)
+		ap.WiFiStandard = getDominantWiFiStandard(ap.Capabilities, ap.Band)
+		ap.Beamforming = hasBeamformingSupport(ap.Capabilities, ap.MUMIMO)
+		aps[i] = ap
+
 		// Group by SSID. Hidden APs advertise an empty SSID; we key those
 		// per-BSSID so two unrelated hidden networks don't collapse into one
 		// row. The on-the-wire SSID stays empty so the UI can render "(hidden)".

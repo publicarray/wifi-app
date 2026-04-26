@@ -379,73 +379,6 @@
         return "value-bad";
     }
 
-    function deriveWiFiGeneration(capabilities) {
-        if (!capabilities || capabilities.length === 0) return "Unknown";
-        const lower = capabilities.map(c => (c || "").toLowerCase());
-
-        if (lower.some(c => c.includes("wifi7") || c.includes("802.11be") || c.includes("eht"))) {
-            return "7";
-        }
-        if (lower.some(c => c.includes("wifi6") || c.includes("802.11ax") || c.includes("he"))) {
-            return "6";
-        }
-        if (lower.some(c => c.includes("wifi5") || c.includes("802.11ac") || c.includes("vht"))) {
-            return "5";
-        }
-        if (lower.some(c => c.includes("wifi4") || c.includes("802.11n") || c.includes("ht"))) {
-            return "4";
-        }
-        return "Unknown";
-    }
-
-    function getDominantWiFiStandard(capabilities, band) {
-        if (!capabilities || capabilities.length === 0) return "Unknown";
-        const lower = capabilities.map(c => (c || "").toLowerCase());
-
-        if (lower.some(c => c.includes("eht") || c.includes("wifi7"))) {
-            return "WiFi 7 (802.11be)";
-        }
-
-        const hasHE = lower.some(c => c.includes("he") || c.includes("wifi6") || c.includes("802.11ax"));
-        if (hasHE && band === "6GHz") {
-            return "WiFi 6E (802.11ax)";
-        }
-        if (hasHE) {
-            return "WiFi 6 (802.11ax)";
-        }
-
-        if (lower.some(c => c.includes("vht") || c.includes("wifi5") || c.includes("802.11ac"))) {
-            return "WiFi 5 (802.11ac)";
-        }
-
-        if (lower.some(c => c.includes("ht") || c.includes("wifi4") || c.includes("802.11n"))) {
-            return "WiFi 4 (802.11n)";
-        }
-
-        if (lower.some(c => c.includes("legacy") || c.includes("802.11a") || c.includes("802.11b") || c.includes("802.11g"))) {
-            return "Legacy (802.11a/b/g)";
-        }
-
-        return "Unknown";
-    }
-
-    function hasBeamformingSupport(capabilities, muMIMO) {
-        if (muMIMO) return true;
-        if (!capabilities || capabilities.length === 0) return false;
-
-        const lower = capabilities.map(c => (c || "").toLowerCase());
-        if (lower.some(c => c.includes("txbf") || c.includes("beamform"))) {
-            return true;
-        }
-
-        // VHT and HE standards inherently support beamforming
-        if (lower.some(c => c.includes("vht") || c.includes("he") || c.includes("802.11ac") || c.includes("802.11ax") || c.includes("wifi5") || c.includes("wifi6"))) {
-            return true;
-        }
-
-        return false;
-    }
-
     function formatSecurityDetails(security, ciphers, authMethods) {
         let details = security || "Unknown";
 
@@ -496,46 +429,15 @@
     // Get unique security types for filter dropdown
     $: availableSecurityTypes = [...new Set(networks.map((n) => n.security))];
 
-    function getWiFiStandard(ap) {
-        if (!ap || !ap.capabilities) return null;
-
-        const caps = ap.capabilities;
-
-        if (caps.includes("WiFi7") || caps.includes("EHT")) return "WiFi 7";
-
-        // Check for 6GHz band for WiFi 6E
-        // Frequency > 5925 MHz is 6GHz band
-        if (
-            ap.frequency > 5925 &&
-            (caps.includes("HE") || caps.includes("WiFi6"))
-        ) {
-            return "WiFi 6E";
-        }
-
-        if (caps.includes("HE") || caps.includes("WiFi6")) return "WiFi 6";
-        if (caps.includes("VHT")) return "WiFi 5";
-        if (caps.includes("HT")) return "WiFi 4";
-
-        return null;
-    }
-
     function getWiFiStandardClass(standard) {
         if (!standard) return "";
         const base = "wifi-standard-badge";
-        switch (standard) {
-            case "WiFi 7":
-                return `${base} wifi-7`;
-            case "WiFi 6E":
-                return `${base} wifi-6e`;
-            case "WiFi 6":
-                return `${base} wifi-6`;
-            case "WiFi 5":
-                return `${base} wifi-5`;
-            case "WiFi 4":
-                return `${base} wifi-4`;
-            default:
-                return base;
-        }
+        if (standard.includes("WiFi 7")) return `${base} wifi-7`;
+        if (standard.includes("WiFi 6E")) return `${base} wifi-6e`;
+        if (standard.includes("WiFi 6")) return `${base} wifi-6`;
+        if (standard.includes("WiFi 5")) return `${base} wifi-5`;
+        if (standard.includes("WiFi 4")) return `${base} wifi-4`;
+        return base;
     }
 
     // Convert dBm into 0–4 bars for the inline visual signal indicator.
@@ -829,7 +731,7 @@ Network health and connection state.
                     {@const trendColor = sparklineColor(network.bestSignal)}
                     {@const isExpanded = expandedNetworks.has(key)}
                     {@const isHidden = !network.ssid || network.ssid === "<Hidden Network>"}
-                    {@const standard = network.accessPoints && network.accessPoints[0] ? getWiFiStandard(network.accessPoints[0]) : null}
+                    {@const standard = network.accessPoints && network.accessPoints[0] ? network.accessPoints[0].wifiStandard : null}
                     {@const bars = signalBarCount(network.bestSignal)}
                     {@const barTone = signalBarTone(network.bestSignal)}
                     <tr
@@ -855,8 +757,8 @@ Network health and connection state.
                                     <span class="ssid-text" class:hidden-ssid={isHidden}>
                                         {network.ssid || "(hidden)"}
                                     </span>
-                                    {#if standard}
-                                        <span class={getWiFiStandardClass(standard)}>{standard}</span>
+                                    {#if standard && standard !== "Unknown"}
+                                        <span class={getWiFiStandardClass(standard)}>{standard.split(" (")[0]}</span>
                                     {/if}
                                 </div>
                                 <span class="ssid-sub mono">
@@ -955,7 +857,7 @@ Network health and connection state.
                             <td colspan="9">
                                 <div class="ap-details">
                                     {#each network.accessPoints as ap}
-                                        {@const apStandard = getWiFiStandard(ap)}
+                                        {@const apStandard = ap.wifiStandard}
                                         {@const apIsConnected = isConnected(clientStats) && (ap.bssid || "").toLowerCase() === getConnectedBSSID(clientStats)}
                                         {@const apSamples = getSamples({ accessPoints: [ap], bestSignalAP: ap.bssid })}
                                         {@const apSp = sparklinePath(apSamples, 160, 36)}
@@ -965,8 +867,8 @@ Network health and connection state.
                                                 <div class="ap-header-main">
                                                     <div class="ap-header-line">
                                                         <span class="ap-ssid">{network.ssid || "(hidden)"}</span>
-                                                        {#if apStandard}
-                                                            <span class={getWiFiStandardClass(apStandard)}>{apStandard}</span>
+                                                        {#if apStandard && apStandard !== "Unknown"}
+                                                            <span class={getWiFiStandardClass(apStandard)}>{apStandard.split(" (")[0]}</span>
                                                         {/if}
                                                         {#if apIsConnected}
                                                             <span class="chip ok">
@@ -1011,7 +913,7 @@ Closer to 0 = stronger signal
                                             <div class="capability-item">
                                                 <span class="capability-label" title="WiFi Mode - 802.11 standard this AP operates on">WiFi Mode</span>
                                                 <span class="value-pill value-neutral">
-                                                    {getDominantWiFiStandard(ap.capabilities, ap.band)}
+                                                    {ap.wifiStandard || "Unknown"}
                                                 </span>
                                             </div>
                                                 <div
@@ -1105,16 +1007,10 @@ UNIFI CONSIDERATIONS:
                                                         >
                                                         <span
                                                             class="value-pill {getCapabilityStatusClass(
-                                                                hasBeamformingSupport(
-                                                                    ap.capabilities,
-                                                                    ap.mumimo,
-                                                                ),
+                                                                ap.beamforming,
                                                             )}"
                                                         >
-                                                            {hasBeamformingSupport(
-                                                                ap.capabilities,
-                                                                ap.mumimo,
-                                                            )
+                                                            {ap.beamforming
                                                                 ? "Supported"
                                                                 : "Not supported"}
                                                         </span>

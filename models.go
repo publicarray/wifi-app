@@ -48,6 +48,11 @@ type AccessPoint struct {
 	OBSSPD         bool `json:"obssPD"`         // OBSS PD (Spatial reuse) support
 	QAMSupport     int  `json:"qamSupport"`     // Max QAM modulation (256, 1024, 4096)
 	MUMIMO         bool `json:"mumimo"`         // MU-MIMO support
+
+	// Derived fields
+	WiFiGeneration string `json:"wifiGeneration"` // WiFi generation (4, 5, 6, 7)
+	WiFiStandard   string `json:"wifiStandard"`   // Dominant WiFi standard (e.g. WiFi 6 (802.11ax))
+	Beamforming    bool   `json:"beamforming"`    // Transmit beamforming support
 	OFDMADownlink  bool `json:"ofdmaDownlink"`  // OFDMA downlink support (WiFi 6+, implicit when HE)
 	OFDMAUplink    bool `json:"ofdmaUplink"`    // OFDMA uplink (HE MAC OFDMA RA Support bit)
 	MLO            bool `json:"mlo"`            // Multi-Link Operation (WiFi 7) — Basic Multi-Link Element (ext-ID 107) present
