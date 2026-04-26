@@ -378,11 +378,15 @@
                     </div>
                 {:else if activeTab === "channels"}
                     <div class="content-panel channel-panel">
-                        <ChannelAnalyzer {networks} {channelAnalysis} />
+                        <ChannelAnalyzer
+                            {networks}
+                            {clientStats}
+                            {channelAnalysis}
+                        />
                     </div>
                 {:else if activeTab === "stats"}
                     <div class="content-panel stats-panel">
-                        <ClientStatsPanel {clientStats} />
+                        <ClientStatsPanel {clientStats} {networks} />
                     </div>
                 {:else if activeTab === "latency"}
                     <div class="content-panel signal-panel">
@@ -454,8 +458,8 @@
         --bad-bg: rgba(248, 113, 113, 0.10);
         --bad-line: rgba(248, 113, 113, 0.30);
 
-        --font-ui: "Inter", -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif;
-        --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+        --font-ui: "Inter", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", "Helvetica Neue", "Cantarell", "Noto Sans", sans-serif;
+        --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", "Cascadia Mono", "DejaVu Sans Mono", Menlo, Consolas, monospace;
 
         /* Legacy aliases — existing screen components still reference these.
            Mapping them onto the design palette gives those components the new
@@ -625,7 +629,10 @@
         background: var(--bg-1);
         color: var(--fg-1);
         font-family: var(--font-ui);
-        -webkit-font-smoothing: antialiased;
+        -webkit-font-smoothing: subpixel-antialiased;
+        -moz-osx-font-smoothing: auto;
+        text-rendering: optimizeLegibility;
+        font-synthesis: none;
     }
 
     .app-container {
@@ -1009,8 +1016,9 @@
 
     .stats-panel {
         overflow-y: auto;
-        max-width: 900px;
-        margin: 0 auto;
+        scrollbar-gutter: stable;
+        -webkit-overflow-scrolling: touch;
+        scroll-padding-bottom: 72px;
     }
 
     /* ── Error bar ───────────────────────────────────────────── */

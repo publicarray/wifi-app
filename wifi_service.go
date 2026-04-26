@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"net"
 	"os"
 	"path/filepath"
 	"sort"
@@ -448,6 +449,8 @@ func (ws *WiFiService) updateClientStatsLocked(iface string) {
 	ws.clientStats.Interface = iface
 	ws.clientStats.SSID = linkInfo["ssid"]
 	ws.clientStats.BSSID = linkInfo["bssid"]
+	ws.clientStats.LocalIP = ifaceIPv4(iface)
+	ws.clientStats.Gateway = defaultGatewayString()
 
 	if freq, err := strconv.ParseFloat(linkInfo["frequency"], 64); err == nil {
 		ws.clientStats.Frequency = freq
@@ -819,4 +822,43 @@ func abs(x int) int {
 		return -x
 	}
 	return x
+}
+
+// ifaceIPv4 returns the first non-loopback IPv4 address bound to the named
+// interface, or "" if the interface is missing or has no IPv4 lease yet.
+func ifaceIPv4(name string) string {
+	if name == "" {
+		return ""
+	}
+	iface, err := net.InterfaceByName(name)
+	if err != nil {
+		return ""
+	}
+	addrs, err := iface.Addrs()
+	if err != nil {
+		return ""
+	}
+	for _, a := range addrs {
+		ipnet, ok := a.(*net.IPNet)
+		if !ok || ipnet.IP == nil {
+			continue
+		}
+		ip := ipnet.IP.To4()
+		if ip == nil || ip.IsLoopback() {
+			continue
+		}
+		return ip.String()
+	}
+	return ""
+}
+
+// defaultGatewayString wraps defaultGateway() to return a string suitable for
+// the JSON payload, swallowing errors (e.g. no default route on a freshly
+// associated interface still negotiating DHCP).
+func defaultGatewayString() string {
+	ip, err := defaultGateway()
+	if err != nil || ip == nil {
+		return ""
+	}
+	return ip.String()
 }

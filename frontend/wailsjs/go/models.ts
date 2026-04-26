@@ -226,6 +226,8 @@ export namespace main {
 	    interface: string;
 	    ssid: string;
 	    bssid: string;
+	    localIp: string;
+	    gateway: string;
 	    frequency: number;
 	    channel: number;
 	    channelWidth: number;
@@ -259,6 +261,8 @@ export namespace main {
 	        this.interface = source["interface"];
 	        this.ssid = source["ssid"];
 	        this.bssid = source["bssid"];
+	        this.localIp = source["localIp"];
+	        this.gateway = source["gateway"];
 	        this.frequency = source["frequency"];
 	        this.channel = source["channel"];
 	        this.channelWidth = source["channelWidth"];

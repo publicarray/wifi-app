@@ -16,7 +16,6 @@
     import { onMount, onDestroy } from "svelte";
     import { Chart, registerables } from "chart.js";
     import "chartjs-adapter-date-fns";
-    import zoomPlugin from "chartjs-plugin-zoom";
 
     export let clientStats = null;
     export let networks = [];
@@ -29,9 +28,20 @@
     let apHistory = moduleApHistory;
     let historyPoints = 0;
     let historyAPs = 0;
-    const HISTORY_WINDOW_MS = 30 * 60 * 1000;
-    const HISTORY_MAX_POINTS = 300;
+    const HISTORY_WINDOW_MS = 60 * 60 * 1000;
+    const HISTORY_MAX_POINTS = 1500;
     const STALE_HOLD_MS = 30000;
+
+    const RANGE_OPTIONS = [
+        { id: "1m", label: "1m", ms: 60 * 1000 },
+        { id: "5m", label: "5m", ms: 5 * 60 * 1000 },
+        { id: "15m", label: "15m", ms: 15 * 60 * 1000 },
+        { id: "1h", label: "1h", ms: 60 * 60 * 1000 },
+        { id: "24h", label: "24h", ms: 24 * 60 * 60 * 1000 },
+    ];
+    let range = "5m";
+    $: rangeMs =
+        RANGE_OPTIONS.find((r) => r.id === range)?.ms ?? 5 * 60 * 1000;
 
     // Inline Chart.js plugin — paints horizontal RSSI quality zones
     // (Excellent/Good/Fair/Weak/Poor) behind the data series, with right-edge
@@ -110,7 +120,7 @@
     };
 
     onMount(() => {
-        Chart.register(...registerables, zoomPlugin);
+        Chart.register(...registerables);
         initializeChart();
 
         themeMedia = window.matchMedia("(prefers-color-scheme: dark)");
@@ -199,35 +209,15 @@
                             },
                         },
                     },
-                    zoom: {
-                        pan: {
-                            enabled: true,
-                            mode: "x",
-                        },
-                        zoom: {
-                            wheel: {
-                                enabled: true,
-                            },
-                            pinch: {
-                                enabled: true,
-                            },
-                            mode: "x",
-                        },
-                        limits: {
-                            x: {
-                                min: "original",
-                                max: "original",
-                            },
-                        },
-                    },
                 },
                 scales: {
                     x: {
                         type: "time",
                         time: {
-                            unit: "minute",
                             displayFormats: {
+                                second: "HH:mm:ss",
                                 minute: "HH:mm",
+                                hour: "HH:mm",
                             },
                         },
                         title: {
@@ -237,6 +227,8 @@
                         },
                         ticks: {
                             color: theme.muted,
+                            maxRotation: 0,
+                            autoSkip: true,
                         },
                         grid: {
                             color: theme.grid,
@@ -275,10 +267,11 @@
         othersChart = buildChart(othersCtx, "Other APs in Range");
     }
 
-    // Update chart when clientStats or networks change
+    // Update chart when clientStats, networks, or range change
     $: if (connectedChart && othersChart) {
         networks;
         clientStats;
+        rangeMs;
         recordNetworkSignals();
         updateChart();
     }
@@ -465,8 +458,39 @@
             .sort((a, b) => a.x - b.x);
     }
 
+    function filterToRange(points, cutoff) {
+        if (!Array.isArray(points)) return [];
+        const inRange = points.filter((p) => p && p.x >= cutoff);
+        if (inRange.length === points.length) return inRange;
+        // Carry the most recent pre-cutoff sample forward to anchor the line
+        // at the left edge instead of starting mid-chart.
+        const lastBefore = [...points]
+            .reverse()
+            .find((p) => p && p.x < cutoff);
+        if (lastBefore) {
+            return [{ x: cutoff, y: lastBefore.y }, ...inRange];
+        }
+        return inRange;
+    }
+
+    function applyRangeBounds(chart, now, cutoff) {
+        chart.options.scales.x.min = cutoff;
+        chart.options.scales.x.max = now;
+        const span = now - cutoff;
+        let unit = "minute";
+        if (span <= 2 * 60 * 1000) unit = "second";
+        else if (span <= 60 * 60 * 1000) unit = "minute";
+        else unit = "hour";
+        chart.options.scales.x.time.unit = unit;
+    }
+
     function updateChart() {
+        const now = Date.now();
+        const cutoff = now - rangeMs;
+
         if (apHistory.size === 0) {
+            applyRangeBounds(connectedChart, now, cutoff);
+            applyRangeBounds(othersChart, now, cutoff);
             connectedChart.data.datasets = [];
             othersChart.data.datasets = [];
             connectedChart.update();
@@ -499,12 +523,16 @@
         const connectedHistory = normalizePoints(
             clientStats?.signalHistory || [],
         );
-        if (connectedHistory.length > 1 && connectedBSSID) {
+        const connectedHistoryWindowed = filterToRange(
+            connectedHistory,
+            cutoff,
+        );
+        if (connectedHistoryWindowed.length > 1 && connectedBSSID) {
             const label = `${clientStats.ssid || "Connected"} (${connectedBSSID})`;
             const baseColor = theme.accentStrong || theme.accent;
             connectedDatasets.push({
                 label,
-                data: connectedHistory,
+                data: connectedHistoryWindowed,
                 borderColor: baseColor,
                 backgroundColor: withAlpha(baseColor, 0.2),
                 borderWidth: 3,
@@ -534,7 +562,7 @@
 
             const dataset = {
                 label: label,
-                data: normalizePoints(data),
+                data: filterToRange(normalizePoints(data), cutoff),
                 borderColor: baseColor,
                 backgroundColor: withAlpha(baseColor, isConnected ? 0.2 : 0.06),
                 borderWidth: isConnected ? 3 : 1.5,
@@ -549,19 +577,20 @@
                 order: isConnected ? 10 : 5,
             };
             if (isConnected) {
-                if (connectedHistory.length <= 1) {
+                if (connectedHistoryWindowed.length <= 1) {
                     connectedDatasets.push(dataset);
                 }
             } else otherDatasets.push(dataset);
             colorIndex++;
         });
 
-        // Add roaming events as vertical lines
+        // Add roaming events as vertical lines (only those within range)
         if (
             clientStats?.roamingHistory &&
             clientStats.roamingHistory.length > 0
         ) {
             clientStats.roamingHistory.forEach((roamEvent) => {
+                if (roamEvent.timestamp < cutoff) return;
                 connectedDatasets.push({
                     label: `Roaming: ${(roamEvent.previousBssid || "").slice(-6)} → ${(roamEvent.newBssid || "").slice(-6)}`,
                     data: [
@@ -578,19 +607,42 @@
             });
         }
 
+        applyRangeBounds(connectedChart, now, cutoff);
+        applyRangeBounds(othersChart, now, cutoff);
         connectedChart.data.datasets = connectedDatasets;
         othersChart.data.datasets = otherDatasets;
         connectedChart.update();
         othersChart.update();
     }
-
-    function resetZoom() {
-        connectedChart?.resetZoom();
-        othersChart?.resetZoom();
-    }
 </script>
 
 <div class="signal-chart-container">
+    <div class="signal-toolbar">
+        <div class="segmented" role="tablist" aria-label="Time range">
+            {#each RANGE_OPTIONS as opt}
+                <button
+                    type="button"
+                    role="tab"
+                    aria-selected={range === opt.id}
+                    class:active={range === opt.id}
+                    on:click={() => (range = opt.id)}
+                >
+                    {opt.label}
+                </button>
+            {/each}
+        </div>
+        {#if historyAPs > 0}
+            <div class="toolbar-meta">
+                <span>{historyAPs} APs · {historyPoints} samples</span>
+                {#if clientStats && clientStats.roamingHistory && clientStats.roamingHistory.length > 0}
+                    <span
+                        >· {clientStats.roamingHistory.length} roams</span
+                    >
+                {/if}
+            </div>
+        {/if}
+    </div>
+
     {#if !(clientStats && clientStats.connected)}
         <div class="chart-header">
             <h3>Signal Strength</h3>
@@ -605,25 +657,6 @@
     <div class="chart-wrapper secondary">
         <canvas bind:this={othersChartElement}></canvas>
     </div>
-
-    {#if historyAPs > 0}
-        <div class="chart-footer">
-            <div class="history-info">
-                <span>APs tracked: {historyAPs}</span>
-                <span>History: {historyPoints} data points</span>
-                {#if clientStats && clientStats.roamingHistory && clientStats.roamingHistory.length > 0}
-                    <span
-                        >Roaming events: {clientStats.roamingHistory
-                            .length}</span
-                    >
-                {/if}
-                <span class="zoom-hint">Scroll to zoom, drag to pan</span>
-            </div>
-            <button class="reset-zoom" type="button" on:click={resetZoom}>
-                Reset zoom
-            </button>
-        </div>
-    {/if}
 </div>
 
 <style>
@@ -666,48 +699,51 @@
         min-height: 0;
     }
 
-    .chart-footer {
-        padding-top: 4px;
+    .signal-toolbar {
         display: flex;
         align-items: center;
-        justify-content: space-between;
         gap: 12px;
         flex-wrap: wrap;
     }
 
-    .history-info {
+    .toolbar-meta {
+        margin-left: auto;
         display: flex;
-        gap: 16px;
+        gap: 8px;
         font-size: 12px;
         color: var(--muted-2);
+        font-family: var(--font-mono, ui-monospace, monospace);
     }
 
-    .history-info span {
-        padding: 3px 8px;
-        border-radius: 999px;
-        background: var(--panel-strong);
-        border: 1px solid var(--border);
+    .segmented {
+        display: inline-flex;
+        background: var(--bg-3, var(--panel-strong));
+        border: 1px solid var(--border-strong, var(--border));
+        border-radius: 6px;
+        padding: 2px;
+        gap: 2px;
     }
 
-    .zoom-hint {
+    .segmented button {
+        background: transparent;
+        border: none;
         color: var(--muted);
-    }
-
-    .reset-zoom {
-        padding: 6px 10px;
-        border-radius: 999px;
-        border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
-        background: color-mix(in srgb, var(--accent) 18%, transparent);
-        color: var(--text);
         font-size: 12px;
-        font-weight: 600;
-        letter-spacing: 0.02em;
+        padding: 4px 12px;
+        border-radius: 4px;
         cursor: pointer;
+        font-weight: 500;
+        font-family: inherit;
     }
 
-    .reset-zoom:hover {
-        border-color: var(--accent);
-        color: var(--accent);
+    .segmented button.active {
+        background: var(--bg-1, var(--panel));
+        color: var(--text);
+        box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+    }
+
+    .segmented button:hover:not(.active) {
+        color: var(--text);
     }
 
     /* Responsive adjustments */

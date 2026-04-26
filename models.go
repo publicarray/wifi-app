@@ -106,6 +106,8 @@ type ClientStats struct {
 	Interface      string            `json:"interface"`
 	SSID           string            `json:"ssid"`
 	BSSID          string            `json:"bssid"`
+	LocalIP        string            `json:"localIp"` // Client IPv4 on the WiFi interface, "" when unavailable
+	Gateway        string            `json:"gateway"` // Default gateway IPv4, "" when no default route
 	Frequency      float64           `json:"frequency"` // Frequency in MHz
 	Channel        int               `json:"channel"`
 	ChannelWidth   int               `json:"channelWidth"` // Channel width in MHz (20, 40, 80, 160, 320)
