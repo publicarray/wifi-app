@@ -537,6 +537,43 @@
                 return base;
         }
     }
+
+    // Convert dBm into 0–4 bars for the inline visual signal indicator.
+    function signalBarCount(dBm) {
+        if (dBm == null) return 0;
+        if (dBm >= -55) return 4;
+        if (dBm >= -65) return 3;
+        if (dBm >= -75) return 2;
+        if (dBm >= -85) return 1;
+        return 0;
+    }
+
+    function signalBarTone(dBm) {
+        if (dBm == null) return "";
+        if (dBm > -60) return "ok";
+        if (dBm > -72) return "warn";
+        return "bad";
+    }
+
+    function bssidVendorLine(network) {
+        const ap = network && network.accessPoints && network.accessPoints[0];
+        if (!ap) return "";
+        const parts = [ap.bssid];
+        if (ap.vendor) parts.push(ap.vendor);
+        return parts.join(" · ");
+    }
+
+    function networkBandWidth(network) {
+        const ap = network && network.accessPoints && network.accessPoints[0];
+        const band = networkBand(network);
+        const width = networkChannelWidth(network);
+        if (!band) return "";
+        return width ? `${band} / ${width}` : band;
+    }
+
+    function isOpenSecurity(security) {
+        return !security || security === "Open" || security === "None";
+    }
 </script>
 
 <div class="network-list-container">
@@ -654,6 +691,7 @@
         <table class="network-table">
             <thead>
                 <tr>
+                    <th class="chevron-col" aria-hidden="true"></th>
                     <th
                         class="sortable"
                         on:click={() => toggleSort("ssid")}
@@ -674,7 +712,7 @@ Network name broadcast by APs.
                         {/if}
                     </th>
                     <th
-                        class="sortable"
+                        class="sortable num-col"
                         on:click={() => toggleSort("apCount")}
                         title="Number of Access Points in this network
 
@@ -692,6 +730,15 @@ Count of APs broadcasting the same SSID.
                             >
                         {/if}
                     </th>
+                    <th
+                        class="band-col"
+                        title="Frequency band and channel width
+
+• 2.4GHz: longer range, more interference
+• 5GHz: higher capacity, shorter range
+• 6GHz: WiFi 6E/7, cleanest spectrum
+• Wider channels (40/80/160 MHz) increase throughput but use more spectrum"
+                    >Band</th>
                     <th
                         class="sortable"
                         on:click={() => toggleSort("channel")}
@@ -780,48 +827,69 @@ Network health and connection state.
                     {@const samples = getSamples(network)}
                     {@const sp = sparklinePath(samples, 80, 18)}
                     {@const trendColor = sparklineColor(network.bestSignal)}
+                    {@const isExpanded = expandedNetworks.has(key)}
+                    {@const isHidden = !network.ssid || network.ssid === "<Hidden Network>"}
+                    {@const standard = network.accessPoints && network.accessPoints[0] ? getWiFiStandard(network.accessPoints[0]) : null}
+                    {@const bars = signalBarCount(network.bestSignal)}
+                    {@const barTone = signalBarTone(network.bestSignal)}
                     <tr
                         class="network-row"
                         class:has-issues={network.hasIssues}
                         class:connected={isConnectedNetwork}
+                        class:expanded={isExpanded}
+                        on:click={() => toggleNetwork(key)}
+                        on:keypress={(e) => e.key === "Enter" && toggleNetwork(key)}
                     >
-                        <td
-                            class="ssid-cell"
-                            on:click={() => toggleNetwork(key)}
-                            on:keypress={() => toggleNetwork(key)}
-                        >
-                            <div class="ssid-content">
-                                <span class="ssid-text">{network.ssid || "(hidden)"}</span>
-                                {#if network.accessPoints && network.accessPoints.length > 0}
-                                    {@const standard = getWiFiStandard(
-                                        network.accessPoints[0],
-                                    )}
-                                    {#if standard}
-                                        <span
-                                            class={getWiFiStandardClass(
-                                                standard,
-                                            )}>{standard}</span
-                                        >
-                                    {/if}
-                                    <span class="vendor-hint"
-                                        >{network.accessPoints[0].vendor}</span
-                                    >
+                        <td class="chevron-cell" aria-hidden="true">
+                            <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
+                                {#if isExpanded}
+                                    <path d="M2 4l3 3 3-3" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
+                                {:else}
+                                    <path d="M4 2l3 3-3 3" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
                                 {/if}
-                            </div>
-                            {#if network.apCount > 1}
-                                <div class="expand-indicator">
-                                    {expandedNetworks.has(key)
-                                        ? "▼"
-                                        : "▶"}
-                                </div>
-                            {/if}
+                            </svg>
                         </td>
-                        <td class="ap-count-cell">{network.apCount}</td>
-                        <td class="channel-cell">{network.channel}</td>
-                        <td class="signal-cell">
-                            <span class={getSignalClass(network.bestSignal)}>
-                                {network.bestSignal} dBm
+                        <td class="ssid-cell">
+                            <div class="ssid-content">
+                                <div class="ssid-line">
+                                    <span class="ssid-text" class:hidden-ssid={isHidden}>
+                                        {network.ssid || "(hidden)"}
+                                    </span>
+                                    {#if standard}
+                                        <span class={getWiFiStandardClass(standard)}>{standard}</span>
+                                    {/if}
+                                </div>
+                                <span class="ssid-sub mono">
+                                    {bssidVendorLine(network)}
+                                </span>
+                            </div>
+                        </td>
+                        <td class="ap-count-cell num">{network.apCount}</td>
+                        <td class="band-cell">
+                            <span class="mono band-text">
+                                {networkBand(network)}
+                                {#if networkChannelWidth(network)}
+                                    <span class="band-width">/{networkChannelWidth(network)}</span>
+                                {/if}
                             </span>
+                        </td>
+                        <td class="channel-cell num">{network.channel}</td>
+                        <td class="signal-cell">
+                            <div class="signal-row">
+                                <div class="sig-bar" title="{network.bestSignal} dBm">
+                                    {#each [0,1,2,3] as i}
+                                        <span
+                                            class:on={i < bars}
+                                            class:warn={i < bars && barTone === "warn"}
+                                            class:bad={i < bars && barTone === "bad"}
+                                            style="height: {4 + i * 2.5}px"
+                                        ></span>
+                                    {/each}
+                                </div>
+                                <span class="mono signal-value {getSignalClass(network.bestSignal)}">
+                                    {network.bestSignal} dBm
+                                </span>
+                            </div>
                         </td>
                         <td class="history-cell">
                             {#if sp.last}
@@ -847,19 +915,36 @@ Network health and connection state.
                             {/if}
                         </td>
                         <td class="security-cell">
-                            <span class={getSecurityClass(network.security)}>
-                                {network.security}
-                            </span>
+                            {#if isOpenSecurity(network.security)}
+                                <span class="chip bad ghost">
+                                    <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+                                        <rect x="2.5" y="5.5" width="7" height="5" rx="1" stroke="currentColor" stroke-width="1.2"/>
+                                        <path d="M4 5.5V4a2 2 0 014 0v1.5" stroke="currentColor" stroke-width="1.2"/>
+                                    </svg>
+                                    {network.security || "Open"}
+                                </span>
+                            {:else}
+                                <span class="security-inline mono {getSecurityClass(network.security)}">
+                                    <svg width="12" height="12" viewBox="0 0 12 12" fill="none" style="opacity: 0.6">
+                                        <rect x="2.5" y="5.5" width="7" height="5" rx="1" stroke="currentColor" stroke-width="1.2"/>
+                                        <path d="M4 5.5V4a2 2 0 014 0v1.5" stroke="currentColor" stroke-width="1.2"/>
+                                    </svg>
+                                    {network.security}
+                                </span>
+                            {/if}
                         </td>
                         <td class="status-cell">
-                            {#if network.hasIssues}
-                                <span class="status-warning">⚠️ Issues</span>
-                            {:else if isConnectedNetwork}
-                                <span class="status-connected"
-                                    >🔗 Connected</span
-                                >
+                            {#if isConnectedNetwork}
+                                <span class="chip ok">
+                                    <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+                                        <path d="M5 7a2 2 0 002.83 0l2-2a2 2 0 00-2.83-2.83l-.5.5M7 5a2 2 0 00-2.83 0l-2 2a2 2 0 002.83 2.83l.5-.5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
+                                    </svg>
+                                    Connected
+                                </span>
+                            {:else if network.hasIssues}
+                                <span class="chip warn">⚠ Issues</span>
                             {:else}
-                                <span class="status-ok">✓ OK</span>
+                                <span class="status-available">Available</span>
                             {/if}
                         </td>
                     </tr>
@@ -867,310 +952,143 @@ Network health and connection state.
                     <!-- Expanded AP Details -->
                     {#if expandedNetworks.has(key)}
                         <tr class="ap-details-row">
-                            <td colspan="7">
+                            <td colspan="9">
                                 <div class="ap-details">
                                     {#each network.accessPoints as ap}
+                                        {@const apStandard = getWiFiStandard(ap)}
+                                        {@const apIsConnected = isConnected(clientStats) && (ap.bssid || "").toLowerCase() === getConnectedBSSID(clientStats)}
+                                        {@const apSamples = getSamples({ accessPoints: [ap], bestSignalAP: ap.bssid })}
+                                        {@const apSp = sparklinePath(apSamples, 160, 36)}
+                                        {@const apTrendColor = sparklineColor(ap.signal)}
                                         <div class="ap-card">
                                             <div class="ap-header">
-                                                <span
-                                                    class="ap-bssid"
-                                                    title="BSSID (MAC Address)"
-                                                    >{ap.bssid}</span
-                                                >
-                                                <span
-                                                    class="ap-band"
-                                                    title="Frequency Band"
-                                                    >{ap.band}</span
-                                                >
+                                                <div class="ap-header-main">
+                                                    <div class="ap-header-line">
+                                                        <span class="ap-ssid">{network.ssid || "(hidden)"}</span>
+                                                        {#if apStandard}
+                                                            <span class={getWiFiStandardClass(apStandard)}>{apStandard}</span>
+                                                        {/if}
+                                                        {#if apIsConnected}
+                                                            <span class="chip ok">
+                                                                <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+                                                                    <path d="M5 7a2 2 0 002.83 0l2-2a2 2 0 00-2.83-2.83l-.5.5M7 5a2 2 0 00-2.83 0l-2 2a2 2 0 002.83 2.83l.5-.5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
+                                                                </svg>
+                                                                Connected
+                                                            </span>
+                                                        {/if}
+                                                    </div>
+                                                    <div class="ap-header-sub mono">
+                                                        {ap.bssid}{#if ap.vendor} · {ap.vendor}{/if} · {ap.band || networkBand(network)}{#if ap.channel} channel {ap.channel}{/if}{#if ap.channelWidth} ({ap.channelWidth} MHz){/if}{#if ap.dfs}<span class="dfs-badge">DFS</span>{/if}
+                                                    </div>
+                                                </div>
+                                                {#if apSp.last}
+                                                    <svg width="160" height="36" class="ap-sparkline" aria-hidden="true">
+                                                        <path d={apSp.area} fill={apTrendColor} opacity="0.18"/>
+                                                        <path d={apSp.d} fill="none" stroke={apTrendColor} stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                                                        <circle cx={apSp.last[0]} cy={apSp.last[1]} r="2" fill={apTrendColor}/>
+                                                    </svg>
+                                                {/if}
                                             </div>
-                                            <div class="ap-metrics">
-                                                <div class="ap-metric">
-                                                    <span
-                                                        class="metric-label"
-                                                        title="Signal Strength
+                                            <div class="detail-grid">
+                                        <div class="detail-section">
+                                            <div class="detail-section-title">Performance</div>
+                                            <div class="capability-item">
+                                                <span class="capability-label" title="Signal Strength
 Closer to 0 = stronger signal
 &lt;-50: Excellent
 -50 to -65: Good
-&gt;-70: Poor">Signal:</span
-                                                    >
-                                                    <span class="metric-value">
-                                                        <span
-                                                            class={getSignalClass(
-                                                                ap.signal,
-                                                            )}
-                                                            >{ap.signal} dBm</span
-                                                        >
-                                                    </span>
-                                                </div>
-                                                <div class="ap-metric">
-                                                    <span
-                                                        class="metric-label"
-                                                        title="Channel {ap.channel}
-• {ap.channelWidth}MHz Width
-• Wider channels increase speed and interference">Channel:</span
-                                                    >
-                                                    <span class="metric-value">
-                                                        <span
-                                                            >{ap.channel} ({ap.channelWidth}MHz){#if ap.dfs}
-                                                                <span
-                                                                    class="dfs-badge"
-                                                                    >DFS</span
-                                                                >{/if}</span
-                                                        >
-                                                    </span>
-                                                </div>
-                                                <div class="ap-metric">
-                                                    <span class="metric-label"
-                                                        >Vendor:</span
-                                                    >
-                                                    <span
-                                                        class="metric-value-with-tooltip"
-                                                    >
-                                                        <span>{ap.vendor}</span>
-                                                    </span>
-                                                </div>
+&gt;-70: Poor">Signal</span>
+                                                <span class="value-pill {getSignalClass(ap.signal) === 'signal-good' ? 'value-good' : getSignalClass(ap.signal) === 'signal-medium' ? 'value-warn' : 'value-bad'}">
+                                                    {ap.signal} dBm
+                                                </span>
                                             </div>
-                                            <div class="ap-metrics">
-                                                <div class="ap-metric">
-                                                    <span class="metric-label"
-                                                        title="Transmit Power - Output power of this access point">Transmit Power:</span
-                                                    >
-                                                    <span class="metric-value">
-                                                        {ap.txPower ? `${ap.txPower} dBm` : "Not reported"}
-                                                    </span>
-                                                </div>
-                                                <div class="ap-metric">
-                                                    <span class="metric-label"
-                                                        title="Security Protocol - Encryption and authentication methods">Security:</span
-                                                    >
-                                                    <span class="metric-value">
-                                                        {formatSecurityDetails(ap.security, ap.securityCiphers, ap.authMethods)}
-                                                    </span>
-                                                </div>
-                                                <div class="ap-metric">
-                                                    <span class="metric-label"
-                                                        title="WiFi Mode - 802.11 standard this AP operates on">WiFi Mode:</span
-                                                    >
-                                                    <span class="metric-value">
-                                                        {getDominantWiFiStandard(ap.capabilities, ap.band)}
-                                                    </span>
-                                                </div>
-                                                <div class="ap-metric">
-                                                    <span class="metric-label"
-                                                        title="WiFi Generation - WiFi generation (4, 5, 6, 7)">Generation:</span
-                                                    >
-                                                    <span class="metric-value">
-                                                        WiFi {deriveWiFiGeneration(ap.capabilities)}
-                                                    </span>
-                                                </div>
+                                            <div class="capability-item">
+                                                <span class="capability-label" title="Transmit Power - Output power of this access point">Transmit Power</span>
+                                                <span class="value-pill {ap.txPower ? 'value-neutral' : 'value-unknown'}">
+                                                    {ap.txPower ? `${ap.txPower} dBm` : "N/A"}
+                                                </span>
                                             </div>
-                                            <div class="ap-capabilities">
-                                                <div class="capability-title">
-                                                    Advanced Capabilities
-                                                </div>
-                                                <div class="capability-grid">
-                                                    <div
+                                            <div class="capability-item">
+                                                <span class="capability-label" title="WiFi Mode - 802.11 standard this AP operates on">WiFi Mode</span>
+                                                <span class="value-pill value-neutral">
+                                                    {getDominantWiFiStandard(ap.capabilities, ap.band)}
+                                                </span>
+                                            </div>
+                                                <div
                                                         class="capability-item"
                                                     >
                                                         <span
                                                             class="capability-label"
-                                                            title="BSS Transition (802.11v) - Wireless Network Management for enhanced roaming.
-• Enables AP to assist client in finding better APs
-• Provides neighbor reports and transition guidance
-• Reduces scanning time and improves roaming decisions
-• Works with 802.11r for optimal fast roaming
-• Essential for large enterprise deployments
-• Helps prevent sticky client behavior
-
-COMPATIBILITY WARNINGS FOR MSP:
-• Requires WNM (Wireless Network Management) support
-• Windows 7/8: Partial support, may ignore transition requests
-• iOS devices: Good support in iOS 9+, older devices limited
-• Android: Mixed support, vendor-dependent implementation
-• UniFi Supported, but may cause client disconnects on very old devices
-• Mixed device fleets: Consider separate SSID for devices lacking 802.11v
-• Enterprise vs BYOD: Disable in environments with uncontrolled devices
-
-NOT RECOMMENDED FOR:
-• Public hotspots with diverse device types
-• Healthcare environments with legacy medical equipment
-• Industrial settings with specialized wireless devices
-• Small offices without IT management resources"
-                                                            >BSS Transition
-                                                            (802.11v)
+                                                            title="Maximum PHY rate in Mbps (theoretical peak). Real-world throughput is lower."
+                                                        >
+                                                            Max PHY Rate
                                                         </span>
                                                         <span
-                                                            class="value-pill {getCapabilityStatusClass(
-                                                                ap.bsstransition,
-                                                            )}"
-                                                        >
-                                                            {ap.bsstransition
-                                                                ? "Supported"
-                                                                : "Not supported"}
-                                                        </span>
-                                                    </div>
-                                                    <div
-                                                        class="capability-item"
-                                                    >
-                                                        <span
-                                                            class="capability-label"
-                                                            title="Fast Roaming (802.11r)
-
-Enables rapid re-authentication when clients move between access points.
-• Reduces roaming time from 100-500ms to 50ms or less
-• Critical for VoIP, WiFi calling, and real-time applications
-• Uses Fast BSS Transition (FT) key negotiation
-• Works best when combined with 802.11k (Neighbor Reports) and 802.11v (BSS Transition)
-
-COMPATIBILITY WARNINGS FOR MSP:
-• Some legacy clients do not support 802.11r and may fail to connect
-• Windows 7/8: Known authentication and association issues
-• Older Android devices (< Android 6): Partial or broken 802.11r support
-• Many IoT devices do not support 802.11r (printers, TVs, speakers)
-• WPA3 and PMF settings can increase compatibility risk
-• Legacy device fallback: May require separate SSID for older devices
-
-UNIFI CONSIDERATIONS:
-• UniFi labels 802.11r as 'Fast Roaming'
-• Best used on user-only SSIDs with modern clients
-• Enabling 802.11r does not force clients to use it
-• Roaming behavior still depends on client decisions
-
-NOT RECOMMENDED FOR:
-• Public WiFi networks with unknown device types
-• Environments with legacy IoT or industrial equipment
-• Small offices with unmanaged BYOD and legacy devices
-• Residential or home-office deployments without testing
-
-MSP ADVICE:
-• Enable only on user SSIDs with controlled device fleets
-• Pair with 802.11k and 802.11v for best results
-• Always test legacy and IoT devices before rollout
-• Use separate SSIDs for modern vs legacy clients when needed"
-                                                        >
-                                                            Fast BSS Transition
-                                                            (802.11r)
-                                                        </span>
-                                                        <span
-                                                            class="value-pill {getCapabilityStatusClass(
-                                                                ap.fastroaming,
-                                                            )}"
-                                                        >
-                                                            {ap.fastroaming
-                                                                ? "Supported"
-                                                                : "Not supported"}
-                                                        </span>
-                                                    </div>
-                                                    {#if ap.twtSupport}
-                                                        <div
-                                                            class="capability-item"
-                                                        >
-                                                            <span
-                                                                class="capability-label"
-                                                                title="Target Wake Time (WiFi 6)
-Advanced power scheduling for WiFi 6/6E/7 devices.
-• Allows clients and APs to negotiate specific wake and sleep times
-• Significantly reduces power consumption for supported devices
-• Enables predictable latency for real-time applications
-• Critical for battery-powered sensors and mobile devices
-• Improves network efficiency with many sleeping clients
-• Requires WiFi 6 (802.11ax) or later support
-
-COMPATIBILITY WARNINGS FOR MSP:
-• Limited client device support: Mostly high-end devices only
-• UniFi 6/7 APs: TWT enabled by default on supported firmware
-• iPhone 12+: Supports TWT, battery savings noticeable
-• Android 11+: Limited support, vendor-specific implementation
-• Windows 10/11: Minimal support, mostly experimental drivers
-• Legacy devices: No TWT support, may experience scheduling conflicts
-• MSP Advice: Enable only in IoT-heavy environments with compatible devices
-• Mixed fleets: No negative impact on non-TWT devices
-• Enterprise: Consider for sensor networks and smart building deployments
-
-UNIFI CONSIDERATIONS:
-• UniFi 6/7 APs advertise TWT capability automatically
-• UniFi does not provide granular per-client TWT tuning
-• Benefits depend entirely on client adoption
-
-NOT RECOMMENDED FOR:
-• Environments with predominantly legacy devices
-• High-density networks requiring maximum airtime utilization
-• Real-time voice networks where latency consistency is critical
-• Networks without WiFi 6/6E client penetration > 50%"
-                                                                >TWT Support
-                                                                (Target Wake
-                                                                Time)</span
-                                                            >
-                                                            <span
-                                                                class="value-pill {getCapabilityStatusClass(
-                                                                    ap.twtSupport,
-                                                                )}"
-                                                            >
-                                                                {ap.twtSupport
-                                                                    ? "Supported"
-                                                                    : "Not supported"}
-                                                            </span>
-                                                        </div>
-                                                    {/if}
-                                                    <div
-                                                        class="capability-item"
-                                                    >
-                                                        <span
-                                                            class="capability-label"
-                                                            title="UAPSD (Unscheduled Automatic Power Save Delivery)
-Power save mechanism for VoIP and real-time applications.
-• Allows clients to sleep and wake for specific traffic delivery
-• Reduces WiFi power consumption on mobile devices by 15-30%
-• Essential for VoIP handsets, tablets, and battery-powered devices
-• Requires QoS/WMM support for proper operation
-• Can improve voice call quality and battery life
-• Critical for enterprise VoWiFi deployments
-
-COMPATIBILITY WARNINGS FOR MSP:
-• May cause latency issues if not properly configured
-• VoIP phones: UAPSD mandatory for battery-powered handsets
-• UniFi: Supported, but requires WMM QoS enabled
-• iOS devices: Excellent UAPSD support, minimal issues
-• Android: Variable support, vendor-dependent implementation
-• Windows: Limited support, may cause VoIP quality degradation
-• Legacy devices: Poor UAPSD handling, connection instability
-• MSP Advice: Test VoIP devices thoroughly in lab environment
-• Enterprise phones: Enable only for certified VoIP endpoints
-• Mixed environments: Monitor for voice quality issues
-
-NOT RECOMMENDED FOR:
-• Gaming networks where latency is critical
-• High-frequency trading or real-time control systems
-• Networks with poor QoS implementation
-• Environments with predominantly non-VoIP clients• Significantly reduces power consumption for supported devices"
-                                                        >
-                                                            UAPSD (U-APSD)
-                                                        </span>
-                                                        <span
-                                                            class="value-pill {capabilityMap.uapsd &&
-                                                            ap.uapsd !==
-                                                                undefined
-                                                                ? getCapabilityStatusClass(
-                                                                      ap.uapsd,
-                                                                  )
+                                                            class="value-pill {capabilityMap.maxPhyRate &&
+                                                            isNumberDefined(
+                                                                ap.maxPhyRate,
+                                                            ) &&
+                                                            ap.maxPhyRate > 0
+                                                                ? 'value-neutral'
                                                                 : 'value-unknown'}"
                                                         >
-                                                            {capabilityMap.uapsd &&
-                                                            ap.uapsd !==
-                                                                undefined
-                                                                ? ap.uapsd
-                                                                    ? "Supported"
-                                                                    : "Not supported"
+                                                            {capabilityMap.maxPhyRate &&
+                                                            isNumberDefined(
+                                                                ap.maxPhyRate,
+                                                            ) &&
+                                                            ap.maxPhyRate > 0
+                                                                ? `${ap.maxPhyRate} Mbps`
                                                                 : "N/A"}
                                                         </span>
                                                     </div>
-                                                </div>
+                                                <div
+                                                        class="capability-item"
+                                                    >
+                                                        <span
+                                                            class="capability-label"
+                                                            title="MIMO Spatial Streams
+Number of independent data streams the access point can transmit and receive.
+• More spatial streams increase potential throughput
+• Expressed as NxN (e.g., 2x2, 4x4, 8x8)
+• Requires matching client antenna and radio support
+• Each stream adds capacity, not guaranteed speed per client
+• Critical for aggregate performance in multi-client environments
 
-                                                <div class="capability-title">
-                                                    VHT/HE Features
-                                                </div>
-                                                <div class="capability-grid">
-                                                    <div
+COMPATIBILITY WARNINGS FOR MSP:
+• Most phones and tablets are only 1x1 or 2x2
+• Laptops commonly support 2x2 or 3x3
+• Single-stream clients cannot benefit from higher stream counts
+• High-stream APs do not improve range
+• Poor SNR prevents effective use of multiple streams
+
+UNIFI CONSIDERATIONS:
+• UniFi reports maximum supported spatial streams per band
+• UniFi APs dynamically allocate streams per client
+• MU-MIMO required to use multiple streams across clients simultaneously
+• OFDMA (WiFi 6/7) often provides more benefit than extra streams
+• 8x8 APs mainly benefit very high-density environments"
+                                                        >
+                                                            MIMO Streams
+                                                        </span>
+                                                        <span
+                                                            class="value-pill {capabilityMap.mimoStreams &&
+                                                            isNumberDefined(
+                                                                ap.mimoStreams,
+                                                            ) &&
+                                                            ap.mimoStreams > 0
+                                                                ? 'value-neutral'
+                                                                : 'value-unknown'}"
+                                                        >
+                                                            {capabilityMap.mimoStreams &&
+                                                            isNumberDefined(
+                                                                ap.mimoStreams,
+                                                            ) &&
+                                                            ap.mimoStreams > 0
+                                                                ? `${ap.mimoStreams}×${ap.mimoStreams}`
+                                                                : "N/A"}
+                                                        </span>
+                                                    </div>
+                                                <div
                                                         class="capability-item"
                                                     >
                                                         <span
@@ -1201,14 +1119,8 @@ NOT RECOMMENDED FOR:
                                                                 : "Not supported"}
                                                         </span>
                                                     </div>
-                                                </div>
-
-                                                <div class="capability-title">
-                                                    Performance Metrics
-                                                </div>
-                                                <div class="capability-grid">
-                                                    {#if ap.snr && ap.snr > 0}
-                                                        <div
+                                                {#if ap.snr && ap.snr > 0}
+                                                    <div
                                                             class="capability-item"
                                                         >
                                                             <span
@@ -1234,9 +1146,9 @@ Signal quality metric more important than absolute signal.
                                                                 {ap.snr} dB
                                                             </span>
                                                         </div>
-                                                    {/if}
-                                                    {#if ap.noise && ap.noise < 0}
-                                                        <div
+                                                {/if}
+                                                {#if ap.noise && ap.noise < 0}
+                                                    <div
                                                             class="capability-item"
                                                         >
                                                             <span
@@ -1251,102 +1163,9 @@ Signal quality metric more important than absolute signal.
                                                                 {ap.noise} dBm
                                                             </span>
                                                         </div>
-                                                    {/if}
-                                                    {#if ap.surveyUtilization && ap.surveyUtilization > 0}
-                                                        <div
-                                                            class="capability-item"
-                                                        >
-                                                            <span
-                                                                class="capability-label"
-                                                                title="Channel busy percentage from nl80211 survey data (airtime usage)."
-                                                            >
-                                                                Survey
-                                                                Utilization
-                                                            </span>
-                                                            <span
-                                                                class="value-pill {getUtilizationStatusClass(
-                                                                    ap.surveyUtilization,
-                                                                )}"
-                                                            >
-                                                                {ap.surveyUtilization}%
-                                                            </span>
-                                                        </div>
-                                                    {/if}
-                                                    {#if ap.surveyBusyMs && ap.surveyBusyMs > 0}
-                                                        <div
-                                                            class="capability-item"
-                                                        >
-                                                            <span
-                                                                class="capability-label"
-                                                                title="Total channel busy time from nl80211 survey data."
-                                                            >
-                                                                Survey Busy
-                                                            </span>
-                                                            <span
-                                                                class="value-pill value-neutral"
-                                                            >
-                                                                {ap.surveyBusyMs}
-                                                                ms
-                                                            </span>
-                                                        </div>
-                                                    {/if}
-                                                    {#if ap.surveyExtBusyMs && ap.surveyExtBusyMs > 0}
-                                                        <div
-                                                            class="capability-item"
-                                                        >
-                                                            <span
-                                                                class="capability-label"
-                                                                title="Channel busy time caused by non‑Wi‑Fi interference (nl80211 survey)."
-                                                            >
-                                                                Ext Busy
-                                                            </span>
-                                                            <span
-                                                                class="value-pill value-neutral"
-                                                            >
-                                                                {ap.surveyExtBusyMs}
-                                                                ms
-                                                            </span>
-                                                        </div>
-                                                    {/if}
-                                                    {#if ap.maxTxPowerDbm && ap.maxTxPowerDbm > 0}
-                                                        <div
-                                                            class="capability-item"
-                                                        >
-                                                            <span
-                                                                class="capability-label"
-                                                                title="Maximum regulatory TX power for this channel (nl80211 survey)."
-                                                            >
-                                                                Max TX Power
-                                                            </span>
-                                                            <span
-                                                                class="value-pill value-neutral"
-                                                            >
-                                                                {ap.maxTxPowerDbm}
-                                                                dBm
-                                                            </span>
-                                                        </div>
-                                                    {/if}
-                                                    {#if ap.estimatedRange}
-                                                        <div
-                                                            class="capability-item"
-                                                        >
-                                                            <span
-                                                                class="capability-label"
-                                                                title="Estimated Range - Free-space estimate. Walls/obstacles reduce actual range"
-                                                            >
-                                                                Estimated Range
-                                                            </span>
-                                                            <span
-                                                                class="value-pill value-neutral"
-                                                            >
-                                                                {Math.round(
-                                                                    ap.estimatedRange,
-                                                                )} m
-                                                            </span>
-                                                        </div>
-                                                    {/if}
-                                                    {#if ap.bssLoadUtilization !== undefined && ap.bssLoadUtilization !== null}
-                                                        <div
+                                                {/if}
+                                                {#if ap.bssLoadUtilization !== undefined && ap.bssLoadUtilization !== null}
+                                                    <div
                                                             class="capability-item"
                                                         >
                                                             <span
@@ -1376,9 +1195,9 @@ Signal quality metric more important than absolute signal.
                                                                     : "N/A"}
                                                             </span>
                                                         </div>
-                                                    {/if}
-                                                    {#if ap.bssLoadStations !== undefined && ap.bssLoadStations !== null}
-                                                        <div
+                                                {/if}
+                                                {#if ap.bssLoadStations !== undefined && ap.bssLoadStations !== null}
+                                                    <div
                                                             class="capability-item"
                                                         >
                                                             <span
@@ -1408,14 +1227,151 @@ Signal quality metric more important than absolute signal.
                                                                     : "N/A"}
                                                             </span>
                                                         </div>
-                                                    {/if}
-                                                </div>
-
-                                                <div class="capability-title">
-                                                    Security Settings
-                                                </div>
-                                                <div class="capability-grid">
+                                                {/if}
+                                                {#if ap.surveyUtilization && ap.surveyUtilization > 0}
                                                     <div
+                                                            class="capability-item"
+                                                        >
+                                                            <span
+                                                                class="capability-label"
+                                                                title="Channel busy percentage from nl80211 survey data (airtime usage)."
+                                                            >
+                                                                Survey
+                                                                Utilization
+                                                            </span>
+                                                            <span
+                                                                class="value-pill {getUtilizationStatusClass(
+                                                                    ap.surveyUtilization,
+                                                                )}"
+                                                            >
+                                                                {ap.surveyUtilization}%
+                                                            </span>
+                                                        </div>
+                                                {/if}
+                                                {#if ap.surveyBusyMs && ap.surveyBusyMs > 0}
+                                                    <div
+                                                            class="capability-item"
+                                                        >
+                                                            <span
+                                                                class="capability-label"
+                                                                title="Total channel busy time from nl80211 survey data."
+                                                            >
+                                                                Survey Busy
+                                                            </span>
+                                                            <span
+                                                                class="value-pill value-neutral"
+                                                            >
+                                                                {ap.surveyBusyMs}
+                                                                ms
+                                                            </span>
+                                                        </div>
+                                                {/if}
+                                                {#if ap.surveyExtBusyMs && ap.surveyExtBusyMs > 0}
+                                                    <div
+                                                            class="capability-item"
+                                                        >
+                                                            <span
+                                                                class="capability-label"
+                                                                title="Channel busy time caused by non‑Wi‑Fi interference (nl80211 survey)."
+                                                            >
+                                                                Ext Busy
+                                                            </span>
+                                                            <span
+                                                                class="value-pill value-neutral"
+                                                            >
+                                                                {ap.surveyExtBusyMs}
+                                                                ms
+                                                            </span>
+                                                        </div>
+                                                {/if}
+                                                {#if ap.maxTxPowerDbm && ap.maxTxPowerDbm > 0}
+                                                    <div
+                                                            class="capability-item"
+                                                        >
+                                                            <span
+                                                                class="capability-label"
+                                                                title="Maximum regulatory TX power for this channel (nl80211 survey)."
+                                                            >
+                                                                Max TX Power
+                                                            </span>
+                                                            <span
+                                                                class="value-pill value-neutral"
+                                                            >
+                                                                {ap.maxTxPowerDbm}
+                                                                dBm
+                                                            </span>
+                                                        </div>
+                                                {/if}
+                                                {#if ap.estimatedRange}
+                                                    <div
+                                                            class="capability-item"
+                                                        >
+                                                            <span
+                                                                class="capability-label"
+                                                                title="Estimated Range - Free-space estimate. Walls/obstacles reduce actual range"
+                                                            >
+                                                                Estimated Range
+                                                            </span>
+                                                            <span
+                                                                class="value-pill value-neutral"
+                                                            >
+                                                                {Math.round(
+                                                                    ap.estimatedRange,
+                                                                )} m
+                                                            </span>
+                                                        </div>
+                                                {/if}
+                                                <div
+                                                        class="capability-item"
+                                                    >
+                                                        <span
+                                                            class="capability-label"
+                                                            title="DTIM Interval (Delivery Traffic Indication Message)
+Controls how often buffered broadcast and multicast traffic is delivered.
+• Measured in beacon intervals (DTIM = every N beacons)
+• Lower DTIM = more frequent wake-ups for clients
+• Higher DTIM = better battery life, higher latency for multicast
+• Critical for power-saving behavior on mobile devices
+• Directly impacts VoIP, push notifications, and IoT responsiveness
+
+COMPATIBILITY WARNINGS FOR MSP:
+• Too low DTIM increases battery drain on phones and tablets
+• Too high DTIM delays multicast, mDNS, and ARP traffic
+• Can break push notifications on iOS and Android
+• VoIP and WiFi calling may suffer at high DTIM values
+• IoT devices often require specific DTIM behavior
+
+UNIFI CONSIDERATIONS:
+• UniFi defaults: 2.4 GHz = DTIM 1, 5 GHz = DTIM 3
+• UniFi applies DTIM per SSID, not per AP
+• UniFi Talk and VoIP endpoints prefer lower DTIM
+• High DTIM can cause perceived 'slow wake' on mobile devices
+• DTIM interacts closely with WMM and UAPSD
+
+MSP ADVICE:
+• Use defaults unless there is an issue
+• Use lower DTIM (1–2) for VoIP and real-time SSIDs
+• Use higher DTIM (3–5) for guest or battery-focused SSIDs
+• Separate SSIDs for voice, user, and IoT devices when possible
+• Always test iOS and Android push behavior after changes"
+                                                        >
+                                                            DTIM Interval
+                                                        </span>
+                                                        <span
+                                                            class="value-pill {ap.dtim >
+                                                            0
+                                                                ? 'value-neutral'
+                                                                : 'value-unknown'}"
+                                                        >
+                                                            {ap.dtim > 0
+                                                                ? ap.dtim
+                                                                : "N/A"}
+                                                        </span>
+                                                    </div>
+                                        </div>
+                                        <div class="detail-section">
+                                            <div class="detail-section-title">Security</div>
+                                                <div
                                                         class="capability-item"
                                                     >
                                                         <span
@@ -1467,7 +1423,7 @@ MSP ADVICE:
                                                                 : "N/A"}
                                                         </span>
                                                     </div>
-                                                    <div
+                                                <div
                                                         class="capability-item"
                                                     >
                                                         <span
@@ -1515,7 +1471,7 @@ MSP ADVICE:
                                                                 : "N/A"}
                                                         </span>
                                                     </div>
-                                                    <div
+                                                <div
                                                         class="capability-item"
                                                     >
                                                         <span
@@ -1564,8 +1520,8 @@ MSP ADVICE:
                                                                 : "N/A"}
                                                         </span>
                                                     </div>
-                                                    {#if ap.wps !== undefined}
-                                                        <div
+                                                {#if ap.wps !== undefined}
+                                                    <div
                                                             class="capability-item"
                                                         >
                                                             <span
@@ -1592,110 +1548,42 @@ MSP ADVICE:
                                                                     : "Disabled"}
                                                             </span>
                                                         </div>
-                                                    {/if}
-                                                </div>
-
-                                                <div class="capability-title">
-                                                    WiFi 6/7 Features
-                                                </div>
-                                                <div class="capability-grid">
-                                                    <div
+                                                {/if}
+                                                <div
                                                         class="capability-item"
                                                     >
                                                         <span
                                                             class="capability-label"
-                                                            title="BBSS Color (0–63) is a WiFi 6+ spatial reuse identifier.
-• Helps devices distinguish overlapping access points with the same SSID on same channel
-• Enables simultaneous transmissions in dense environments
-• Reduces contention and improves airtime efficiency
-
-COMPATIBILITY WARNINGS FOR MSP:
-• Only WiFi 6/6E/7 clients benefit
-• Legacy devices ignore BSS Color entirely
-• Misconfigured dense deployments may see minimal gains
-
-UNIFI CONSIDERATIONS:
-• UniFi auto-assigns BSS Color by default
-• Manual overrides rarely needed
-• Works best with OBSS PD enabled in dense AP layouts
-
-MSP ADVICE:
-• Leave enabled in high-density environments
-• No downside for legacy clients
-• Combine with proper channel planning for best results"
+                                                            title="Country Code (Regulatory Domain)
+Defines legal transmit power limits and allowed WiFi channels.
+• Controls maximum TX power per band and frequencies (2.4 / 5 / 6 GHz)
+• Determines available channels and DFS requirements
+• Enforced by local regulatory authorities (FCC, ETSI, etc.)
+• Critical for legal compliance and RF performance
+• Affects roaming behavior and channel planning"
                                                         >
-                                                            BSS Color
+                                                            Country Code
                                                         </span>
                                                         <span
-                                                            class="value-pill {capabilityMap.bssColor &&
-                                                            ap.bssColor !==
-                                                                undefined &&
-                                                            ap.bssColor !== null
+                                                            class="value-pill {capabilityMap.countryCode &&
+                                                            isNonEmptyString(
+                                                                ap.countryCode,
+                                                            )
                                                                 ? 'value-neutral'
                                                                 : 'value-unknown'}"
                                                         >
-                                                            {capabilityMap.bssColor &&
-                                                            ap.bssColor !==
-                                                                undefined &&
-                                                            ap.bssColor !== null
-                                                                ? ap.bssColor
+                                                            {capabilityMap.countryCode &&
+                                                            isNonEmptyString(
+                                                                ap.countryCode,
+                                                            )
+                                                                ? ap.countryCode
                                                                 : "N/A"}
                                                         </span>
                                                     </div>
-                                                    <div
-                                                        class="capability-item"
-                                                    >
-                                                        <span
-                                                            class="capability-label"
-                                                            title="OBSS PD (Overlapping BSS Packet Detect) - WiFi 6 spatial reuse for dense environments.
-• Allows APs to transmit on channels used by neighboring networks
-• Improves spectrum efficiency in crowded WiFi environments
-• Requires signal strength assessment before transmitting
-• Critical for dense deployments (apartments, offices, stadiums)
-• Can increase network capacity by 20-30% in busy areas
-• WiFi 6/6E feature for better coexistence
-• Helps mitigate interference in high-density deployments
-
-COMPATIBILITY WARNINGS FOR MSP:
-• Only WiFi 6/6E devices support OBSS PD spatial reuse
-• Legacy WiFi 5/4 devices don't benefit from this feature
-• Mixed environments may see limited improvement
-• UniFi 7 WAP implements OBSS PD differently than competitors
-
-NOT RECOMMENDED FOR:
-• Networks with mostly legacy devices (WiFi 5 or older)
-• Sparse deployments with minimal interference
-• Environments where all devices support WiFi 6/6E
-• Simple setups where complexity outweighs benefits
-
-UNIFI 7 CONSIDERATIONS:
-• UniFi 7 WAP has aggressive OBSS PD implementation
-• Can cause issues with non-UniFi neighboring networks
-• Enable only in truly dense multi-AP environments
-• Monitor for client connectivity issues after enabling"
-                                                        >
-                                                            OBSS PD (Spatial
-                                                            Reuse)
-                                                        </span>
-                                                        <span
-                                                            class="value-pill {capabilityMap.obssPD &&
-                                                            ap.obssPD !==
-                                                                undefined
-                                                                ? getCapabilityStatusClass(
-                                                                      ap.obssPD,
-                                                                  )
-                                                                : 'value-unknown'}"
-                                                        >
-                                                            {capabilityMap.obssPD &&
-                                                            ap.obssPD !==
-                                                                undefined
-                                                                ? ap.obssPD
-                                                                    ? "Supported"
-                                                                    : "Not supported"
-                                                                : "N/A"}
-                                                        </span>
-                                                    </div>
-                                                    <div
+                                        </div>
+                                        <div class="detail-section">
+                                            <div class="detail-section-title">WiFi 6 / 7</div>
+                                                <div
                                                         class="capability-item"
                                                     >
                                                         <span
@@ -1731,8 +1619,8 @@ Highest modulation scheme supported by the AP.
                                                                 : "N/A"}
                                                         </span>
                                                     </div>
-                                                    {#if ap.mumimo}
-                                                        <div
+                                                {#if ap.mumimo}
+                                                    <div
                                                             class="capability-item"
                                                         >
                                                             <span
@@ -1787,9 +1675,251 @@ MSP ADVICE:
                                                                     : "Not supported"}
                                                             </span>
                                                         </div>
-                                                    {/if}
-                                                    {#if ap.neighborReport !== undefined}
-                                                        <div
+                                                {/if}
+                                                <div
+                                                        class="capability-item"
+                                                    >
+                                                        <span
+                                                            class="capability-label"
+                                                            title="BBSS Color (0–63) is a WiFi 6+ spatial reuse identifier.
+• Helps devices distinguish overlapping access points with the same SSID on same channel
+• Enables simultaneous transmissions in dense environments
+• Reduces contention and improves airtime efficiency
+
+COMPATIBILITY WARNINGS FOR MSP:
+• Only WiFi 6/6E/7 clients benefit
+• Legacy devices ignore BSS Color entirely
+• Misconfigured dense deployments may see minimal gains
+
+UNIFI CONSIDERATIONS:
+• UniFi auto-assigns BSS Color by default
+• Manual overrides rarely needed
+• Works best with OBSS PD enabled in dense AP layouts
+
+MSP ADVICE:
+• Leave enabled in high-density environments
+• No downside for legacy clients
+• Combine with proper channel planning for best results"
+                                                        >
+                                                            BSS Color
+                                                        </span>
+                                                        <span
+                                                            class="value-pill {capabilityMap.bssColor &&
+                                                            ap.bssColor !==
+                                                                undefined &&
+                                                            ap.bssColor !== null
+                                                                ? 'value-neutral'
+                                                                : 'value-unknown'}"
+                                                        >
+                                                            {capabilityMap.bssColor &&
+                                                            ap.bssColor !==
+                                                                undefined &&
+                                                            ap.bssColor !== null
+                                                                ? ap.bssColor
+                                                                : "N/A"}
+                                                        </span>
+                                                    </div>
+                                                <div
+                                                        class="capability-item"
+                                                    >
+                                                        <span
+                                                            class="capability-label"
+                                                            title="OBSS PD (Overlapping BSS Packet Detect) - WiFi 6 spatial reuse for dense environments.
+• Allows APs to transmit on channels used by neighboring networks
+• Improves spectrum efficiency in crowded WiFi environments
+• Requires signal strength assessment before transmitting
+• Critical for dense deployments (apartments, offices, stadiums)
+• Can increase network capacity by 20-30% in busy areas
+• WiFi 6/6E feature for better coexistence
+• Helps mitigate interference in high-density deployments
+
+COMPATIBILITY WARNINGS FOR MSP:
+• Only WiFi 6/6E devices support OBSS PD spatial reuse
+• Legacy WiFi 5/4 devices don't benefit from this feature
+• Mixed environments may see limited improvement
+• UniFi 7 WAP implements OBSS PD differently than competitors
+
+NOT RECOMMENDED FOR:
+• Networks with mostly legacy devices (WiFi 5 or older)
+• Sparse deployments with minimal interference
+• Environments where all devices support WiFi 6/6E
+• Simple setups where complexity outweighs benefits
+
+UNIFI 7 CONSIDERATIONS:
+• UniFi 7 WAP has aggressive OBSS PD implementation
+• Can cause issues with non-UniFi neighboring networks
+• Enable only in truly dense multi-AP environments
+• Monitor for client connectivity issues after enabling"
+                                                        >
+                                                            OBSS PD (Spatial
+                                                            Reuse)
+                                                        </span>
+                                                        <span
+                                                            class="value-pill {capabilityMap.obssPD &&
+                                                            ap.obssPD !==
+                                                                undefined
+                                                                ? getCapabilityStatusClass(
+                                                                      ap.obssPD,
+                                                                  )
+                                                                : 'value-unknown'}"
+                                                        >
+                                                            {capabilityMap.obssPD &&
+                                                            ap.obssPD !==
+                                                                undefined
+                                                                ? ap.obssPD
+                                                                    ? "Supported"
+                                                                    : "Not supported"
+                                                                : "N/A"}
+                                                        </span>
+                                                    </div>
+                                                {#if ap.twtSupport}
+                                                    <div
+                                                            class="capability-item"
+                                                        >
+                                                            <span
+                                                                class="capability-label"
+                                                                title="Target Wake Time (WiFi 6)
+Advanced power scheduling for WiFi 6/6E/7 devices.
+• Allows clients and APs to negotiate specific wake and sleep times
+• Significantly reduces power consumption for supported devices
+• Enables predictable latency for real-time applications
+• Critical for battery-powered sensors and mobile devices
+• Improves network efficiency with many sleeping clients
+• Requires WiFi 6 (802.11ax) or later support
+
+COMPATIBILITY WARNINGS FOR MSP:
+• Limited client device support: Mostly high-end devices only
+• UniFi 6/7 APs: TWT enabled by default on supported firmware
+• iPhone 12+: Supports TWT, battery savings noticeable
+• Android 11+: Limited support, vendor-specific implementation
+• Windows 10/11: Minimal support, mostly experimental drivers
+• Legacy devices: No TWT support, may experience scheduling conflicts
+• MSP Advice: Enable only in IoT-heavy environments with compatible devices
+• Mixed fleets: No negative impact on non-TWT devices
+• Enterprise: Consider for sensor networks and smart building deployments
+
+UNIFI CONSIDERATIONS:
+• UniFi 6/7 APs advertise TWT capability automatically
+• UniFi does not provide granular per-client TWT tuning
+• Benefits depend entirely on client adoption
+
+NOT RECOMMENDED FOR:
+• Environments with predominantly legacy devices
+• High-density networks requiring maximum airtime utilization
+• Real-time voice networks where latency consistency is critical
+• Networks without WiFi 6/6E client penetration > 50%"
+                                                                >TWT Support
+                                                                (Target Wake
+                                                                Time)</span
+                                                            >
+                                                            <span
+                                                                class="value-pill {getCapabilityStatusClass(
+                                                                    ap.twtSupport,
+                                                                )}"
+                                                            >
+                                                                {ap.twtSupport
+                                                                    ? "Supported"
+                                                                    : "Not supported"}
+                                                            </span>
+                                                        </div>
+                                                {/if}
+                                        </div>
+                                        <div class="detail-section last">
+                                            <div class="detail-section-title">Roaming / QoS</div>
+                                                <div
+                                                        class="capability-item"
+                                                    >
+                                                        <span
+                                                            class="capability-label"
+                                                            title="BSS Transition (802.11v) - Wireless Network Management for enhanced roaming.
+• Enables AP to assist client in finding better APs
+• Provides neighbor reports and transition guidance
+• Reduces scanning time and improves roaming decisions
+• Works with 802.11r for optimal fast roaming
+• Essential for large enterprise deployments
+• Helps prevent sticky client behavior
+
+COMPATIBILITY WARNINGS FOR MSP:
+• Requires WNM (Wireless Network Management) support
+• Windows 7/8: Partial support, may ignore transition requests
+• iOS devices: Good support in iOS 9+, older devices limited
+• Android: Mixed support, vendor-dependent implementation
+• UniFi Supported, but may cause client disconnects on very old devices
+• Mixed device fleets: Consider separate SSID for devices lacking 802.11v
+• Enterprise vs BYOD: Disable in environments with uncontrolled devices
+
+NOT RECOMMENDED FOR:
+• Public hotspots with diverse device types
+• Healthcare environments with legacy medical equipment
+• Industrial settings with specialized wireless devices
+• Small offices without IT management resources"
+                                                            >BSS Transition
+                                                            (802.11v)
+                                                        </span>
+                                                        <span
+                                                            class="value-pill {getCapabilityStatusClass(
+                                                                ap.bsstransition,
+                                                            )}"
+                                                        >
+                                                            {ap.bsstransition
+                                                                ? "Supported"
+                                                                : "Not supported"}
+                                                        </span>
+                                                    </div>
+                                                <div
+                                                        class="capability-item"
+                                                    >
+                                                        <span
+                                                            class="capability-label"
+                                                            title="Fast Roaming (802.11r)
+
+Enables rapid re-authentication when clients move between access points.
+• Reduces roaming time from 100-500ms to 50ms or less
+• Critical for VoIP, WiFi calling, and real-time applications
+• Uses Fast BSS Transition (FT) key negotiation
+• Works best when combined with 802.11k (Neighbor Reports) and 802.11v (BSS Transition)
+
+COMPATIBILITY WARNINGS FOR MSP:
+• Some legacy clients do not support 802.11r and may fail to connect
+• Windows 7/8: Known authentication and association issues
+• Older Android devices (< Android 6): Partial or broken 802.11r support
+• Many IoT devices do not support 802.11r (printers, TVs, speakers)
+• WPA3 and PMF settings can increase compatibility risk
+• Legacy device fallback: May require separate SSID for older devices
+
+UNIFI CONSIDERATIONS:
+• UniFi labels 802.11r as 'Fast Roaming'
+• Best used on user-only SSIDs with modern clients
+• Enabling 802.11r does not force clients to use it
+• Roaming behavior still depends on client decisions
+
+NOT RECOMMENDED FOR:
+• Public WiFi networks with unknown device types
+• Environments with legacy IoT or industrial equipment
+• Small offices with unmanaged BYOD and legacy devices
+• Residential or home-office deployments without testing
+
+MSP ADVICE:
+• Enable only on user SSIDs with controlled device fleets
+• Pair with 802.11k and 802.11v for best results
+• Always test legacy and IoT devices before rollout
+• Use separate SSIDs for modern vs legacy clients when needed"
+                                                        >
+                                                            Fast BSS Transition
+                                                            (802.11r)
+                                                        </span>
+                                                        <span
+                                                            class="value-pill {getCapabilityStatusClass(
+                                                                ap.fastroaming,
+                                                            )}"
+                                                        >
+                                                            {ap.fastroaming
+                                                                ? "Supported"
+                                                                : "Not supported"}
+                                                        </span>
+                                                    </div>
+                                                {#if ap.neighborReport !== undefined}
+                                                    <div
                                                             class="capability-item"
                                                         >
                                                             <span
@@ -1828,14 +1958,8 @@ MSP ADVICE:
                                                                     : "Not supported"}
                                                             </span>
                                                         </div>
-                                                    {/if}
-                                                </div>
-
-                                                <div class="capability-title">
-                                                    Management & QoS
-                                                </div>
-                                                <div class="capability-grid">
-                                                    <div
+                                                {/if}
+                                                <div
                                                         class="capability-item"
                                                     >
                                                         <span
@@ -1893,166 +2017,60 @@ MSP ADVICE:
                                                                 : "N/A"}
                                                         </span>
                                                     </div>
-                                                    <div
+                                                <div
                                                         class="capability-item"
                                                     >
                                                         <span
                                                             class="capability-label"
-                                                            title="Country Code (Regulatory Domain)
-Defines legal transmit power limits and allowed WiFi channels.
-• Controls maximum TX power per band and frequencies (2.4 / 5 / 6 GHz)
-• Determines available channels and DFS requirements
-• Enforced by local regulatory authorities (FCC, ETSI, etc.)
-• Critical for legal compliance and RF performance
-• Affects roaming behavior and channel planning"
-                                                        >
-                                                            Country Code
-                                                        </span>
-                                                        <span
-                                                            class="value-pill {capabilityMap.countryCode &&
-                                                            isNonEmptyString(
-                                                                ap.countryCode,
-                                                            )
-                                                                ? 'value-neutral'
-                                                                : 'value-unknown'}"
-                                                        >
-                                                            {capabilityMap.countryCode &&
-                                                            isNonEmptyString(
-                                                                ap.countryCode,
-                                                            )
-                                                                ? ap.countryCode
-                                                                : "N/A"}
-                                                        </span>
-                                                    </div>
-                                                </div>
-
-                                                <div class="capability-title">
-                                                    Other Settings
-                                                </div>
-                                                <div class="capability-grid">
-                                                    <div
-                                                        class="capability-item"
-                                                    >
-                                                        <span
-                                                            class="capability-label"
-                                                            title="DTIM Interval (Delivery Traffic Indication Message)
-Controls how often buffered broadcast and multicast traffic is delivered.
-• Measured in beacon intervals (DTIM = every N beacons)
-• Lower DTIM = more frequent wake-ups for clients
-• Higher DTIM = better battery life, higher latency for multicast
-• Critical for power-saving behavior on mobile devices
-• Directly impacts VoIP, push notifications, and IoT responsiveness
+                                                            title="UAPSD (Unscheduled Automatic Power Save Delivery)
+Power save mechanism for VoIP and real-time applications.
+• Allows clients to sleep and wake for specific traffic delivery
+• Reduces WiFi power consumption on mobile devices by 15-30%
+• Essential for VoIP handsets, tablets, and battery-powered devices
+• Requires QoS/WMM support for proper operation
+• Can improve voice call quality and battery life
+• Critical for enterprise VoWiFi deployments
 
 COMPATIBILITY WARNINGS FOR MSP:
-• Too low DTIM increases battery drain on phones and tablets
-• Too high DTIM delays multicast, mDNS, and ARP traffic
-• Can break push notifications on iOS and Android
-• VoIP and WiFi calling may suffer at high DTIM values
-• IoT devices often require specific DTIM behavior
+• May cause latency issues if not properly configured
+• VoIP phones: UAPSD mandatory for battery-powered handsets
+• UniFi: Supported, but requires WMM QoS enabled
+• iOS devices: Excellent UAPSD support, minimal issues
+• Android: Variable support, vendor-dependent implementation
+• Windows: Limited support, may cause VoIP quality degradation
+• Legacy devices: Poor UAPSD handling, connection instability
+• MSP Advice: Test VoIP devices thoroughly in lab environment
+• Enterprise phones: Enable only for certified VoIP endpoints
+• Mixed environments: Monitor for voice quality issues
 
-UNIFI CONSIDERATIONS:
-• UniFi defaults: 2.4 GHz = DTIM 1, 5 GHz = DTIM 3
-• UniFi applies DTIM per SSID, not per AP
-• UniFi Talk and VoIP endpoints prefer lower DTIM
-• High DTIM can cause perceived 'slow wake' on mobile devices
-• DTIM interacts closely with WMM and UAPSD
-
-MSP ADVICE:
-• Use defaults unless there is an issue
-• Use lower DTIM (1–2) for VoIP and real-time SSIDs
-• Use higher DTIM (3–5) for guest or battery-focused SSIDs
-• Separate SSIDs for voice, user, and IoT devices when possible
-• Always test iOS and Android push behavior after changes"
+NOT RECOMMENDED FOR:
+• Gaming networks where latency is critical
+• High-frequency trading or real-time control systems
+• Networks with poor QoS implementation
+• Environments with predominantly non-VoIP clients• Significantly reduces power consumption for supported devices"
                                                         >
-                                                            DTIM Interval
+                                                            UAPSD (U-APSD)
                                                         </span>
                                                         <span
-                                                            class="value-pill {ap.dtim >
-                                                            0
-                                                                ? 'value-neutral'
+                                                            class="value-pill {capabilityMap.uapsd &&
+                                                            ap.uapsd !==
+                                                                undefined
+                                                                ? getCapabilityStatusClass(
+                                                                      ap.uapsd,
+                                                                  )
                                                                 : 'value-unknown'}"
                                                         >
-                                                            {ap.dtim > 0
-                                                                ? ap.dtim
+                                                            {capabilityMap.uapsd &&
+                                                            ap.uapsd !==
+                                                                undefined
+                                                                ? ap.uapsd
+                                                                    ? "Supported"
+                                                                    : "Not supported"
                                                                 : "N/A"}
                                                         </span>
                                                     </div>
-                                                    <div
-                                                        class="capability-item"
-                                                    >
-                                                        <span
-                                                            class="capability-label"
-                                                            title="MIMO Spatial Streams
-Number of independent data streams the access point can transmit and receive.
-• More spatial streams increase potential throughput
-• Expressed as NxN (e.g., 2x2, 4x4, 8x8)
-• Requires matching client antenna and radio support
-• Each stream adds capacity, not guaranteed speed per client
-• Critical for aggregate performance in multi-client environments
-
-COMPATIBILITY WARNINGS FOR MSP:
-• Most phones and tablets are only 1x1 or 2x2
-• Laptops commonly support 2x2 or 3x3
-• Single-stream clients cannot benefit from higher stream counts
-• High-stream APs do not improve range
-• Poor SNR prevents effective use of multiple streams
-
-UNIFI CONSIDERATIONS:
-• UniFi reports maximum supported spatial streams per band
-• UniFi APs dynamically allocate streams per client
-• MU-MIMO required to use multiple streams across clients simultaneously
-• OFDMA (WiFi 6/7) often provides more benefit than extra streams
-• 8x8 APs mainly benefit very high-density environments"
-                                                        >
-                                                            MIMO Streams
-                                                        </span>
-                                                        <span
-                                                            class="value-pill {capabilityMap.mimoStreams &&
-                                                            isNumberDefined(
-                                                                ap.mimoStreams,
-                                                            ) &&
-                                                            ap.mimoStreams > 0
-                                                                ? 'value-neutral'
-                                                                : 'value-unknown'}"
-                                                        >
-                                                            {capabilityMap.mimoStreams &&
-                                                            isNumberDefined(
-                                                                ap.mimoStreams,
-                                                            ) &&
-                                                            ap.mimoStreams > 0
-                                                                ? `${ap.mimoStreams}×${ap.mimoStreams}`
-                                                                : "N/A"}
-                                                        </span>
-                                                    </div>
-                                                    <div
-                                                        class="capability-item"
-                                                    >
-                                                        <span
-                                                            class="capability-label"
-                                                            title="Maximum PHY rate in Mbps (theoretical peak). Real-world throughput is lower."
-                                                        >
-                                                            Max PHY Rate
-                                                        </span>
-                                                        <span
-                                                            class="value-pill {capabilityMap.maxPhyRate &&
-                                                            isNumberDefined(
-                                                                ap.maxPhyRate,
-                                                            ) &&
-                                                            ap.maxPhyRate > 0
-                                                                ? 'value-neutral'
-                                                                : 'value-unknown'}"
-                                                        >
-                                                            {capabilityMap.maxPhyRate &&
-                                                            isNumberDefined(
-                                                                ap.maxPhyRate,
-                                                            ) &&
-                                                            ap.maxPhyRate > 0
-                                                                ? `${ap.maxPhyRate} Mbps`
-                                                                : "N/A"}
-                                                        </span>
-                                                    </div>
-                                                </div>
-                                            </div>
+                                        </div>
+                                    </div>
                                         </div>
                                     {/each}
                                 </div>
@@ -2063,7 +2081,7 @@ UNIFI CONSIDERATIONS:
                     <!-- Issues Row -->
                     {#if network.hasIssues}
                         <tr class="issues-row">
-                            <td colspan="6">
+                            <td colspan="9">
                                 <div class="issues-container">
                                     {#each network.issueMessages as issue}
                                         <div class="issue-item">
@@ -2344,199 +2362,365 @@ UNIFI CONSIDERATIONS:
 
     .network-row {
         transition: background-color 0.2s ease;
+        cursor: pointer;
     }
 
     .network-row:hover {
-        background: var(--row-hover);
+        background: var(--bg-3);
     }
 
     .network-row.connected {
-        background: var(--row-active);
-        border-left: 3px solid var(--success);
+        background: rgba(74, 222, 128, 0.04);
+    }
+
+    .network-row.connected:hover {
+        background: rgba(74, 222, 128, 0.07);
+    }
+
+    .network-row.expanded {
+        background: var(--bg-3);
+    }
+
+    .network-row.expanded td {
+        border-bottom-color: transparent;
     }
 
     .network-row.has-issues {
         border-left: 3px solid var(--warning);
     }
 
+    .chevron-col {
+        width: 30px;
+    }
+
+    .chevron-cell {
+        color: var(--fg-3);
+        text-align: center;
+        width: 30px;
+    }
+
+    .num-col {
+        width: 62px;
+    }
+
+    .band-col {
+        width: 90px;
+    }
+
     .ssid-cell {
-        cursor: pointer;
-        font-weight: 600;
+        font-weight: 500;
     }
 
     .ssid-content {
         display: flex;
         flex-direction: column;
-        gap: 2px;
+        gap: 3px;
+    }
+
+    .ssid-line {
+        display: flex;
+        align-items: center;
+        gap: 6px;
     }
 
     .ssid-text {
-        font-size: 15px;
+        font-size: 13px;
+        font-weight: 500;
+        color: var(--fg-1);
     }
 
-    .vendor-hint {
-        font-size: 12px;
-        color: var(--accent-2);
+    .ssid-text.hidden-ssid {
+        color: var(--fg-3);
         font-style: italic;
     }
 
-    .expand-indicator {
-        font-size: 12px;
-        color: var(--muted-2);
-        margin-top: 2px;
+    .ssid-sub {
+        font-size: 10.5px;
+        color: var(--fg-3);
     }
 
     .ap-count-cell {
-        text-align: center;
-        color: var(--muted);
+        color: var(--fg-2);
+    }
+
+    .num {
+        text-align: right;
+        font-family: var(--font-mono);
+        font-variant-numeric: tabular-nums;
+    }
+
+    .band-cell {
+        font-size: 11px;
+    }
+
+    .band-text {
+        color: var(--fg-2);
+    }
+
+    .band-width {
+        color: var(--fg-4);
+        margin-left: 4px;
     }
 
     .channel-cell {
-        text-align: center;
-        font-weight: 500;
+        color: var(--fg-1);
     }
 
     .signal-cell {
-        font-weight: 600;
+        font-weight: 500;
+    }
+
+    .signal-row {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
+
+    .signal-value {
+        font-size: 11px;
+    }
+
+    .sig-bar {
+        display: inline-flex;
+        align-items: flex-end;
+        gap: 2px;
+        height: 12px;
+    }
+
+    .sig-bar span {
+        width: 3px;
+        background: var(--fg-4);
+        border-radius: 1px;
+    }
+
+    .sig-bar span.on {
+        background: var(--ok);
+    }
+
+    .sig-bar span.on.warn {
+        background: var(--warn);
+    }
+
+    .sig-bar span.on.bad {
+        background: var(--bad);
     }
 
     .security-cell {
         font-weight: 500;
     }
 
+    .security-inline {
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+        font-size: 11px;
+    }
+
     .signal-good {
-        color: var(--success);
+        color: var(--ok);
     }
 
     .signal-medium {
-        color: var(--warning);
+        color: var(--warn);
     }
 
     .signal-poor {
-        color: var(--danger);
+        color: var(--bad);
     }
 
     .security-good {
-        color: var(--success);
+        color: var(--fg-1);
     }
 
     .security-medium {
-        color: var(--warning);
+        color: var(--warn);
     }
 
     .security-poor {
-        color: var(--danger);
+        color: var(--bad);
     }
 
     .status-cell {
-        text-align: center;
+        font-size: 11px;
     }
 
-    .status-connected {
-        color: var(--success);
-        font-weight: 600;
+    .status-available {
+        color: var(--fg-3);
+        font-size: 11px;
     }
 
-    .status-warning {
-        color: var(--warning);
-        font-weight: 600;
+    /* Chip / pill */
+    .chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+        padding: 3px 8px;
+        border-radius: 12px;
+        font-size: 11px;
+        font-weight: 500;
+        font-family: var(--font-mono);
+        border: 1px solid var(--line-2);
+        color: var(--fg-2);
+        background: var(--bg-3);
+        white-space: nowrap;
     }
 
-    .status-ok {
-        color: var(--muted-2);
+    .chip.ok {
+        color: var(--ok);
+        border-color: var(--ok-line);
+        background: var(--ok-bg);
+    }
+
+    .chip.warn {
+        color: var(--warn);
+        border-color: var(--warn-line);
+        background: var(--warn-bg);
+    }
+
+    .chip.bad {
+        color: var(--bad);
+        border-color: var(--bad-line);
+        background: var(--bad-bg);
+    }
+
+    .chip.acc {
+        color: var(--acc-1);
+        border-color: var(--acc-1-line);
+        background: var(--acc-1-bg);
+    }
+
+    .chip.ghost {
+        background: transparent;
     }
 
     .ap-details-row {
-        background: var(--panel-strong);
+        background: var(--bg-1);
     }
 
     .ap-details {
-        padding: 16px;
-        display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-        gap: 12px;
+        padding: 4px 16px 16px;
+        display: flex;
+        flex-direction: column;
+        gap: 0;
     }
 
     .ap-card {
-        background: var(--panel);
-        border: 1px solid var(--border);
-        border-radius: 4px;
-        padding: 12px;
+        padding: 0;
+        border-bottom: 1px solid var(--line-1);
+    }
+
+    .ap-card:last-child {
+        border-bottom: none;
     }
 
     .ap-header {
         display: flex;
-        justify-content: space-between;
         align-items: center;
-        margin-bottom: 8px;
-        padding-bottom: 6px;
-        border-bottom: 1px solid var(--border);
+        gap: 12px;
+        margin-bottom: 14px;
+        padding-bottom: 12px;
+        border-bottom: 1px solid var(--line-1);
     }
 
-    .ap-bssid {
-        font-family: monospace;
-        font-size: 13px;
-        color: var(--accent-2);
+    .ap-header-main {
+        flex: 1;
+        min-width: 0;
     }
 
-    .ap-band {
-        background: var(--panel-strong);
-        padding: 2px 6px;
-        border-radius: 3px;
-        font-size: 11px;
-        color: var(--muted);
-    }
-
-    .ap-metrics {
-        display: grid;
-        grid-template-columns: 1fr 1fr;
-        gap: 6px;
-    }
-
-    .ap-metric {
+    .ap-header-line {
         display: flex;
-        justify-content: space-between;
-        font-size: 12px;
+        align-items: center;
+        gap: 8px;
+        margin-bottom: 2px;
+        flex-wrap: wrap;
     }
 
-    .metric-label {
-        color: var(--text);
-    }
-
-    .ap-capabilities {
-        margin-top: 12px;
-        padding-top: 12px;
-        border-top: 1px solid var(--border);
-    }
-
-    .capability-title {
-        font-size: 12px;
+    .ap-ssid {
+        font-size: 14px;
         font-weight: 600;
-        color: var(--muted);
-        margin-bottom: 8px;
-        text-transform: uppercase;
-        letter-spacing: 0.5px;
+        color: var(--fg-1);
     }
 
-    .capability-grid {
+    .ap-header-sub {
+        font-size: 11px;
+        color: var(--fg-3);
+    }
+
+    .ap-sparkline {
+        flex-shrink: 0;
+        display: block;
+    }
+
+    /* Detail grid — 4-column expanded view */
+    .detail-grid {
         display: grid;
-        grid-template-columns: 1fr 1fr;
-        gap: 6px;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 0;
+    }
+
+    .detail-section {
+        padding: 14px 16px;
+        border-right: 1px solid var(--line-1);
+        min-width: 0;
+    }
+
+    .detail-section.last,
+    .detail-section:last-child {
+        border-right: none;
+    }
+
+    .detail-section-title {
+        font-size: 10px;
+        text-transform: uppercase;
+        letter-spacing: 0.12em;
+        color: var(--fg-3);
+        font-weight: 600;
+        margin-bottom: 10px;
+    }
+
+    @media (max-width: 1100px) {
+        .detail-grid {
+            grid-template-columns: repeat(2, 1fr);
+        }
+        .detail-section {
+            border-right: none;
+            border-bottom: 1px solid var(--line-1);
+        }
+        .detail-section:nth-child(odd) {
+            border-right: 1px solid var(--line-1);
+        }
+    }
+
+    @media (max-width: 700px) {
+        .detail-grid {
+            grid-template-columns: 1fr;
+        }
+        .detail-section:nth-child(odd) {
+            border-right: none;
+        }
     }
 
     .capability-item {
         display: flex;
         justify-content: space-between;
-        font-size: 11px;
         align-items: center;
+        gap: 8px;
+        padding: 5px 0;
+        font-size: 12px;
+        border-bottom: 1px dashed var(--line-1);
+    }
+
+    .capability-item:last-child {
+        border-bottom: none;
     }
 
     .capability-label {
-        color: var(--text);
+        color: var(--fg-3);
         display: flex;
         align-items: center;
         position: relative;
         cursor: help;
+        font-size: 11.5px;
     }
 
     .capability-value {
