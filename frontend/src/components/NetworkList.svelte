@@ -379,6 +379,89 @@
         return "value-bad";
     }
 
+    function deriveWiFiGeneration(capabilities) {
+        if (!capabilities || capabilities.length === 0) return "Unknown";
+        const lower = capabilities.map(c => (c || "").toLowerCase());
+
+        if (lower.some(c => c.includes("wifi7") || c.includes("802.11be") || c.includes("eht"))) {
+            return "7";
+        }
+        if (lower.some(c => c.includes("wifi6") || c.includes("802.11ax") || c.includes("he"))) {
+            return "6";
+        }
+        if (lower.some(c => c.includes("wifi5") || c.includes("802.11ac") || c.includes("vht"))) {
+            return "5";
+        }
+        if (lower.some(c => c.includes("wifi4") || c.includes("802.11n") || c.includes("ht"))) {
+            return "4";
+        }
+        return "Unknown";
+    }
+
+    function getDominantWiFiStandard(capabilities, band) {
+        if (!capabilities || capabilities.length === 0) return "Unknown";
+        const lower = capabilities.map(c => (c || "").toLowerCase());
+
+        if (lower.some(c => c.includes("eht") || c.includes("wifi7"))) {
+            return "WiFi 7 (802.11be)";
+        }
+
+        const hasHE = lower.some(c => c.includes("he") || c.includes("wifi6") || c.includes("802.11ax"));
+        if (hasHE && band === "6GHz") {
+            return "WiFi 6E (802.11ax)";
+        }
+        if (hasHE) {
+            return "WiFi 6 (802.11ax)";
+        }
+
+        if (lower.some(c => c.includes("vht") || c.includes("wifi5") || c.includes("802.11ac"))) {
+            return "WiFi 5 (802.11ac)";
+        }
+
+        if (lower.some(c => c.includes("ht") || c.includes("wifi4") || c.includes("802.11n"))) {
+            return "WiFi 4 (802.11n)";
+        }
+
+        if (lower.some(c => c.includes("legacy") || c.includes("802.11a") || c.includes("802.11b") || c.includes("802.11g"))) {
+            return "Legacy (802.11a/b/g)";
+        }
+
+        return "Unknown";
+    }
+
+    function hasBeamformingSupport(capabilities, muMIMO) {
+        if (muMIMO) return true;
+        if (!capabilities || capabilities.length === 0) return false;
+
+        const lower = capabilities.map(c => (c || "").toLowerCase());
+        if (lower.some(c => c.includes("txbf") || c.includes("beamform"))) {
+            return true;
+        }
+
+        // VHT and HE standards inherently support beamforming
+        if (lower.some(c => c.includes("vht") || c.includes("he") || c.includes("802.11ac") || c.includes("802.11ax") || c.includes("wifi5") || c.includes("wifi6"))) {
+            return true;
+        }
+
+        return false;
+    }
+
+    function formatSecurityDetails(security, ciphers, authMethods) {
+        let details = security || "Unknown";
+
+        const cipherList = (ciphers && ciphers.length > 0) ? ciphers.join(", ") : "";
+        const authList = (authMethods && authMethods.length > 0) ? authMethods.join(", ") : "";
+
+        if (cipherList || authList) {
+            const parts = [];
+            if (cipherList) parts.push(cipherList);
+            if (authList) parts.push(authList);
+            details += ` (${parts.join(", ")})`;
+        }
+
+        return details;
+    }
+
     function getClientCountClass(count) {
         if (count === undefined || count === null || count < 0)
             return "value-neutral";
@@ -847,6 +930,40 @@ Closer to 0 = stronger signal
                                                     </span>
                                                 </div>
                                             </div>
+                                            <div class="ap-metrics">
+                                                <div class="ap-metric">
+                                                    <span class="metric-label"
+                                                        title="Transmit Power - Output power of this access point">Transmit Power:</span
+                                                    >
+                                                    <span class="metric-value">
+                                                        {ap.txPower ? `${ap.txPower} dBm` : "Not reported"}
+                                                    </span>
+                                                </div>
+                                                <div class="ap-metric">
+                                                    <span class="metric-label"
+                                                        title="Security Protocol - Encryption and authentication methods">Security:</span
+                                                    >
+                                                    <span class="metric-value">
+                                                        {formatSecurityDetails(ap.security, ap.securityCiphers, ap.authMethods)}
+                                                    </span>
+                                                </div>
+                                                <div class="ap-metric">
+                                                    <span class="metric-label"
+                                                        title="WiFi Mode - 802.11 standard this AP operates on">WiFi Mode:</span
+                                                    >
+                                                    <span class="metric-value">
+                                                        {getDominantWiFiStandard(ap.capabilities, ap.band)}
+                                                    </span>
+                                                </div>
+                                                <div class="ap-metric">
+                                                    <span class="metric-label"
+                                                        title="WiFi Generation - WiFi generation (4, 5, 6, 7)">Generation:</span
+                                                    >
+                                                    <span class="metric-value">
+                                                        WiFi {deriveWiFiGeneration(ap.capabilities)}
+                                                    </span>
+                                                </div>
+                                            </div>
                                             <div class="ap-capabilities">
                                                 <div class="capability-title">
                                                     Advanced Capabilities
@@ -1045,6 +1162,43 @@ NOT RECOMMENDED FOR:
                                                                     ? "Supported"
                                                                     : "Not supported"
                                                                 : "N/A"}
+                                                        </span>
+                                                    </div>
+                                                </div>
+
+                                                <div class="capability-title">
+                                                    VHT/HE Features
+                                                </div>
+                                                <div class="capability-grid">
+                                                    <div
+                                                        class="capability-item"
+                                                    >
+                                                        <span
+                                                            class="capability-label"
+                                                            title="Beamforming (TXBF) - Transmit beamforming for improved signal strength
+• Focuses wireless signal toward receiving devices
+• Improves throughput and range for compatible clients
+• Reduces interference with neighboring networks
+• Supported by VHT (802.11ac), HE (802.11ax), and newer standards
+• Particularly effective with MU-MIMO for multiple clients
+• Essential for high-speed, long-range connections
+• Automatic on most modern APs when supported"
+                                                        >VHT/HE Beamforming</span
+                                                        >
+                                                        <span
+                                                            class="value-pill {getCapabilityStatusClass(
+                                                                hasBeamformingSupport(
+                                                                    ap.capabilities,
+                                                                    ap.mumimo,
+                                                                ),
+                                                            )}"
+                                                        >
+                                                            {hasBeamformingSupport(
+                                                                ap.capabilities,
+                                                                ap.mumimo,
+                                                            )
+                                                                ? "Supported"
+                                                                : "Not supported"}
                                                         </span>
                                                     </div>
                                                 </div>
