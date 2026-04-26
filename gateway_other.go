@@ -1,9 +1,10 @@
-//go:build !linux && !windows
+//go:build !linux && !windows && !darwin
 
 package main
 
 import (
 	"fmt"
+	"log/slog"
 	"net"
 )
 
@@ -15,5 +16,6 @@ import (
 // can land later; for now the user can configure an explicit IP literal in
 // `config.latency_targets` to get coverage on those platforms.
 func defaultGateway() (net.IP, error) {
+	slog.Warn("gateway_other: defaultGateway called on unsupported platform")
 	return nil, fmt.Errorf("default gateway resolution not implemented on this platform")
 }

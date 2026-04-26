@@ -442,6 +442,9 @@ func coreWLANLinkInfo(iface string) (map[string]string, error) {
 		info["tx_bitrate_info"] = rateInfo
 		info["rx_bitrate_info"] = rateInfo
 	}
+	if std := cwPhyModeStandard(current.PhyMode); std != "" {
+		info["wifi_standard"] = std
+	}
 	info["rx_bytes"] = "0"
 	info["tx_bytes"] = "0"
 	info["rx_packets"] = "0"
@@ -483,6 +486,9 @@ func coreWLANStationInfo(iface string) (map[string]string, error) {
 	if rateInfo := cwBitrateInfoString(current.PhyMode, width, current.TxRate); rateInfo != "" {
 		stats["tx_bitrate_info"] = rateInfo
 		stats["rx_bitrate_info"] = rateInfo
+	}
+	if std := cwPhyModeStandard(current.PhyMode); std != "" {
+		stats["wifi_standard"] = std
 	}
 	stats["rx_bytes"] = "0"
 	stats["tx_bytes"] = "0"

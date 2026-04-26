@@ -25,6 +25,8 @@
         <string>{{.Info.Copyright}}</string>
         <key>NSLocationWhenInUseUsageDescription</key>
         <string>WiFi App needs location access to scan nearby WiFi networks.</string>
+        <key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+        <string>WiFi App requires location access at all times to scan WiFi networks.</string>
         {{if .Info.FileAssociations}}
         <key>CFBundleDocumentTypes</key>
         <array>

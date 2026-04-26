@@ -1342,6 +1342,12 @@ func calculateRetryRate(retries, totalPackets uint64) float64 {
 // and negotiated rate but not MCS index or spatial stream count directly, so
 // we derive them from the rate value.
 func formatRateInfoFromAssoc(info ConnectionInfo) string {
+	slog.Debug("wifi_scanner_windows: formatRateInfoFromAssoc",
+		"wifiStandard", info.WiFiStandard,
+		"rxBitrate", info.RxBitrate,
+		"txBitrate", info.TxBitrate,
+		"channelWidth", info.ChannelWidth)
+
 	var prefix string
 	switch {
 	case info.WiFiStandard == "802.11ax":
@@ -1354,6 +1360,7 @@ func formatRateInfoFromAssoc(info ConnectionInfo) string {
 		prefix = ""
 	default:
 		prefix = ""
+		slog.Warn("wifi_scanner_windows: unknown WiFi standard", "standard", info.WiFiStandard)
 	}
 
 	var mcsIndex, nss int
@@ -1372,7 +1379,9 @@ func formatRateInfoFromAssoc(info ConnectionInfo) string {
 		}
 	}
 
-	return strings.Join(parts, " ")
+	result := strings.Join(parts, " ")
+	slog.Debug("wifi_scanner_windows: formatRateInfoFromAssoc result", "result", result)
+	return result
 }
 
 // rateToMCSNSS derives approximate MCS index and NSS from a rate in Kbps.
