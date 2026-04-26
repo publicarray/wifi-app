@@ -476,10 +476,14 @@ func (ws *WiFiService) updateClientStatsLocked(iface string) {
 			ws.clientStats.RxBitrate = rxBitrate
 		}
 
-		wifiStandard, channelWidth, mimoConfig := parseBitrateInfo(stationStats["tx_bitrate_info"])
-		ws.clientStats.WiFiStandard = wifiStandard
-		ws.clientStats.ChannelWidth, _ = strconv.Atoi(channelWidth)
-		ws.clientStats.MIMOConfig = mimoConfig
+		if wifiStd := stationStats["wifi_standard"]; wifiStd != "" {
+			ws.clientStats.WiFiStandard = wifiStd
+		} else if txBitrateInfo := stationStats["tx_bitrate_info"]; txBitrateInfo != "" {
+			wifiStandard, channelWidth, mimoConfig := parseBitrateInfo(txBitrateInfo)
+			ws.clientStats.WiFiStandard = wifiStandard
+			ws.clientStats.ChannelWidth, _ = strconv.Atoi(channelWidth)
+			ws.clientStats.MIMOConfig = mimoConfig
+		}
 
 		if txBytes, err := strconv.ParseUint(stationStats["tx_bytes"], 10, 64); err == nil {
 			ws.clientStats.TxBytes = txBytes

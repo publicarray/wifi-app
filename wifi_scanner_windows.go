@@ -5,6 +5,7 @@ package main
 import (
 	"fmt"
 	"log/slog"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -981,14 +982,17 @@ func (s *windowsScanner) GetLinkInfo(iface string) (map[string]string, error) {
 	stats, err := s.getInterfaceStats(guid)
 
 	result := map[string]string{
-		"connected":  "true",
-		"ssid":       info.SSID,
-		"bssid":      info.BSSID,
-		"channel":    fmt.Sprintf("%d", info.Channel),
-		"signal":     fmt.Sprintf("%d", info.Signal),
-		"signal_avg": fmt.Sprintf("%d", info.SignalAvg),
-		"rx_bitrate": fmt.Sprintf("%.1f", info.RxBitrate),
-		"tx_bitrate": fmt.Sprintf("%.1f", info.TxBitrate),
+		"connected":       "true",
+		"ssid":            info.SSID,
+		"bssid":           info.BSSID,
+		"channel":         fmt.Sprintf("%d", info.Channel),
+		"signal":          fmt.Sprintf("%d", info.Signal),
+		"signal_avg":      fmt.Sprintf("%d", info.SignalAvg),
+		"rx_bitrate":      fmt.Sprintf("%.1f", info.RxBitrate),
+		"tx_bitrate":      fmt.Sprintf("%.1f", info.TxBitrate),
+		"wifi_standard":   info.WiFiStandard,
+		"tx_bitrate_info": formatRateInfoFromAssoc(info),
+		"rx_bitrate_info": formatRateInfoFromAssoc(info),
 	}
 
 	if err == nil && stats != nil {
@@ -1057,12 +1061,14 @@ func (s *windowsScanner) GetStationStats(iface string) (map[string]string, error
 	stats, err := s.getInterfaceStats(guid)
 
 	result := map[string]string{
-		"connected":  "true",
-		"bssid":      info.BSSID,
-		"signal":     fmt.Sprintf("%d", info.Signal),
-		"signal_avg": fmt.Sprintf("%d", info.SignalAvg),
-		"rx_bitrate": fmt.Sprintf("%.1f", info.RxBitrate),
-		"tx_bitrate": fmt.Sprintf("%.1f", info.TxBitrate),
+		"connected":       "true",
+		"bssid":           info.BSSID,
+		"signal":          fmt.Sprintf("%d", info.Signal),
+		"signal_avg":      fmt.Sprintf("%d", info.SignalAvg),
+		"rx_bitrate":      fmt.Sprintf("%.1f", info.RxBitrate),
+		"tx_bitrate":      fmt.Sprintf("%.1f", info.TxBitrate),
+		"tx_bitrate_info": formatRateInfoFromAssoc(info),
+		"rx_bitrate_info": formatRateInfoFromAssoc(info),
 	}
 
 	if err == nil && stats != nil {
@@ -1329,4 +1335,114 @@ func calculateRetryRate(retries, totalPackets uint64) float64 {
 		rate = 100.0
 	}
 	return rate
+}
+
+// formatRateInfoFromAssoc synthesizes a rate info string compatible with
+// parseBitrateInfo (wifi_utils.go). The Windows WLAN API exposes the phy type
+// and negotiated rate but not MCS index or spatial stream count directly, so
+// we derive them from the rate value.
+func formatRateInfoFromAssoc(info ConnectionInfo) string {
+	var prefix string
+	switch {
+	case info.WiFiStandard == "802.11ax":
+		prefix = "HE"
+	case info.WiFiStandard == "802.11ac":
+		prefix = "VHT"
+	case info.WiFiStandard == "802.11n":
+		prefix = "HT"
+	case info.WiFiStandard == "802.11a", info.WiFiStandard == "802.11g", info.WiFiStandard == "802.11b":
+		prefix = ""
+	default:
+		prefix = ""
+	}
+
+	var mcsIndex, nss int
+	if info.RxBitrate > 0 {
+		mcsIndex, nss = rateToMCSNSS(info.RxBitrate*1000, info.WiFiStandard)
+	}
+
+	var parts []string
+	if info.ChannelWidth > 20 {
+		parts = append(parts, fmt.Sprintf("%dMHz", info.ChannelWidth))
+	}
+	if prefix != "" && mcsIndex >= 0 {
+		parts = append(parts, fmt.Sprintf("%s-MCS %d", prefix, mcsIndex))
+		if nss > 0 && prefix != "HT" {
+			parts = append(parts, fmt.Sprintf("%s-NSS %d", prefix, nss))
+		}
+	}
+
+	return strings.Join(parts, " ")
+}
+
+// rateToMCSNSS derives approximate MCS index and NSS from a rate in Kbps.
+// The Windows WLAN API reports rates in 500 Kbps units. For a given WiFi
+// standard and rate, we can estimate the MCS and NSS.
+func rateToMCSNSS(rateKbps float64, wifiStandard string) (mcsIndex, nss int) {
+	switch wifiStandard {
+	case "802.11ax":
+		baseRate := 287.0
+		if rateKbps >= 1201*1000 {
+			baseRate = 1201.0
+		}
+		if rateKbps >= 600*1000 && rateKbps < 1201*1000 {
+			baseRate = 600.0
+		}
+		nss = 1
+		for rateKbps >= baseRate*float64(nss)*1000 && nss < 8 {
+			nss++
+		}
+		if nss > 1 {
+			nss--
+		}
+		ratePerStream := baseRate * float64(nss) * 1000
+		mcsIndex = int((rateKbps / ratePerStream))
+		if mcsIndex > 11 {
+			mcsIndex = 11
+		}
+		if mcsIndex < 0 {
+			mcsIndex = 0
+		}
+	case "802.11ac":
+		baseRate := 433.5
+		if rateKbps >= 867*1000 {
+			baseRate = 867.0
+		}
+		nss = 1
+		for rateKbps >= baseRate*float64(nss)*1000 && nss < 8 {
+			nss++
+		}
+		if nss > 1 {
+			nss--
+		}
+		ratePerStream := baseRate * float64(nss) * 1000
+		mcsIndex = int((rateKbps / ratePerStream))
+		if mcsIndex > 9 {
+			mcsIndex = 9
+		}
+		if mcsIndex < 0 {
+			mcsIndex = 0
+		}
+	case "802.11n":
+		baseRate := 72.0
+		if rateKbps >= 150*1000 {
+			baseRate = 150.0
+		}
+		nss = 1
+		for rateKbps >= baseRate*float64(nss)*1000 && nss < 4 {
+			nss++
+		}
+		if nss > 1 {
+			nss--
+		}
+		ratePerStream := baseRate * float64(nss) * 1000
+		mcsIndex = int((rateKbps / ratePerStream))
+		if mcsIndex > 7 {
+			mcsIndex = 7
+		}
+		if mcsIndex < 0 {
+			mcsIndex = 0
+		}
+	}
+	return mcsIndex, nss
 }
