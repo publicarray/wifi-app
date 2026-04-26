@@ -50,17 +50,11 @@ jobs:
           npm run build
         working-directory: frontend
 
-      - name: go vet (default tags)
+      - name: go vet
         run: go vet -tags "${LINUX_WAILS_TAGS}" ./...
 
-      - name: go vet (with iw tag)
-        run: go vet -tags "${LINUX_WAILS_TAGS} iw" ./...
-
-      - name: go test -race (default tags)
+      - name: go test -race
         run: go test -tags "${LINUX_WAILS_TAGS}" -race -count=1 ./...
-
-      - name: go test -race (with iw tag)
-        run: go test -tags "${LINUX_WAILS_TAGS} iw" -race -count=1 ./...
 
       - name: Install staticcheck
         # Installed fresh per-run rather than pinned: staticcheck releases
@@ -68,11 +62,8 @@ jobs:
         # newer Go .a files. Bump go-version above to bump the toolchain.
         run: go install honnef.co/go/tools/cmd/staticcheck@latest
 
-      - name: staticcheck (default tags)
+      - name: staticcheck
         run: $(go env GOPATH)/bin/staticcheck -tags "${LINUX_WAILS_TAGS}" ./...
-
-      - name: staticcheck (with iw tag)
-        run: $(go env GOPATH)/bin/staticcheck -tags "${LINUX_WAILS_TAGS} iw" ./...
 
       - name: Cross-compile sanity (windows/amd64)
         env:

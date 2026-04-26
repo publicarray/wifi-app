@@ -1,4 +1,4 @@
-//go:build linux && !iw
+//go:build linux
 
 package main
 
@@ -381,6 +381,12 @@ func (s *WiFiScannerNL80211) GetLinkInfo(iface string) (map[string]string, error
 	info["tx_packets"] = fmt.Sprintf("%d", station.TransmittedPackets)
 	info["rx_bitrate"] = fmt.Sprintf("%.1f", float64(station.ReceiveBitrate)/1e6)
 	info["tx_bitrate"] = fmt.Sprintf("%.1f", float64(station.TransmitBitrate)/1e6)
+	// rx/tx_bitrate_info feeds parseBitrateInfo (wifi_utils.go) so the WiFi
+	// standard, channel width, and spatial-stream count surface in
+	// ClientStats. We synthesise the iw-style string from the typed RateInfo
+	// because the parser is shaped around that text format.
+	info["rx_bitrate_info"] = formatRateInfo(station.ReceiveRateInfo)
+	info["tx_bitrate_info"] = formatRateInfo(station.TransmitRateInfo)
 	info["tx_retries"] = fmt.Sprintf("%d", station.TransmitRetries)
 	info["tx_failed"] = fmt.Sprintf("%d", station.TransmitFailed)
 	info["connected_time"] = fmt.Sprintf("%d", int(station.Connected.Seconds()))
@@ -777,4 +783,66 @@ func parseVendorSpecificIE(data []byte, ap *AccessPoint) {
 			ap.APName = string(data[5:])
 		}
 	}
+}
+
+// formatRateInfo renders a RateInfo into a string compatible with
+// parseBitrateInfo (wifi_utils.go) — e.g. "80MHz VHT-MCS 9 VHT-NSS 2".
+//
+// Returns "" when the rate info is empty (e.g. a freshly associated station
+// before the first frame). The parser falls back to defaults in that case.
+func formatRateInfo(r wifi.RateInfo) string {
+	if r.Bitrate == 0 && r.SpatialStreams == 0 && r.MCS == 0 && r.Bandwidth == 0 {
+		return ""
+	}
+
+	var parts []string
+
+	bw := r.Bandwidth
+	if bw == 0 {
+		// Fallback: HT40 flag implies 40 MHz; otherwise leave width blank so
+		// the parser uses its 20 MHz default.
+		if r.Flags&wifi.RateInfoFlagsHT40 != 0 {
+			bw = 40
+		}
+	}
+	if bw > 0 {
+		parts = append(parts, fmt.Sprintf("%dMHz", bw))
+	}
+
+	var prefix string
+	switch r.Format {
+	case wifi.RateFormatEHT:
+		prefix = "EHT"
+	case wifi.RateFormatHE:
+		prefix = "HE"
+	case wifi.RateFormatVHT:
+		prefix = "VHT"
+	case wifi.RateFormatHT:
+		prefix = "HT"
+	}
+	// Format may be unset on older kernels — fall back to flag bits.
+	if prefix == "" {
+		switch {
+		case r.Flags&wifi.RateInfoFlagsEHT != 0:
+			prefix = "EHT"
+		case r.Flags&wifi.RateInfoFlagsHE != 0:
+			prefix = "HE"
+		case r.Flags&wifi.RateInfoFlagsVHT != 0:
+			prefix = "VHT"
+		case r.Flags&wifi.RateInfoFlagsMCS != 0:
+			prefix = "HT"
+		}
+	}
+
+	if prefix != "" {
+		parts = append(parts, fmt.Sprintf("%s-MCS %d", prefix, r.MCS))
+		// HT encodes streams in the MCS index (MCS 0-7 = 1ss, 8-15 = 2ss, …)
+		// and never advertises an explicit "HT-NSS" token. For VHT/HE/EHT the
+		// kernel reports the live spatial-stream count separately.
+		if r.SpatialStreams > 0 && prefix != "HT" {
+			parts = append(parts, fmt.Sprintf("%s-NSS %d", prefix, r.SpatialStreams))
+		}
+	}
+
+	return strings.Join(parts, " ")
 }

@@ -72,9 +72,19 @@ func TestParseBitrateInfo(t *testing.T) {
 		{"", "Legacy (802.11a/b/g)", "20", "1x1"},
 		{"144.4 MBit/s VHT-MCS 9 80MHz VHT-NSS 2", "WiFi 5 (802.11ac)", "80", "2x2"},
 		{"600.0 MBit/s HE-MCS 11 160MHz HE-NSS 4 HE-GI 0.8us HE-DCM 0", "WiFi 6 (802.11ax)", "160", "4x4"},
+		// EHT carries an explicit EHT-NSS token; verify we extract it.
+		{"4800.0 MBit/s EHT-MCS 13 320MHz EHT-NSS 2", "WiFi 7 (802.11be)", "320", "2x2"},
+		// EHT without NSS token (older drivers) → fall back to 1x1 default.
 		{"4800.0 MBit/s EHT-MCS 13 320MHz", "WiFi 7 (802.11be)", "320", "1x1"},
+		// UHR (WiFi 8) follows the same {prefix}-NSS pattern.
+		{"UHR-MCS 11 UHR-NSS 2", "WiFi 8 (802.11bn)", "20", "2x2"},
 		{"UHR-MCS 11", "WiFi 8 (802.11bn)", "20", "1x1"},
+		// HT MCS index encodes streams: 0-7 = 1ss, 8-15 = 2ss, 16-23 = 3ss.
 		{"144.4 MBit/s 40MHz HT-MCS 7", "WiFi 4 (802.11n)", "40", "1x1"},
+		{"300.0 MBit/s 40MHz HT-MCS 15", "WiFi 4 (802.11n)", "40", "2x2"},
+		{"450.0 MBit/s 40MHz MCS 23", "WiFi 4 (802.11n)", "40", "3x3"},
+		// Bare "MCS" inside "VHT-MCS"/"HE-MCS" must not be misread as HT.
+		{"866.7 MBit/s VHT-MCS 9 80MHz VHT-NSS 2", "WiFi 5 (802.11ac)", "80", "2x2"},
 		{"54.0 MBit/s", "Legacy (802.11a/b/g)", "20", "1x1"},
 	}
 	for _, c := range cases {

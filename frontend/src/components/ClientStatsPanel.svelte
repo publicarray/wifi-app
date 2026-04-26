@@ -163,10 +163,36 @@
         return `${mbps} Mbps`;
     }
 
+    // formatMimo prefers the AP's negotiated stream count (parsed from HT/VHT
+    // /HE IEs) over the per-frame mimoConfig string. The latter is the NSS of
+    // the most recent TX rate — it ticks down to 1×1 for short management
+    // frames even on a 4×4 link, so it's misleading as a "negotiated MIMO"
+    // display. The IE-derived count is the negotiated upper bound and is what
+    // the user expects to see in an Advanced Capabilities panel.
     function formatMimo(streams, mimoConfig) {
-        if (mimoConfig) return mimoConfig;
-        if (!isNumber(streams) || streams <= 0) return "—";
-        return `${streams}×${streams} · ${streams} streams`;
+        const apStreams =
+            isNumber(streams) && streams > 0 ? streams : null;
+        const liveStreams = parseStreams(mimoConfig);
+        const max = apStreams ?? liveStreams;
+        if (max == null) return "—";
+        if (
+            liveStreams != null &&
+            apStreams != null &&
+            liveStreams !== apStreams
+        ) {
+            return `${max}×${max} · live ${liveStreams}ss`;
+        }
+        return `${max}×${max} · ${max} streams`;
+    }
+
+    // mimoConfig arrives as "1x1" / "2x2" / "4x4" — extract the leading number.
+    function parseStreams(mimoConfig) {
+        if (!mimoConfig) return null;
+        const m = /^(\d+)/.exec(mimoConfig);
+        if (!m) return null;
+        const v = parseInt(m[1], 10);
+        if (!Number.isFinite(v) || v <= 0 || v > 8) return null;
+        return v;
     }
 
     function formatQam(qam) {
@@ -250,11 +276,14 @@
                                 >{formatFrequency(clientStats.frequency)}</span
                             >
                         </div>
-                        {#if clientStats.mimoConfig}
+                        {#if connectedAP?.mimoStreams || clientStats.mimoConfig}
                             <div class="stat-row">
                                 <span class="k">MIMO</span>
                                 <span class="v mono"
-                                    >{clientStats.mimoConfig}</span
+                                    >{formatMimo(
+                                        connectedAP?.mimoStreams,
+                                        clientStats.mimoConfig,
+                                    )}</span
                                 >
                             </div>
                         {/if}

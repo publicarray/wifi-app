@@ -1,7 +1,9 @@
 package main
 
 import (
+	"fmt"
 	"math"
+	"strconv"
 	"strings"
 )
 
@@ -313,10 +315,7 @@ func heMcsRate20(maxMcs int) float64 {
 }
 
 // maxHEMCSFromMap derives the max HE-MCS index encoded in a 2-bits-per-stream
-// HE TX/RX MCS map. Used by the windows and mdlayher (nl80211) scanners; the
-// `-tags iw` build excludes both, hence the staticcheck suppression.
-//
-//lint:ignore U1000 used by windows + mdlayher backends, excluded under -tags iw
+// HE TX/RX MCS map. Used by the windows and mdlayher (nl80211) scanners.
 func maxHEMCSFromMap(mcsMap uint16) int {
 	maxMcs := 0
 	for ss := 0; ss < 8; ss++ {
@@ -477,7 +476,14 @@ func isDFSChannel(channel int) bool {
 	}
 }
 
-// parseBitrateInfo extracts WiFi standard, channel width, and MIMO config from bitrate string
+// parseBitrateInfo extracts WiFi standard, channel width, and MIMO config
+// from a kernel-style bitrate info string — e.g. "866.7 MBit/s VHT-MCS 9
+// 80MHz short GI VHT-NSS 2", as synthesised by formatRateInfo on Linux.
+//
+// mimoConfig reports the *current frame's* spatial streams (NSS), shown as
+// "NxN" because that's how the design notates negotiated MIMO. For HT
+// (WiFi 4) NSS is encoded in the MCS index (MCS 0-7 = 1ss, 8-15 = 2ss, …).
+// VHT/HE/EHT/UHR carry an explicit "{prefix}-NSS X" token.
 func parseBitrateInfo(bitrateInfo string) (wifiStandard, channelWidth, mimoConfig string) {
 	wifiStandard = "802.11"
 	channelWidth = "20"
@@ -491,7 +497,8 @@ func parseBitrateInfo(bitrateInfo string) (wifiStandard, channelWidth, mimoConfi
 		wifiStandard = "WiFi 6 (802.11ax)"
 	} else if strings.Contains(bitrateInfo, "VHT") {
 		wifiStandard = "WiFi 5 (802.11ac)"
-	} else if strings.Contains(bitrateInfo, "HT") {
+	} else if strings.Contains(bitrateInfo, "HT") || htMCS(bitrateInfo) >= 0 {
+		// Some drivers emit bare "MCS X" with no HT prefix; treat that as HT.
 		wifiStandard = "WiFi 4 (802.11n)"
 	} else {
 		wifiStandard = "Legacy (802.11a/b/g)"
@@ -507,17 +514,98 @@ func parseBitrateInfo(bitrateInfo string) (wifiStandard, channelWidth, mimoConfi
 		channelWidth = "40"
 	}
 
-	if strings.Contains(bitrateInfo, "HE-NSS 4") || strings.Contains(bitrateInfo, "VHT-NSS 4") {
-		mimoConfig = "4x4"
-	} else if strings.Contains(bitrateInfo, "HE-NSS 3") || strings.Contains(bitrateInfo, "VHT-NSS 3") {
-		mimoConfig = "3x3"
-	} else if strings.Contains(bitrateInfo, "HE-NSS 2") || strings.Contains(bitrateInfo, "VHT-NSS 2") {
-		mimoConfig = "2x2"
-	} else if strings.Contains(bitrateInfo, "HE-NSS 1") || strings.Contains(bitrateInfo, "VHT-NSS 1") {
-		mimoConfig = "1x1"
+	if streams := extractNSS(bitrateInfo); streams > 0 {
+		mimoConfig = fmt.Sprintf("%dx%d", streams, streams)
 	}
 
 	return
+}
+
+// extractNSS returns the number of spatial streams encoded in the bitrate
+// info, or 0 if it can't be determined. Handles all formats:
+//   - VHT/HE/EHT/UHR: explicit "{prefix}-NSS X" token (1..8)
+//   - HT (WiFi 4): MCS index encodes streams as (MCS/8)+1 (so MCS 0-7=1ss,
+//     8-15=2ss, 16-23=3ss, 24-31=4ss; MCS 32 is a special "1ss only" mode)
+func extractNSS(bitrateInfo string) int {
+	for _, prefix := range []string{"EHT-NSS ", "UHR-NSS ", "HE-NSS ", "VHT-NSS "} {
+		if v := nssAfter(bitrateInfo, prefix); v > 0 {
+			return v
+		}
+	}
+
+	// HT: parse the MCS index. The format is either "HT-MCS X" or bare "MCS
+	// X" when the rate flag is HT — try both. Bare "MCS " must not match
+	// inside "VHT-MCS"/"HE-MCS"/"EHT-MCS"/"UHR-MCS"; we guard by rejecting
+	// any preceding alnum or '-' character.
+	if mcs := htMCS(bitrateInfo); mcs >= 0 {
+		if mcs == 32 {
+			return 1
+		}
+		streams := mcs/8 + 1
+		if streams < 1 {
+			streams = 1
+		}
+		if streams > 4 {
+			streams = 4
+		}
+		return streams
+	}
+
+	return 0
+}
+
+func htMCS(s string) int {
+	if idx := strings.Index(s, "HT-MCS "); idx >= 0 {
+		// Reject "VHT-MCS"/"EHT-MCS" matching at the H of HT-MCS.
+		if idx == 0 || !isAlnum(s[idx-1]) {
+			return readInt(s[idx+len("HT-MCS "):])
+		}
+	}
+	prefix := "MCS "
+	from := 0
+	for {
+		rel := strings.Index(s[from:], prefix)
+		if rel < 0 {
+			return -1
+		}
+		idx := from + rel
+		// Bare MCS only — preceding char must not be a letter, digit, or '-'.
+		if idx == 0 || (!isAlnum(s[idx-1]) && s[idx-1] != '-') {
+			return readInt(s[idx+len(prefix):])
+		}
+		from = idx + 1
+	}
+}
+
+func isAlnum(c byte) bool {
+	return (c >= '0' && c <= '9') || (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z')
+}
+
+func nssAfter(s, prefix string) int {
+	idx := strings.Index(s, prefix)
+	if idx < 0 {
+		return 0
+	}
+	v := readInt(s[idx+len(prefix):])
+	if v <= 0 || v > 8 {
+		return 0
+	}
+	return v
+}
+
+func readInt(s string) int {
+	end := 0
+	for end < len(s) && s[end] >= '0' && s[end] <= '9' {
+		end++
+	}
+	if end == 0 {
+		return -1
+	}
+	n, err := strconv.Atoi(s[:end])
+	if err != nil {
+		return -1
+	}
+	return n
 }
 
 func frequencyToChannel(freq int) int {

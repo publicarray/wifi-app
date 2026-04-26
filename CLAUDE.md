@@ -48,8 +48,7 @@ All backends implement `wifi_scanner_interface.go`:
 
 | File | Build tag | Platform |
 |------|-----------|----------|
-| `wifi_scanner_mdlayher.go` | `linux && !iw` | Linux via nl80211 netlink (default) |
-| `wifi_scanner_iw.go` | `linux && iw` | Linux via `iw` shell exec (deprecated) |
+| `wifi_scanner_mdlayher.go` | `linux` | Linux via nl80211 netlink |
 | `wifi_scanner_darwin_corewlan.go` | `darwin && cgo` | macOS via CoreWLAN/cgo (experimental) |
 | `wifi_scanner_darwin_corewlan_stub.go` | `darwin && !cgo` | empty stub so non-cgo darwin builds compile |
 | `wifi_scanner_darwin.go` | `darwin` | macOS fallback |
