@@ -543,15 +543,21 @@ func parseHECapabilities(data []byte, ap *AccessPoint) {
 	}
 
 	extID := data[0]
+	// Element ID Extension assignments per IEEE 802.11-2024 / Linux kernel
+	// include/linux/ieee80211.h: 35=HE Cap, 36=HE Op, 106=EHT Op, 107=Multi-Link,
+	// 108=EHT Cap. Earlier draft labels swapped 106/108 — keep these aligned with
+	// shipping Linux kernels and Wireshark.
 	switch extID {
 	case 35:
 		parseHECapabilitiesElement(data[1:], ap)
 	case 36:
 		parseHEOperation(data[1:], ap)
-	case 106: // EHT Capabilities (WiFi 7)
-		parseEHTCapabilitiesElement(data[1:], ap)
-	case 107: // EHT Operation (WiFi 7)
+	case 106: // EHT Operation (WiFi 7)
 		parseEHTOperation(data[1:], ap)
+	case 107: // Multi-Link Element (WiFi 7 — MLD advertisement)
+		parseMultiLinkElement(data[1:], ap)
+	case 108: // EHT Capabilities (WiFi 7)
+		parseEHTCapabilitiesElement(data[1:], ap)
 	}
 }
 
@@ -629,11 +635,6 @@ func parseHEOperation(data []byte, ap *AccessPoint) {
 func parseEHTCapabilitiesElement(data []byte, ap *AccessPoint) {
 	ap.Capabilities = appendUnique(ap.Capabilities, "WiFi7")
 
-	// MLO: EHT Capabilities presence is a strong signal that the AP ships with
-	// Multi-Link Operation. The authoritative test is the Multi-Link Element
-	// (Element ID Extension 108), which we don't parse yet — refine when added.
-	ap.MLO = true
-
 	if ap.QAMSupport < 4096 {
 		ap.QAMSupport = 4096
 	}
@@ -657,6 +658,29 @@ func parseEHTCapabilitiesElement(data []byte, ap *AccessPoint) {
 func parseEHTOperation(data []byte, ap *AccessPoint) {
 	_ = data
 	_ = ap
+}
+
+// parseMultiLinkElement reads a Multi-Link Element (Element ID Extension 107)
+// per IEEE 802.11be / 802.11-2024 section 9.4.2.312. Layout:
+//
+//	Multi-Link Control (2 octets)
+//	  bits 0-2  Type (0=Basic, 1=Probe Req, 2=Reconfig, 3=TDLS, 4=Priority Access)
+//	  bit  3    Reserved
+//	  bits 4-15 Presence Bitmap
+//	Common Info (variable, depends on Type and Presence Bitmap)
+//	Link Info (variable)
+//
+// A Basic Multi-Link Element (Type 0) in a beacon advertises that the AP is part
+// of an MLD (Multi-Link Device), i.e. MLO is supported. We don't decode the
+// Common Info / Link Info bodies — presence is sufficient signal for the UI.
+func parseMultiLinkElement(data []byte, ap *AccessPoint) {
+	if len(data) < 2 {
+		return
+	}
+	mlType := data[0] & 0x07
+	if mlType == 0 {
+		ap.MLO = true
+	}
 }
 
 func parseTIM(data []byte, ap *AccessPoint) {

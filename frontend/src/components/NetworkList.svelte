@@ -1711,8 +1711,11 @@ WiFi 7 (802.11be) marquee feature. Lets a client associate over multiple radios/
 • Lifts effective throughput beyond any single channel's max
 • Requires WiFi 7 client AND AP; legacy clients fall back to single link
 
+DETECTION:
+• Detected via Basic Multi-Link Element (Element ID Extension 107) in beacons
+• 'N/A' = element absent → AP is not advertising MLD operation
+
 COMPATIBILITY WARNINGS FOR MSP:
-• MLO presence here is heuristic — based on EHT Capabilities IE; refine when Multi-Link element parsed
 • Real benefit depends on client mode (STR vs EMLSR) and per-link channel quality
 • Mixed channel widths or poorly tuned 2.4 GHz links can drag overall MLO performance down
 • MLO + 6 GHz LPI/SP power asymmetry can produce surprising roaming behaviour

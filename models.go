@@ -50,7 +50,7 @@ type AccessPoint struct {
 	MUMIMO         bool `json:"mumimo"`         // MU-MIMO support
 	OFDMADownlink  bool `json:"ofdmaDownlink"`  // OFDMA downlink support (WiFi 6+, implicit when HE)
 	OFDMAUplink    bool `json:"ofdmaUplink"`    // OFDMA uplink (HE MAC OFDMA RA Support bit)
-	MLO            bool `json:"mlo"`            // Multi-Link Operation (WiFi 7) — heuristic: EHT cap present
+	MLO            bool `json:"mlo"`            // Multi-Link Operation (WiFi 7) — Basic Multi-Link Element (ext-ID 107) present
 	// Network management
 	QoSSupport  bool   `json:"qosSupport"`  // WMM/QoS support
 	CountryCode string `json:"countryCode"` // Regulatory country code (US, EU, etc.)
