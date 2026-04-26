@@ -893,6 +893,48 @@ func (s *windowsScanner) GetConnectionInfo(iface string) (ConnectionInfo, error)
 
 	frequency := channelToFrequency(channel)
 
+	// Derive channel width and MIMO from rates since Windows WLAN API
+	// doesn't expose these directly in association attributes.
+	channelWidth := 20
+	mimoConfig := "1x1"
+	if assoc.RxRate > 0 || assoc.TxRate > 0 {
+		maxRate := assoc.RxRate
+		if assoc.TxRate > maxRate {
+			maxRate = assoc.TxRate
+		}
+		maxRateKbps := float64(maxRate) * 500
+
+		// Derive channel width from rate using known rate tables.
+		switch assoc.Dot11PhyType {
+		case dot11PhyTypeHe, dot11PhyTypeEht:
+			// WiFi 6/7: 160MHz if rate > 600 Mbps, else 80MHz if > 287 Mbps
+			if maxRateKbps >= 600*1000 {
+				channelWidth = 160
+			} else if maxRateKbps >= 287*1000 {
+				channelWidth = 80
+			}
+		case dot11PhyTypeVht:
+			// WiFi 5: 160MHz if rate > 866 Mbps, 80MHz if > 433 Mbps
+			if maxRateKbps >= 866*1000 {
+				channelWidth = 160
+			} else if maxRateKbps >= 433*1000 {
+				channelWidth = 80
+			}
+		case dot11PhyTypeHt:
+			// WiFi 4: 40MHz if rate > 150 Mbps
+			if maxRateKbps >= 150*1000 {
+				channelWidth = 40
+			}
+		}
+
+		// Derive MIMO config (NSS) from rates using rate tables.
+		wifiStd := phyTypeToStandard(assoc.Dot11PhyType)
+		_, nss := rateToMCSNSS(maxRateKbps, wifiStd)
+		if nss > 0 {
+			mimoConfig = fmt.Sprintf("%dx%d", nss, nss)
+		}
+	}
+
 	info := ConnectionInfo{
 		Connected:    true,
 		SSID:         formatSSID(assoc.Dot11SSID),
@@ -904,8 +946,8 @@ func (s *windowsScanner) GetConnectionInfo(iface string) (ConnectionInfo, error)
 		RxBitrate:    float64(assoc.RxRate) / 1000.0,
 		TxBitrate:    float64(assoc.TxRate) / 1000.0,
 		WiFiStandard: phyTypeToStandard(assoc.Dot11PhyType),
-		ChannelWidth: 20,
-		MIMOConfig:   "1x1",
+		ChannelWidth: channelWidth,
+		MIMOConfig:   mimoConfig,
 	}
 
 	return info, nil
