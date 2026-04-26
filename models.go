@@ -44,10 +44,13 @@ type AccessPoint struct {
 	SecurityCiphers []string `json:"securityCiphers"` // Encryption ciphers (CCMP, GCMP, TKIP, etc.)
 	AuthMethods     []string `json:"authMethods"`     // Authentication methods (PSK, SAE, EAP, etc.)
 	// WiFi 6/7 features
-	BSSColor   int  `json:"bssColor"`   // BSS Color ID (WiFi 6)
-	OBSSPD     bool `json:"obssPD"`     // OBSS PD (Spatial reuse) support
-	QAMSupport int  `json:"qamSupport"` // Max QAM modulation (256, 1024, 4096)
-	MUMIMO     bool `json:"mumimo"`     // MU-MIMO support
+	BSSColor       int  `json:"bssColor"`       // BSS Color ID (WiFi 6)
+	OBSSPD         bool `json:"obssPD"`         // OBSS PD (Spatial reuse) support
+	QAMSupport     int  `json:"qamSupport"`     // Max QAM modulation (256, 1024, 4096)
+	MUMIMO         bool `json:"mumimo"`         // MU-MIMO support
+	OFDMADownlink  bool `json:"ofdmaDownlink"`  // OFDMA downlink support (WiFi 6+, implicit when HE)
+	OFDMAUplink    bool `json:"ofdmaUplink"`    // OFDMA uplink (HE MAC OFDMA RA Support bit)
+	MLO            bool `json:"mlo"`            // Multi-Link Operation (WiFi 7) — heuristic: EHT cap present
 	// Network management
 	QoSSupport  bool   `json:"qosSupport"`  // WMM/QoS support
 	CountryCode string `json:"countryCode"` // Regulatory country code (US, EU, etc.)

@@ -78,6 +78,7 @@ func (p *airportParser) ParseScan(output []byte) ([]AccessPoint, error) {
 		}
 		if getBool(entry, "HE") {
 			ap.Capabilities = appendUnique(ap.Capabilities, "HE")
+			ap.OFDMADownlink = true
 		}
 
 		if ap.Noise != 0 {

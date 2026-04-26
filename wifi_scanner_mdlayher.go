@@ -574,6 +574,13 @@ func parseHECapabilitiesElement(data []byte, ap *AccessPoint) {
 	}
 	_ = macCap0
 
+	// HE AP supports DL OFDMA by spec; mark true on HE Capabilities IE.
+	ap.OFDMADownlink = true
+	// OFDMA RA Support — HE MAC Cap bit 26 (byte 3, bit 2) per IEEE 802.11ax-2021 Table 9-321.
+	if len(data) >= 4 && (data[3]&0x04) != 0 {
+		ap.OFDMAUplink = true
+	}
+
 	// HE PHY Capabilities (bytes 6-16)
 	phyCap := data[6:17]
 
@@ -621,6 +628,11 @@ func parseHEOperation(data []byte, ap *AccessPoint) {
 
 func parseEHTCapabilitiesElement(data []byte, ap *AccessPoint) {
 	ap.Capabilities = appendUnique(ap.Capabilities, "WiFi7")
+
+	// MLO: EHT Capabilities presence is a strong signal that the AP ships with
+	// Multi-Link Operation. The authoritative test is the Multi-Link Element
+	// (Element ID Extension 108), which we don't parse yet — refine when added.
+	ap.MLO = true
 
 	if ap.QAMSupport < 4096 {
 		ap.QAMSupport = 4096

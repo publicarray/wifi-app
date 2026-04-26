@@ -42,6 +42,9 @@ export namespace main {
 	    obssPD: boolean;
 	    qamSupport: number;
 	    mumimo: boolean;
+	    ofdmaDownlink: boolean;
+	    ofdmaUplink: boolean;
+	    mlo: boolean;
 	    qosSupport: boolean;
 	    countryCode: string;
 	    apName: string;
@@ -92,6 +95,9 @@ export namespace main {
 	        this.obssPD = source["obssPD"];
 	        this.qamSupport = source["qamSupport"];
 	        this.mumimo = source["mumimo"];
+	        this.ofdmaDownlink = source["ofdmaDownlink"];
+	        this.ofdmaUplink = source["ofdmaUplink"];
+	        this.mlo = source["mlo"];
 	        this.qosSupport = source["qosSupport"];
 	        this.countryCode = source["countryCode"];
 	        this.apName = source["apName"];

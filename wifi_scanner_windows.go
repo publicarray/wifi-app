@@ -638,6 +638,11 @@ func (p *windowsParser) parseInformationElements(ap *AccessPoint, entry *WLAN_BS
 				case 35: // HE Capabilities
 					hasHE = true
 					ap.Capabilities = appendUnique(ap.Capabilities, "WiFi6")
+					ap.OFDMADownlink = true
+					// OFDMA RA Support — HE MAC Cap bit 26 (byte 3, bit 2).
+					if len(extData) >= 4 && (extData[3]&0x04) != 0 {
+						ap.OFDMAUplink = true
+					}
 					if len(extData) >= 6 {
 						ap.TWTSupport = (extData[0] & 0x04) != 0
 						ap.UAPSD = (extData[0] & 0x08) != 0
@@ -670,6 +675,7 @@ func (p *windowsParser) parseInformationElements(ap *AccessPoint, entry *WLAN_BS
 				case 106: // EHT Capabilities (WiFi 7)
 					hasEHT = true
 					ap.Capabilities = appendUnique(ap.Capabilities, "WiFi7")
+					ap.MLO = true
 					if len(extData) >= 2 && ap.ChannelWidth < 320 {
 						if extData[1]&0x02 != 0 {
 							ap.ChannelWidth = 320

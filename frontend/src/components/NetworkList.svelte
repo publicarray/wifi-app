@@ -1676,6 +1676,53 @@ MSP ADVICE:
                                                             </span>
                                                         </div>
                                                 {/if}
+                                                <div class="capability-item">
+                                                    <span class="capability-label" title="OFDMA (Orthogonal Frequency-Division Multiple Access)
+WiFi 6 (802.11ax) feature that splits a channel into resource units (RUs) so the AP can serve multiple clients simultaneously in one transmission.
+• Downlink OFDMA: AP → many clients in parallel (mandatory for HE APs)
+• Uplink OFDMA: many clients → AP in parallel (HE MAC 'OFDMA RA Support' bit; optional, vendor-dependent)
+• Reduces contention and per-packet overhead
+• Largest gains in dense, mixed-traffic networks
+• Distinct from MU-MIMO (spatial streams); modern WiFi 6 stacks combine both
+• Inherited by WiFi 6E (6 GHz) and extended in WiFi 7 (multi-RU)
+
+COMPATIBILITY WARNINGS FOR MSP:
+• Requires WiFi 6+ clients to benefit
+• Some early WiFi 6 clients implement DL OFDMA only
+• Mixed legacy fleets see limited improvement
+• Buggy AP firmware can degrade throughput when OFDMA enabled — keep firmware current">
+                                                        OFDMA
+                                                    </span>
+                                                    <span class="value-pill {ap.ofdmaDownlink && ap.ofdmaUplink ? 'value-good' : ap.ofdmaDownlink ? 'value-warn' : 'value-unknown'}">
+                                                        {ap.ofdmaDownlink && ap.ofdmaUplink
+                                                            ? "Downlink + Uplink"
+                                                            : ap.ofdmaDownlink
+                                                                ? "Downlink only"
+                                                                : "N/A"}
+                                                    </span>
+                                                </div>
+                                                <div class="capability-item">
+                                                    <span class="capability-label" title="MLO (Multi-Link Operation)
+WiFi 7 (802.11be) marquee feature. Lets a client associate over multiple radios/bands at once and aggregate, switch, or load-balance traffic across them.
+• STR (Simultaneous TX/RX): full duplex across links — peak throughput
+• NSTR: links share TX/RX timing — partial gains
+• EMLSR: client uses one link at a time but switches fast — battery-friendly
+• Reduces latency tail by avoiding retries on a busy link
+• Lifts effective throughput beyond any single channel's max
+• Requires WiFi 7 client AND AP; legacy clients fall back to single link
+
+COMPATIBILITY WARNINGS FOR MSP:
+• MLO presence here is heuristic — based on EHT Capabilities IE; refine when Multi-Link element parsed
+• Real benefit depends on client mode (STR vs EMLSR) and per-link channel quality
+• Mixed channel widths or poorly tuned 2.4 GHz links can drag overall MLO performance down
+• MLO + 6 GHz LPI/SP power asymmetry can produce surprising roaming behaviour
+• UniFi 7 stacks ship MLO on by default on WiFi 7 SSIDs — verify firmware before enabling on production">
+                                                        MLO (Multi-Link)
+                                                    </span>
+                                                    <span class="value-pill {ap.mlo ? 'value-good' : 'value-unknown'}">
+                                                        {ap.mlo ? "Supported" : "N/A"}
+                                                    </span>
+                                                </div>
                                                 <div
                                                         class="capability-item"
                                                     >
