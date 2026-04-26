@@ -6,7 +6,11 @@ import (
 	"fmt"
 	"log/slog"
 	"net"
-	"unsafe"
+	"os/exec"
+	"regexp"
+	"strconv"
+	"strings"
+	"unicode"
 
 	"golang.org/x/sys/windows"
 )
@@ -14,43 +18,67 @@ import (
 func defaultGateway() (net.IP, error) {
 	slog.Debug("gateway_windows: starting gateway resolution")
 
-	bufLen := uint32(64)
-	allocSize := unsafe.Sizeof(windows.MibIpForwardTable2{}) + uintptr(bufLen)*unsafe.Sizeof(windows.MibIpForwardRow2{})
-	alloc := make([]byte, allocSize)
+	cmd := exec.Command("route", "print", "0.0.0.0")
+	cmd.SysProcAttr = &windows.SysProcAttr{HideWindow: true}
 
-	rowBase := uintptr(unsafe.Pointer(&alloc[0])) + unsafe.Sizeof(windows.MibIpForwardTable2{})
-	(*windows.MibIpForwardTable2)(unsafe.Pointer(&alloc[0])).NumEntries = 0
-	*(*unsafe.Pointer)(unsafe.Pointer(uintptr(unsafe.Pointer(&alloc[0])) + 8)) = unsafe.Pointer(rowBase)
-
-	err := windows.GetIpForwardTable2(windows.AF_INET, (**windows.MibIpForwardTable2)(unsafe.Pointer(&alloc[0])))
+	output, err := cmd.CombinedOutput()
 	if err != nil {
-		slog.Error("gateway_windows: GetIpForwardTable2 failed", "err", err)
-		return nil, fmt.Errorf("GetIpForwardTable2 failed: %d", err)
+		slog.Error("gateway_windows: route print failed", "err", err)
+		return nil, fmt.Errorf("route print: %w", err)
 	}
 
-	table := (*windows.MibIpForwardTable2)(unsafe.Pointer(&alloc[0]))
-	slog.Debug("gateway_windows: got forward table", "numEntries", table.NumEntries)
-
-	for i := uint32(0); i < table.NumEntries; i++ {
-		row := (*windows.MibIpForwardRow2)(unsafe.Pointer(rowBase + uintptr(i)*unsafe.Sizeof(windows.MibIpForwardRow2{})))
-		if row.DestinationPrefix.PrefixLength == 0 {
-			ip := extractIPFromRawSockaddrInet(&row.NextHop)
-			if ip != nil && !ip.IsUnspecified() {
-				slog.Info("gateway_windows: found default gateway", "ip", ip.String())
-				return ip, nil
-			}
-		}
+	ip, err := parseWindowsGateway(output)
+	if err != nil {
+		slog.Warn("gateway_windows: no default gateway found", "err", err)
+		return nil, err
 	}
-	slog.Warn("gateway_windows: no default route found")
-	return nil, fmt.Errorf("no default route found")
+
+	slog.Info("gateway_windows: found gateway", "ip", ip.String())
+	return ip, nil
 }
 
-func extractIPFromRawSockaddrInet(sa *windows.RawSockaddrInet) net.IP {
-	if sa == nil || sa.Family != windows.AF_INET {
-		return nil
+func parseWindowsGateway(output []byte) (net.IP, error) {
+	lines := strings.Split(string(output), "\n")
+	var defaultGateway string
+	sep := 0
+	ipRegex := regexp.MustCompile(`^(((25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)(\.|$)){4})`)
+
+	for idx, line := range lines {
+		if sep == 3 {
+			if len(lines) <= idx+2 {
+				return nil, fmt.Errorf("no gateway")
+			}
+
+			inputLine := lines[idx+2]
+			if strings.HasPrefix(inputLine, "=======") {
+				break
+			}
+
+			fields := strings.Fields(inputLine)
+			if len(fields) < 5 || !ipRegex.MatchString(fields[0]) {
+				return nil, fmt.Errorf("parse error")
+			}
+
+			if fields[0] != "0.0.0.0" {
+				break
+			}
+
+			gateway := fields[2]
+			if len(gateway) > 0 && !unicode.IsLetter(rune(gateway[0])) {
+				metric, _ := strconv.Atoi(fields[4])
+				defaultGateway = gateway
+				_ = metric
+				break
+			}
+		}
+		if strings.HasPrefix(line, "=======") {
+			sep++
+		}
 	}
-	b := (*[4]byte)(unsafe.Pointer(&sa.Data[0]))[:]
-	ip := net.IP(b[:])
-	slog.Debug("gateway_windows: extracted IP from sockaddr", "ip", ip.String())
-	return ip
+
+	if defaultGateway == "" {
+		return nil, fmt.Errorf("no gateway")
+	}
+
+	return net.ParseIP(defaultGateway), nil
 }
