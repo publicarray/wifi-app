@@ -12,7 +12,7 @@
         GetAPPlacementRecommendations,
         GetConfig,
     } from "../wailsjs/go/main/App.js";
-    import { EventsOn, EventsOff } from "../wailsjs/runtime/runtime.js";
+    import { EventsOn, EventsOff, Environment } from "../wailsjs/runtime/runtime.js";
 
     import NetworkList from "./components/NetworkList.svelte";
     import SignalChart from "./components/SignalChart.svelte";
@@ -34,6 +34,8 @@
     let roamingMetrics = null;
     let placementRecommendations = [];
     let reportOpen = false;
+    let osInfo = "linux";
+    let appVersion = "v0.1.0";
 
     const NAV_ANALYZE = [
         { id: "networks", label: "Networks", icon: "networks" },
@@ -64,6 +66,15 @@
         clientStats && clientStats.connected ? clientStats.signal : null;
 
     onMount(async () => {
+        try {
+            const env = await Environment();
+            if (env && env.platform) {
+                osInfo = env.platform;
+            }
+        } catch (err) {
+            // Environment info unavailable
+        }
+
         try {
             interfaces = (await GetAvailableInterfaces()) || [];
         } catch (err) {
@@ -224,7 +235,7 @@
                     </svg>
                     <span>WiFi Diagnostic</span>
                 </div>
-                <div class="sidebar-brand-sub">linux · wails</div>
+                <div class="sidebar-brand-sub">{osInfo} · {appVersion}</div>
             </div>
 
             <div class="sidebar-section-label">Analyze</div>
