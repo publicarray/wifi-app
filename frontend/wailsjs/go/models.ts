@@ -42,6 +42,9 @@ export namespace main {
 	    obssPD: boolean;
 	    qamSupport: number;
 	    mumimo: boolean;
+	    wifiGeneration: string;
+	    wifiStandard: string;
+	    beamforming: boolean;
 	    ofdmaDownlink: boolean;
 	    ofdmaUplink: boolean;
 	    mlo: boolean;
@@ -95,6 +98,9 @@ export namespace main {
 	        this.obssPD = source["obssPD"];
 	        this.qamSupport = source["qamSupport"];
 	        this.mumimo = source["mumimo"];
+	        this.wifiGeneration = source["wifiGeneration"];
+	        this.wifiStandard = source["wifiStandard"];
+	        this.beamforming = source["beamforming"];
 	        this.ofdmaDownlink = source["ofdmaDownlink"];
 	        this.ofdmaUplink = source["ofdmaUplink"];
 	        this.mlo = source["mlo"];

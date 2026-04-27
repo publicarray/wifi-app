@@ -121,12 +121,12 @@
 
     function computeOverlap(aps, def, ch) {
         if (!def || ch == null) return [];
-        const myCenter = def.freqOf(ch);
+        const myCenter = Math.round(def.freqOf(ch) * 1000);
         return aps.filter((ap) => {
             if (ap.channel === ch) return false;
-            const theirCenter = def.freqOf(ap.channel);
+            const theirCenter = Math.round(def.freqOf(ap.channel) * 1000);
             const w = ap.channelWidth || def.widthDefault;
-            const combinedHalfWidth = (w / 2 + def.widthDefault / 2) / 1000;
+            const combinedHalfWidth = w / 2 + def.widthDefault / 2;
             return Math.abs(myCenter - theirCenter) < combinedHalfWidth;
         });
     }
