@@ -449,9 +449,7 @@
                                     class="bar-fill tone-{retryTone(
                                         clientStats.retryRate,
                                     )}"
-                                    style="width: {retryPct(
-                                        clientStats.retryRate,
-                                    )}%"
+                                    style="width: {clientStats.retryRate}%"
                                 ></div>
                             </div>
                         </div>
