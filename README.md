@@ -1,6 +1,6 @@
 # WiFi App
 
-![Networks](screenshots/networks.png)
+![Networks](screenshots/network-details.png)
 
 Cross-platform WiFi diagnostic desktop app built with a Go backend (Wails v2)
 and a Svelte frontend. It scans nearby networks, aggregates AP data, and
