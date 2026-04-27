@@ -230,12 +230,7 @@ func (p *mdlayherParser) convertBSSToAccessPoint(bss *wifi.BSS) []AccessPoint {
 	ap.BeaconInt = int(bss.BeaconInterval.Seconds() / 0.1024)
 
 	ap.ChannelWidth = 20
-	ap.Band = "2.4GHz"
-	if ap.Frequency > 5900 {
-		ap.Band = "6GHz"
-	} else if ap.Frequency > 5000 {
-		ap.Band = "5GHz"
-	}
+	ap.Band = frequencyToBand(ap.Frequency)
 
 	ap.MIMOStreams = 1
 

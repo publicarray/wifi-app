@@ -64,12 +64,7 @@ func (p *systemProfilerParser) ParseScan(output []byte) ([]AccessPoint, error) {
 				}
 
 				freq := channelToFrequency(channel)
-				band := "2.4GHz"
-				if freq > 5900 {
-					band = "6GHz"
-				} else if freq > 5000 {
-					band = "5GHz"
-				}
+				band := frequencyToBand(freq)
 
 				securityField := firstNonEmpty(
 					normalizeSystemProfilerSecurity(getString(entry, "spairport_network_security")),

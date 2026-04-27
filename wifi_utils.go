@@ -136,14 +136,9 @@ func NormalizeAccessPoint(ap *AccessPoint) {
 	if ap.Frequency > 0 && ap.Channel == 0 {
 		ap.Channel = frequencyToChannel(ap.Frequency)
 	}
+	// 2. Infer Band if missing
 	if ap.Band == "" && ap.Frequency > 0 {
-		if ap.Frequency > 5900 {
-			ap.Band = "6GHz"
-		} else if ap.Frequency > 5000 {
-			ap.Band = "5GHz"
-		} else {
-			ap.Band = "2.4GHz"
-		}
+		ap.Band = frequencyToBand(ap.Frequency)
 	}
 	if ap.Signal != 0 && ap.SignalQuality == 0 {
 		ap.SignalQuality = signalToQuality(ap.Signal)
@@ -609,16 +604,15 @@ func readInt(s string) int {
 }
 
 func frequencyToChannel(freq int) int {
-	if freq >= Freq2412MHz && freq <= Freq2484MHz {
+	switch {
+	case freq >= Freq2412MHz && freq <= Freq2484MHz:
 		if freq == Freq2484MHz {
 			return Channel14
 		}
 		return (freq - Freq2407MHz) / ChannelSpacing5MHz
-	}
-	if freq >= Freq5170MHz && freq <= Freq5825MHz {
+	case freq >= Freq5170MHz && freq <= Freq5825MHz:
 		return (freq - Freq5000MHz) / ChannelSpacing5MHz
-	}
-	if freq >= Freq5955MHz && freq <= Freq7115MHz {
+	case freq >= Freq5955MHz && freq <= Freq7115MHz:
 		if freq == Freq5935MHz || freq == Freq5955MHz {
 			return Channel2
 		}
@@ -626,8 +620,25 @@ func frequencyToChannel(freq int) int {
 			return Channel6
 		}
 		return (freq - Freq5950MHz) / ChannelSpacing5MHz
+	default:
+		return 0
 	}
-	return 0
+}
+
+// frequencyToBand converts a frequency in MHz to the corresponding WiFi band.
+// Note: 5925 MHz is the correct start of the 6 GHz band (U-NII-5). The previous
+// 5900 MHz checks were approximations, so we standardized on the exact boundary.
+func frequencyToBand(freq int) string {
+	switch {
+	case freq >= 5925:
+		return "6GHz"
+	case freq >= 4900:
+		return "5GHz"
+	case freq > 0:
+		return "2.4GHz"
+	default:
+		return ""
+	}
 }
 
 // deriveWiFiGeneration returns the WiFi generation number (5, 6, 7, 8) or

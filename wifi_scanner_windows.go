@@ -420,13 +420,9 @@ func (p *windowsParser) bssEntryToAccessPoint(entry *WLAN_BSS_ENTRY) AccessPoint
 	frequency := int(entry.ChCenterFrequency / 1000)
 	channel := frequencyToChannel(frequency)
 
-	band := "2.4GHz"
-	if frequency > 5900 {
-		band = "6GHz"
-	} else if frequency > 5000 {
-		band = "5GHz"
-	}
+	band := frequencyToBand(frequency)
 
+	ap := AccessPoint{
 	security := "Open"
 	if entry.CapabilityInformation&capabilityPrivacy != 0 {
 		security = "WEP"

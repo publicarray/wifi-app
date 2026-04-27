@@ -622,12 +622,8 @@ func cwBandAndFrequency(channel, band int) (string, int) {
 	}
 	freq := channelToFrequency(channel)
 	switch {
-	case freq > 5900:
-		return "6GHz", freq
-	case freq > 5000:
-		return "5GHz", freq
 	default:
-		return "2.4GHz", freq
+		return frequencyToBand(freq), freq
 	}
 }
 

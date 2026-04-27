@@ -39,12 +39,7 @@ func (p *airportParser) ParseScan(output []byte) ([]AccessPoint, error) {
 			channelWidth = 20
 		}
 		freq := channelToFrequency(channel)
-		band := "2.4GHz"
-		if freq > 5900 {
-			band = "6GHz"
-		} else if freq > 5000 {
-			band = "5GHz"
-		}
+		band := frequencyToBand(freq)
 
 		securityField := getJoinedString(entry, "SECURITY")
 		security, ciphers, authMethods, pmf := parseAirportSecurity(securityField)
