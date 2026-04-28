@@ -64,6 +64,14 @@ func (a *App) GetClientStats() ClientStats {
 	return a.wifiService.GetClientStats()
 }
 
+// GetAPSignalHistory returns the per-BSSID signal histories the backend
+// has accumulated. The Signal tab uses this on mount so the "Other APs"
+// chart can hydrate from the backend store rather than starting fresh
+// every time the user switches away and back.
+func (a *App) GetAPSignalHistory() []APSignalHistory {
+	return a.wifiService.GetAPSignalHistories()
+}
+
 // GetChannelAnalysis returns channel utilization information
 func (a *App) GetChannelAnalysis() []ChannelInfo {
 	return a.wifiService.GetChannelAnalysis()

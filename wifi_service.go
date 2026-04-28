@@ -21,6 +21,24 @@ import (
 // scan interval tick rather than thrashing the driver.
 var scanBackoffDelays = []time.Duration{500 * time.Millisecond, 1 * time.Second, 2 * time.Second}
 
+// apHistoryRetention bounds how long a BSSID's signal history is kept after
+// it disappears from scans. Entries older than this are dropped on the next
+// recordAPSignalHistoryLocked pass.
+const apHistoryRetention = time.Hour
+
+// apHistoryMaxPerAP is the hard ceiling on per-BSSID samples regardless of
+// SignalHistorySize, to bound memory when many APs are visible.
+const apHistoryMaxPerAP = 1500
+
+// apSignalEntry holds the bounded sample series for one BSSID along with the
+// most recently observed SSID (for legend labels) and the wall-clock time of
+// the last observation (for retention GC).
+type apSignalEntry struct {
+	ssid     string
+	points   []SignalDataPoint
+	lastSeen time.Time
+}
+
 // WiFiService manages WiFi scanning and data aggregation
 type WiFiService struct {
 	scanner          WiFiBackend
@@ -52,7 +70,12 @@ type WiFiService struct {
 	// Signal history tracking
 	signalHistory  []SignalDataPoint
 	roamingHistory []RoamingEvent
-	lastBSSID      string
+	// Per-BSSID signal history for nearby APs. Filled on every scan tick
+	// regardless of UI state so the Signal tab's "Other APs" chart survives
+	// tab switches and short-term remounts. Entries unseen for
+	// apHistoryRetention are garbage-collected to bound memory.
+	apSignalHistory map[string]*apSignalEntry
+	lastBSSID       string
 	// lastBSSIDSeenAt is the wall-clock time of the last scan tick that
 	// observed lastBSSID as the active (connected) BSSID. Used to estimate
 	// RoamingEvent.DurationMs on the next BSSID transition. Stays frozen
@@ -81,12 +104,13 @@ func NewWiFiService() *WiFiService {
 	}
 
 	ws := &WiFiService{
-		scanner:        NewWiFiScanner(cacheFile),
-		config:         newLiveConfig(cfg),
-		networks:       []Network{},
-		channelInfo:    []ChannelInfo{},
-		signalHistory:  []SignalDataPoint{},
-		roamingHistory: []RoamingEvent{},
+		scanner:         NewWiFiScanner(cacheFile),
+		config:          newLiveConfig(cfg),
+		networks:        []Network{},
+		channelInfo:     []ChannelInfo{},
+		signalHistory:   []SignalDataPoint{},
+		roamingHistory:  []RoamingEvent{},
+		apSignalHistory: make(map[string]*apSignalEntry),
 	}
 	ws.latencySampler = NewLatencySampler(ws.config)
 	return ws
@@ -243,6 +267,7 @@ func (ws *WiFiService) performScan(ctx context.Context, iface string) {
 	ws.lastScanResult = result
 	ws.networks = result.Networks
 	ws.channelInfo = result.Channels
+	ws.recordAPSignalHistoryLocked(aps, result.Timestamp)
 	ws.updateClientStatsLocked(iface)
 	networksSnapshot := ws.networks
 	channelsSnapshot := ws.channelInfo
@@ -589,6 +614,70 @@ func (ws *WiFiService) updateSignalHistoryLocked() {
 	// Note: SignalHistory/RoamingHistory on ClientStats are populated lazily
 	// via cloneClientStatsLocked when a caller asks for a snapshot; we never
 	// hand out the live backing slices anymore.
+}
+
+// recordAPSignalHistoryLocked appends one signal sample per observed BSSID
+// from this scan tick, trims each per-BSSID series to the configured cap,
+// and drops entries unseen for apHistoryRetention. Caller must hold
+// ws.mu.Lock.
+func (ws *WiFiService) recordAPSignalHistoryLocked(aps []AccessPoint, ts time.Time) {
+	if ws.apSignalHistory == nil {
+		ws.apSignalHistory = make(map[string]*apSignalEntry)
+	}
+	cap := ws.config.Get().SignalHistorySize()
+	if cap > apHistoryMaxPerAP {
+		cap = apHistoryMaxPerAP
+	}
+	if cap < 1 {
+		cap = 1
+	}
+	for _, ap := range aps {
+		if ap.BSSID == "" {
+			continue
+		}
+		entry, ok := ws.apSignalHistory[ap.BSSID]
+		if !ok {
+			entry = &apSignalEntry{}
+			ws.apSignalHistory[ap.BSSID] = entry
+		}
+		if ap.SSID != "" {
+			entry.ssid = ap.SSID
+		}
+		entry.lastSeen = ts
+		entry.points = appendCapped(entry.points, SignalDataPoint{
+			Timestamp: ts,
+			Signal:    ap.Signal,
+			BSSID:     ap.BSSID,
+		}, cap)
+	}
+	cutoff := ts.Add(-apHistoryRetention)
+	for bssid, entry := range ws.apSignalHistory {
+		if entry.lastSeen.Before(cutoff) {
+			delete(ws.apSignalHistory, bssid)
+		}
+	}
+}
+
+// GetAPSignalHistories returns a snapshot of every tracked BSSID's signal
+// history. Each returned APSignalHistory owns a fresh Points slice; the
+// caller may mutate it without affecting the live store.
+func (ws *WiFiService) GetAPSignalHistories() []APSignalHistory {
+	ws.mu.RLock()
+	defer ws.mu.RUnlock()
+	out := make([]APSignalHistory, 0, len(ws.apSignalHistory))
+	for bssid, entry := range ws.apSignalHistory {
+		if entry == nil || len(entry.points) == 0 {
+			continue
+		}
+		pts := make([]SignalDataPoint, len(entry.points))
+		copy(pts, entry.points)
+		out = append(out, APSignalHistory{
+			BSSID:  bssid,
+			SSID:   entry.ssid,
+			Points: pts,
+		})
+	}
+	return out
 }
 
 // cloneClientStatsLocked returns a deep copy of ws.clientStats with fresh

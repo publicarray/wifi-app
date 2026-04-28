@@ -10,12 +10,16 @@
         IsScanning,
         GetRoamingAnalysis,
         GetAPPlacementRecommendations,
+        GetAPSignalHistory,
         GetConfig,
     } from "../wailsjs/go/main/App.js";
     import { EventsOn, EventsOff, Environment } from "../wailsjs/runtime/runtime.js";
 
     import NetworkList from "./components/NetworkList.svelte";
-    import SignalChart from "./components/SignalChart.svelte";
+    import SignalChart, {
+        recordSignalsFromNetworks,
+        seedSignalHistoryFromBackend,
+    } from "./components/SignalChart.svelte";
     import ChannelAnalyzer from "./components/ChannelAnalyzer.svelte";
     import ClientStatsPanel from "./components/ClientStatsPanel.svelte";
     import RoamingAnalysis from "./components/RoamingAnalysis.svelte";
@@ -96,16 +100,21 @@
         }
 
         try {
-            const [n, c, ch, alreadyScanning] = await Promise.all([
+            const [n, c, ch, alreadyScanning, apHist] = await Promise.all([
                 GetNetworks(),
                 GetClientStats(),
                 GetChannelAnalysis(),
                 IsScanning(),
+                GetAPSignalHistory(),
             ]);
             if (n) networks = n;
             if (c) clientStats = c;
             if (ch) channelAnalysis = ch;
             scanning = !!alreadyScanning;
+            // Hydrate the in-memory per-AP signal store from the backend's
+            // persistent history so the Signal tab is non-empty on the
+            // first mount of the session.
+            seedSignalHistoryFromBackend(apHist);
         } catch (err) {
             // Non-fatal: events will populate state on the next tick.
         }
@@ -116,6 +125,9 @@
                 console.debug(`[wifi-app] Networks updated: ${networksCount} networks received`);
             }
             networks = data || [];
+            // Recorder lives at the App level so the per-AP signal store
+            // keeps growing even when the Signal tab isn't mounted.
+            recordSignalsFromNetworks(networks);
         });
 
         EventsOn("client:updated", (data) => {

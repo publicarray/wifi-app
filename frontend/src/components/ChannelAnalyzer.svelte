@@ -43,9 +43,7 @@
             title: "6 GHz",
             subtitle:
                 "UNII-5..8 — WiFi 6E/7 only — clean spectrum, short range.",
-            channels: [
-                1, 5, 9, 13, 17, 21, 25, 29, 33, 37, 41, 45, 49, 53, 57, 61,
-            ],
+            channels: Array.from({ length: 59 }, (_, i) => 1 + i * 4),
             stepMHz: 20,
             widthDefault: 80,
             nonOverlap: [],
@@ -53,6 +51,70 @@
             freqOf: (ch) => 5.95 + ch * 0.005,
         },
     };
+
+    // UNII band labels drawn above the spectrum axis.
+    const UNII_BANDS = {
+        "5GHz": [
+            { label: "UNII-1", startGHz: 5.15, endGHz: 5.25 },
+            { label: "UNII-2A", startGHz: 5.25, endGHz: 5.33 },
+            { label: "UNII-2C", startGHz: 5.49, endGHz: 5.73 },
+            { label: "UNII-3", startGHz: 5.735, endGHz: 5.835 },
+        ],
+        "6GHz": [
+            { label: "UNII-5", startGHz: 5.925, endGHz: 6.425 },
+            { label: "UNII-6", startGHz: 6.425, endGHz: 6.525 },
+            { label: "UNII-7", startGHz: 6.525, endGHz: 6.875 },
+            { label: "UNII-8", startGHz: 6.875, endGHz: 7.125 },
+        ],
+        "2.4GHz": [],
+    };
+
+    // Map (primary channel, bandwidth) → actual center channel per 802.11.
+    // Without secondary-channel offset info from the scanner we infer center
+    // from the standard primary→group mappings.
+    function actualCenterChannel(primary, widthMHz, band) {
+        if (!widthMHz || widthMHz <= 20) return primary;
+        if (band === "5GHz") {
+            if (widthMHz === 40) {
+                const pairs = [
+                    [36, 40, 38], [44, 48, 46], [52, 56, 54], [60, 64, 62],
+                    [100, 104, 102], [108, 112, 110], [116, 120, 118],
+                    [124, 128, 126], [132, 136, 134], [140, 144, 142],
+                    [149, 153, 151], [157, 161, 159],
+                ];
+                for (const [a, b, c] of pairs)
+                    if (primary === a || primary === b) return c;
+            }
+            if (widthMHz === 80) {
+                const groups = [
+                    [[36, 40, 44, 48], 42], [[52, 56, 60, 64], 58],
+                    [[100, 104, 108, 112], 106], [[116, 120, 124, 128], 122],
+                    [[132, 136, 140, 144], 138], [[149, 153, 157, 161], 155],
+                ];
+                for (const [chs, c] of groups)
+                    if (chs.includes(primary)) return c;
+            }
+            if (widthMHz === 160) {
+                if (primary >= 36 && primary <= 64) return 50;
+                if (primary >= 100 && primary <= 128) return 114;
+                if (primary >= 149 && primary <= 177) return 163;
+            }
+        }
+        if (band === "6GHz") {
+            if (widthMHz === 40)
+                return 3 + Math.floor((primary - 1) / 8) * 8;
+            if (widthMHz === 80)
+                return 7 + Math.floor((primary - 1) / 16) * 16;
+            if (widthMHz === 160)
+                return 15 + Math.floor((primary - 1) / 32) * 32;
+            if (widthMHz === 320)
+                return 31 + Math.floor((primary - 1) / 64) * 64;
+        }
+        if (band === "2.4GHz") {
+            if (widthMHz === 40) return primary + 2;
+        }
+        return primary;
+    }
 
     let spectrumBand = "5GHz";
     let selectedChannel = null;
@@ -124,9 +186,10 @@
         const myCenter = def.freqOf(ch);
         return aps.filter((ap) => {
             if (ap.channel === ch) return false;
-            const theirCenter = def.freqOf(ap.channel);
             const w = ap.channelWidth || def.widthDefault;
-            const combinedHalfWidth = (w / 2 + def.widthDefault / 2) / 1000;
+            const apCenterCh = actualCenterChannel(ap.channel, w, spectrumBand);
+            const theirCenter = def.freqOf(apCenterCh);
+            const combinedHalfWidth = (w / 2 + 20 / 2) / 1000;
             return Math.abs(myCenter - theirCenter) < combinedHalfWidth;
         });
     }
@@ -169,35 +232,39 @@
     // ── Spectrum SVG geometry ─────────────────────────────────
     let spectrumWidth = 900;
     let spectrumWrapper;
-    const SPECTRUM_HEIGHT = 240;
-    const SPECTRUM_PAD = { top: 16, right: 16, bottom: 30, left: 44 };
+    const SPECTRUM_HEIGHT = 260;
+    const SPECTRUM_PAD = { top: 32, right: 16, bottom: 30, left: 44 };
     const SPECTRUM_Y_TICKS = [-40, -50, -60, -70, -80];
     const SPECTRUM_Y_MIN = -90;
     const SPECTRUM_Y_MAX = -30;
 
+    // Real-frequency x-axis: spans from first channel's center to last
+    // channel's center, linearly mapped to the inner plot area in MHz.
+    function spectrumRangeGHz() {
+        const def = bandDef;
+        if (!def) return [0, 1];
+        const first = def.freqOf(def.channels[0]);
+        const last = def.freqOf(def.channels[def.channels.length - 1]);
+        // Pad half a channel width on each side so edge bells aren't clipped.
+        const padGHz = (def.widthDefault / 2) / 1000;
+        return [first - padGHz, last + padGHz];
+    }
+
+    function spectrumXForFreqGHz(freqGHz) {
+        const innerW =
+            spectrumWidth - SPECTRUM_PAD.left - SPECTRUM_PAD.right;
+        const [minF, maxF] = spectrumRangeGHz();
+        if (maxF === minF) return SPECTRUM_PAD.left;
+        return (
+            SPECTRUM_PAD.left +
+            ((freqGHz - minF) / (maxF - minF)) * innerW
+        );
+    }
+
     function spectrumXForChannel(ch) {
         const def = bandDef;
         if (!def) return 0;
-        const i = def.channels.indexOf(ch);
-        const innerW =
-            spectrumWidth - SPECTRUM_PAD.left - SPECTRUM_PAD.right;
-        if (i < 0) {
-            // Off-grid channel — interpolate between the two surrounding entries
-            for (let j = 0; j < def.channels.length - 1; j++) {
-                const a = def.channels[j];
-                const b = def.channels[j + 1];
-                if (ch > a && ch < b) {
-                    const t = (ch - a) / (b - a);
-                    const stepPx = innerW / (def.channels.length - 1);
-                    return SPECTRUM_PAD.left + (j + t) * stepPx;
-                }
-            }
-            return SPECTRUM_PAD.left;
-        }
-        return (
-            SPECTRUM_PAD.left +
-            (i / Math.max(1, def.channels.length - 1)) * innerW
-        );
+        return spectrumXForFreqGHz(def.freqOf(ch));
     }
 
     function spectrumYForSignal(dBm) {
@@ -211,12 +278,12 @@
     }
 
     function spectrumWidthPx(channelWidthMHz) {
-        const def = bandDef;
-        if (!def) return 0;
         const innerW =
             spectrumWidth - SPECTRUM_PAD.left - SPECTRUM_PAD.right;
-        const stepPx = innerW / Math.max(1, def.channels.length - 1);
-        return stepPx * (channelWidthMHz / def.stepMHz);
+        const [minF, maxF] = spectrumRangeGHz();
+        const totalMHz = (maxF - minF) * 1000;
+        if (totalMHz <= 0) return 0;
+        return (channelWidthMHz / totalMHz) * innerW;
     }
 
     function bellPath(cx, cy, w, baseY) {
@@ -443,8 +510,8 @@
                     spectrumWidth - SPECTRUM_PAD.left - SPECTRUM_PAD.right}
                 {@const innerH =
                     SPECTRUM_HEIGHT - SPECTRUM_PAD.top - SPECTRUM_PAD.bottom}
-                {@const stepPx =
-                    innerW / Math.max(1, bandDef.channels.length - 1)}
+                {@const tickW = spectrumWidthPx(20)}
+                {@const primaryW = spectrumWidthPx(20)}
                 {@const baseY = SPECTRUM_PAD.top + innerH}
                 <svg
                     class="spectrum-svg"
@@ -473,19 +540,64 @@
                         >{tick}</text>
                     {/each}
 
+                    {#each UNII_BANDS[spectrumBand] || [] as uband}
+                        {@const ubx1 = Math.max(
+                            SPECTRUM_PAD.left,
+                            spectrumXForFreqGHz(uband.startGHz),
+                        )}
+                        {@const ubx2 = Math.min(
+                            spectrumWidth - SPECTRUM_PAD.right,
+                            spectrumXForFreqGHz(uband.endGHz),
+                        )}
+                        {#if ubx2 > ubx1 + 4}
+                            <line
+                                x1={ubx1 + 2}
+                                x2={ubx2 - 2}
+                                y1={SPECTRUM_PAD.top - 14}
+                                y2={SPECTRUM_PAD.top - 14}
+                                stroke="var(--line-2)"
+                                stroke-width="1"
+                            />
+                            <line
+                                x1={ubx1 + 2}
+                                x2={ubx1 + 2}
+                                y1={SPECTRUM_PAD.top - 17}
+                                y2={SPECTRUM_PAD.top - 11}
+                                stroke="var(--line-2)"
+                                stroke-width="1"
+                            />
+                            <line
+                                x1={ubx2 - 2}
+                                x2={ubx2 - 2}
+                                y1={SPECTRUM_PAD.top - 17}
+                                y2={SPECTRUM_PAD.top - 11}
+                                stroke="var(--line-2)"
+                                stroke-width="1"
+                            />
+                            <text
+                                x={(ubx1 + ubx2) / 2}
+                                y={SPECTRUM_PAD.top - 18}
+                                fill="var(--fg-3)"
+                                font-size="10"
+                                font-family="var(--font-mono)"
+                                text-anchor="middle"
+                            >{uband.label}</text>
+                        {/if}
+                    {/each}
+
                     {#if selectedChannel != null}
+                        {@const selX = spectrumXForChannel(selectedChannel)}
                         <rect
-                            x={spectrumXForChannel(selectedChannel) -
-                                stepPx * 0.45}
+                            x={selX - tickW / 2}
                             y={SPECTRUM_PAD.top}
-                            width={stepPx * 0.9}
+                            width={tickW}
                             height={innerH}
                             fill="var(--acc-1)"
-                            opacity="0.06"
+                            opacity="0.08"
                         />
                         <line
-                            x1={spectrumXForChannel(selectedChannel)}
-                            x2={spectrumXForChannel(selectedChannel)}
+                            x1={selX}
+                            x2={selX}
                             y1={SPECTRUM_PAD.top}
                             y2={baseY}
                             stroke="var(--acc-1)"
@@ -507,23 +619,43 @@
                     {/each}
 
                     {#each bandAPsSorted as ap (ap.bssid + ap.channel)}
-                        {@const cx = spectrumXForChannel(ap.channel)}
-                        {@const cy = spectrumYForSignal(ap.signal)}
-                        {@const w = spectrumWidthPx(
-                            ap.channelWidth || bandDef.widthDefault,
+                        {@const apW = ap.channelWidth || bandDef.widthDefault}
+                        {@const centerCh = actualCenterChannel(
+                            ap.channel,
+                            apW,
+                            spectrumBand,
                         )}
+                        {@const cx = spectrumXForChannel(centerCh)}
+                        {@const cy = spectrumYForSignal(ap.signal)}
+                        {@const wPx = spectrumWidthPx(apW)}
+                        {@const primaryX = spectrumXForChannel(ap.channel)}
                         {@const isConn =
                             connectedBSSID &&
                             ap.bssid &&
                             ap.bssid.toLowerCase() === connectedBSSID}
                         {@const color = colorForSignal(ap.signal, isConn)}
-                        <path
-                            d={bellPath(cx, cy, w, baseY)}
+                        {@const rectH = Math.max(2, baseY - cy)}
+                        <rect
+                            x={cx - wPx / 2}
+                            y={cy}
+                            width={wPx}
+                            height={rectH}
+                            rx="2"
+                            ry="2"
                             fill={color}
-                            fill-opacity={isConn ? 0.28 : 0.18}
+                            fill-opacity={isConn ? 0.18 : 0.10}
                             stroke={color}
-                            stroke-width={isConn ? 2 : 1.2}
-                            stroke-linejoin="round"
+                            stroke-width={isConn ? 1.5 : 1}
+                            stroke-opacity={isConn ? 0.85 : 0.55}
+                        />
+                        <rect
+                            x={primaryX - primaryW / 2}
+                            y={cy}
+                            width={primaryW}
+                            height={rectH}
+                            fill={color}
+                            fill-opacity={isConn ? 0.45 : 0.32}
+                            stroke="none"
                         />
                         <text
                             x={cx}
@@ -562,9 +694,9 @@
                             style="cursor: pointer"
                         >
                             <rect
-                                x={x - stepPx * 0.45}
+                                x={x - tickW / 2}
                                 y={SPECTRUM_PAD.top}
-                                width={stepPx * 0.9}
+                                width={tickW}
                                 height={innerH + 18}
                                 fill="transparent"
                             />

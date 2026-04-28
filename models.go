@@ -108,6 +108,16 @@ type SignalDataPoint struct {
 	BSSID     string    `json:"bssid"`  // Which AP the signal is from
 }
 
+// APSignalHistory is a per-BSSID time series of signal samples. The Signal
+// tab uses this to keep the "Other APs" chart continuous across tab switches:
+// the backend records every scan tick into ws.apSignalHistory regardless of
+// whether the SignalChart component is currently mounted.
+type APSignalHistory struct {
+	BSSID  string            `json:"bssid"`
+	SSID   string            `json:"ssid"`
+	Points []SignalDataPoint `json:"points"`
+}
+
 // ClientStats represents the current client connection statistics
 type ClientStats struct {
 	Connected      bool              `json:"connected"`

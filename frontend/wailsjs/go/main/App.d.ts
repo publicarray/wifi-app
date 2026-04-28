@@ -8,6 +8,8 @@ export function ExportNetworks(arg1:string):Promise<string>;
 
 export function GetAPPlacementRecommendations():Promise<Array<string>>;
 
+export function GetAPSignalHistory():Promise<Array<main.APSignalHistory>>;
+
 export function GetAvailableInterfaces():Promise<Array<string>>;
 
 export function GetChannelAnalysis():Promise<Array<main.ChannelInfo>>;

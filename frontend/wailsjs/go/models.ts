@@ -1,5 +1,74 @@
 export namespace main {
 	
+	export class SignalDataPoint {
+	    // Go type: time
+	    timestamp: any;
+	    signal: number;
+	    bssid: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new SignalDataPoint(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.timestamp = this.convertValues(source["timestamp"], null);
+	        this.signal = source["signal"];
+	        this.bssid = source["bssid"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class APSignalHistory {
+	    bssid: string;
+	    ssid: string;
+	    points: SignalDataPoint[];
+	
+	    static createFrom(source: any = {}) {
+	        return new APSignalHistory(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.bssid = source["bssid"];
+	        this.ssid = source["ssid"];
+	        this.points = this.convertValues(source["points"], SignalDataPoint);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
 	export class AccessPoint {
 	    bssid: string;
 	    ssid: string;
@@ -178,41 +247,6 @@ export namespace main {
 	        this.previousChannel = source["previousChannel"];
 	        this.newChannel = source["newChannel"];
 	        this.durationMs = source["durationMs"];
-	    }
-	
-		convertValues(a: any, classs: any, asMap: boolean = false): any {
-		    if (!a) {
-		        return a;
-		    }
-		    if (a.slice && a.map) {
-		        return (a as any[]).map(elem => this.convertValues(elem, classs));
-		    } else if ("object" === typeof a) {
-		        if (asMap) {
-		            for (const key of Object.keys(a)) {
-		                a[key] = new classs(a[key]);
-		            }
-		            return a;
-		        }
-		        return new classs(a);
-		    }
-		    return a;
-		}
-	}
-	export class SignalDataPoint {
-	    // Go type: time
-	    timestamp: any;
-	    signal: number;
-	    bssid: string;
-	
-	    static createFrom(source: any = {}) {
-	        return new SignalDataPoint(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.timestamp = this.convertValues(source["timestamp"], null);
-	        this.signal = source["signal"];
-	        this.bssid = source["bssid"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {

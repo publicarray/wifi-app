@@ -14,6 +14,10 @@ export function GetAPPlacementRecommendations() {
   return window['go']['main']['App']['GetAPPlacementRecommendations']();
 }
 
+export function GetAPSignalHistory() {
+  return window['go']['main']['App']['GetAPSignalHistory']();
+}
+
 export function GetAvailableInterfaces() {
   return window['go']['main']['App']['GetAvailableInterfaces']();
 }

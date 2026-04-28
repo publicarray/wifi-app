@@ -1,21 +1,140 @@
 <script context="module">
     // apHistory lives at module scope so the per-other-AP signal traces
-    // survive switching away from the Signal tab and back. The connected
-    // AP's history is read from clientStats.signalHistory (backend-managed),
-    // so without a persistent module-scope store the connected line would
-    // appear "complete" while the other-AP lines look like they reset on
-    // every remount.
-    //
-    // Growth is bounded by the per-AP window+max-points filter and the
-    // sliding-window cleanup pass in recordNetworkSignals, so the Map is
-    // capped to "BSSIDs seen in the last HISTORY_WINDOW_MS".
+    // survive switching away from the Signal tab and back. The recorder
+    // is also called from App.svelte's networks:updated handler so the
+    // store keeps growing while SignalChart is unmounted — without that,
+    // the chart resets to an empty history every time the user reopens
+    // the Signal tab. The backend (WiFiService.recordAPSignalHistoryLocked)
+    // is the durable source of truth across app restarts; this map is the
+    // in-memory hot path that drives Chart.js datasets.
     const moduleApHistory = new Map();
+
+    const HISTORY_WINDOW_MS = 60 * 60 * 1000;
+    const HISTORY_MAX_POINTS = 1500;
+    const STALE_HOLD_MS = 30000;
+
+    // recordSignalsFromNetworks is exported so App.svelte can run the
+    // sample recorder from its `networks:updated` event handler. Reactive
+    // blocks inside SignalChart only fire while the component is mounted,
+    // so without a top-level call site the per-AP traces flatline on tab
+    // switch.
+    export function recordSignalsFromNetworks(networks) {
+        const now = Date.now();
+        const seenBSSIDs = new Set();
+
+        if (networks && networks.length > 0) {
+            networks.forEach((network) => {
+                if (!network?.accessPoints?.length) return;
+                network.accessPoints.forEach((ap) => {
+                    const bssid = ap?.bssid;
+                    if (!bssid) return;
+                    if (typeof ap.signal !== "number") return;
+                    const ssid = ap?.ssid || network?.ssid || "Unknown";
+                    seenBSSIDs.add(bssid);
+
+                    let entry = moduleApHistory.get(bssid);
+                    if (!entry) {
+                        entry = { bssid, ssid, points: [] };
+                        moduleApHistory.set(bssid, entry);
+                    }
+                    entry.ssid = ssid;
+                    const lastPoint = entry.points[entry.points.length - 1];
+                    if (!lastPoint || lastPoint.x !== now) {
+                        entry.points.push({ x: now, y: ap.signal });
+                    }
+
+                    const cutoff = now - HISTORY_WINDOW_MS;
+                    entry.points = entry.points.filter(
+                        (point) => point.x >= cutoff,
+                    );
+                    if (entry.points.length > HISTORY_MAX_POINTS) {
+                        entry.points.splice(
+                            0,
+                            entry.points.length - HISTORY_MAX_POINTS,
+                        );
+                    }
+                });
+            });
+        }
+
+        // Hold last-known signal for STALE_HOLD_MS so a single missed scan
+        // doesn't punch a gap in the chart line.
+        moduleApHistory.forEach((entry) => {
+            if (seenBSSIDs.has(entry.bssid)) return;
+            const lastPoint = entry.points?.[entry.points.length - 1];
+            if (!lastPoint) return;
+            if (now - lastPoint.x <= STALE_HOLD_MS) {
+                if (lastPoint.x !== now) {
+                    entry.points.push({ x: now, y: lastPoint.y });
+                }
+            }
+        });
+
+        // GC: drop empty entries and any whose last point fell out of the
+        // retention window.
+        moduleApHistory.forEach((entry, bssid) => {
+            if (!entry.points || entry.points.length === 0) {
+                moduleApHistory.delete(bssid);
+                return;
+            }
+            const lastPoint = entry.points[entry.points.length - 1];
+            if (lastPoint.x < now - HISTORY_WINDOW_MS) {
+                moduleApHistory.delete(bssid);
+            }
+        });
+    }
+
+    // seedSignalHistoryFromBackend hydrates the in-memory store from the
+    // persistent backend history (WiFiService.GetAPSignalHistories). Called
+    // once on app startup so the Signal tab is non-empty even on the first
+    // visit after launch.
+    export function seedSignalHistoryFromBackend(histories) {
+        if (!Array.isArray(histories)) return;
+        const now = Date.now();
+        const cutoff = now - HISTORY_WINDOW_MS;
+        for (const h of histories) {
+            if (!h?.bssid) continue;
+            const points = (h.points || [])
+                .map((p) => {
+                    const x =
+                        typeof p?.timestamp === "number"
+                            ? p.timestamp
+                            : Date.parse(p?.timestamp);
+                    if (!Number.isFinite(x)) return null;
+                    if (typeof p?.signal !== "number") return null;
+                    return { x, y: p.signal };
+                })
+                .filter((pt) => pt && pt.x >= cutoff)
+                .sort((a, b) => a.x - b.x);
+            if (points.length === 0) continue;
+            const existing = moduleApHistory.get(h.bssid);
+            if (existing && existing.points.length >= points.length) continue;
+            moduleApHistory.set(h.bssid, {
+                bssid: h.bssid,
+                ssid: h.ssid || existing?.ssid || "Unknown",
+                points,
+            });
+        }
+    }
+
+    export function apSignalHistoryTotals() {
+        let aps = 0;
+        let points = 0;
+        moduleApHistory.forEach((entry) => {
+            if (entry?.points?.length) {
+                aps++;
+                points += entry.points.length;
+            }
+        });
+        return { aps, points };
+    }
 </script>
 
 <script>
     import { onMount, onDestroy } from "svelte";
     import { Chart, registerables } from "chart.js";
     import "chartjs-adapter-date-fns";
+    import { GetAPSignalHistory } from "../../wailsjs/go/main/App.js";
 
     export let clientStats = null;
     export let networks = [];
@@ -28,9 +147,6 @@
     let apHistory = moduleApHistory;
     let historyPoints = 0;
     let historyAPs = 0;
-    const HISTORY_WINDOW_MS = 60 * 60 * 1000;
-    const HISTORY_MAX_POINTS = 1500;
-    const STALE_HOLD_MS = 30000;
 
     const RANGE_OPTIONS = [
         { id: "1m", label: "1m", ms: 60 * 1000 },
@@ -119,9 +235,24 @@
         },
     };
 
-    onMount(() => {
+    onMount(async () => {
         Chart.register(...registerables);
         initializeChart();
+
+        // Hydrate from the backend store so the chart is populated on the
+        // first visit after app start. App.svelte also seeds at boot, but a
+        // direct fetch here covers the case where SignalChart mounts before
+        // the boot fetch resolves.
+        try {
+            const histories = await GetAPSignalHistory();
+            seedSignalHistoryFromBackend(histories);
+            const totals = apSignalHistoryTotals();
+            historyAPs = totals.aps;
+            historyPoints = totals.points;
+            updateChart();
+        } catch (err) {
+            // Non-fatal — live recording will fill the chart on the next tick.
+        }
 
         themeMedia = window.matchMedia("(prefers-color-scheme: dark)");
         const handleThemeChange = () => applyChartTheme();
@@ -267,12 +398,17 @@
         othersChart = buildChart(othersCtx, "Other APs in Range");
     }
 
-    // Update chart when clientStats, networks, or range change
+    // Update chart when clientStats, networks, or range change. Recording
+    // itself happens in App.svelte's networks:updated handler so the store
+    // keeps growing while this tab is unmounted; here we just refresh the
+    // toolbar totals and re-render Chart.js datasets.
     $: if (connectedChart && othersChart) {
         networks;
         clientStats;
         rangeMs;
-        recordNetworkSignals();
+        const totals = apSignalHistoryTotals();
+        historyAPs = totals.aps;
+        historyPoints = totals.points;
         updateChart();
     }
 
@@ -365,75 +501,6 @@
             return color.replace(/rgba\\(([^)]+)\\)/, `rgba($1, ${alpha})`);
         }
         return color;
-    }
-
-    function recordNetworkSignals() {
-        const now = Date.now();
-        const seenBSSIDs = new Set();
-
-        if (networks && networks.length > 0) {
-            networks.forEach((network) => {
-                if (!network?.accessPoints?.length) return;
-                network.accessPoints.forEach((ap) => {
-                    const bssid = ap?.bssid;
-                    if (!bssid) return;
-                    if (typeof ap.signal !== "number") return;
-                    const ssid = ap?.ssid || network?.ssid || "Unknown";
-                    const timestamp = now;
-                    seenBSSIDs.add(bssid);
-
-                    let entry = apHistory.get(bssid);
-                    if (!entry) {
-                        entry = { bssid, ssid, points: [] };
-                        apHistory.set(bssid, entry);
-                    }
-                    entry.ssid = ssid;
-                    const lastPoint = entry.points[entry.points.length - 1];
-                    if (!lastPoint || lastPoint.x !== timestamp) {
-                        entry.points.push({ x: timestamp, y: ap.signal });
-                    }
-
-                    const cutoff = now - HISTORY_WINDOW_MS;
-                    entry.points = entry.points.filter(
-                        (point) => point.x >= cutoff,
-                    );
-                    if (entry.points.length > HISTORY_MAX_POINTS) {
-                        entry.points.splice(
-                            0,
-                            entry.points.length - HISTORY_MAX_POINTS,
-                        );
-                    }
-                });
-            });
-        }
-
-        apHistory.forEach((entry, bssid) => {
-            if (seenBSSIDs.has(bssid)) return;
-            const lastPoint = entry.points?.[entry.points.length - 1];
-            if (!lastPoint) return;
-            if (now - lastPoint.x <= STALE_HOLD_MS) {
-                if (lastPoint.x !== now) {
-                    entry.points.push({ x: now, y: lastPoint.y });
-                }
-            }
-        });
-
-        apHistory.forEach((entry, bssid) => {
-            if (!entry.points || entry.points.length === 0) {
-                apHistory.delete(bssid);
-                return;
-            }
-            const lastPoint = entry.points[entry.points.length - 1];
-            if (lastPoint.x < now - HISTORY_WINDOW_MS) {
-                apHistory.delete(bssid);
-            }
-        });
-
-        historyAPs = apHistory.size;
-        historyPoints = 0;
-        apHistory.forEach((entry) => {
-            historyPoints += entry.points.length;
-        });
     }
 
     function normalizePoints(points) {
