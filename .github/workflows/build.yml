@@ -275,22 +275,21 @@ jobs:
         if: runner.os == 'macOS'
         run: |
           set -e
-          # snider/build@main produces build/bin/<name>.app.zip. We unzip,
-          # drop the helper into Contents/MacOS/ next to the main binary,
-          # and re-zip so downstream rename + release upload work unchanged.
+          # snider/build@main leaves both build/bin/<name>.app/ and the
+          # already-zipped .app.zip in place. Modify the .app directory
+          # directly and re-zip — unzipping over the existing tree prompts
+          # for overwrite confirmation and fails under non-interactive CI.
           cd build/bin
-          unzip -q ${{ matrix.build.name }}.app.zip
-          rm ${{ matrix.build.name }}.app.zip
           cp ../helper/wifi-app-mac-helper ${{ matrix.build.name }}.app/Contents/MacOS/
           chmod +x ${{ matrix.build.name }}.app/Contents/MacOS/wifi-app-mac-helper
-          # Ad-hoc sign the helper with the same entitlements as the main app
-          # so future hardened-runtime builds work; on unsigned dev builds
-          # this is harmless.
+          # Ad-hoc sign the helper with the same entitlements as the main
+          # app so future hardened-runtime builds keep working; on
+          # unsigned dev builds this is harmless.
           codesign --force --sign - \
             --entitlements ../../build/darwin/entitlements.plist \
             ${{ matrix.build.name }}.app/Contents/MacOS/wifi-app-mac-helper || true
+          rm -f ${{ matrix.build.name }}.app.zip
           ditto -c -k --keepParent ${{ matrix.build.name }}.app ${{ matrix.build.name }}.app.zip
-          rm -rf ${{ matrix.build.name }}.app
 
       - name: Rename macOS zip
         if: runner.os == 'macOS'
