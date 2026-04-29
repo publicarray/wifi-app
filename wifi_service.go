@@ -484,9 +484,25 @@ func (ws *WiFiService) updateClientStatsLocked(iface string) {
 	ws.clientStats.LocalIP = ifaceIPv4(iface)
 	ws.clientStats.Gateway = defaultGatewayString()
 
-	if freq, err := strconv.ParseFloat(linkInfo["frequency"], 64); err == nil {
+	if freq, err := strconv.ParseFloat(linkInfo["frequency"], 64); err == nil && freq != 0 {
 		ws.clientStats.Frequency = freq
 		ws.clientStats.Channel = frequencyToChannel(int(freq))
+	}
+	// Some backends (CoreWLAN) emit channel directly without a frequency
+	// string; honour that and synthesise the frequency the other way round.
+	if channel, err := strconv.Atoi(linkInfo["channel"]); err == nil && channel != 0 {
+		if ws.clientStats.Channel == 0 {
+			ws.clientStats.Channel = channel
+		}
+		if ws.clientStats.Frequency == 0 {
+			ws.clientStats.Frequency = float64(channelToFrequency(channel))
+		}
+	}
+	if width, err := strconv.Atoi(linkInfo["channel_width"]); err == nil && width != 0 {
+		ws.clientStats.ChannelWidth = width
+	}
+	if noise, err := strconv.Atoi(linkInfo["noise"]); err == nil && noise != 0 {
+		ws.clientStats.Noise = noise
 	}
 
 	if signal, err := strconv.Atoi(linkInfo["signal"]); err == nil {
@@ -510,11 +526,32 @@ func (ws *WiFiService) updateClientStatsLocked(iface string) {
 
 		if wifiStd := stationStats["wifi_standard"]; wifiStd != "" {
 			ws.clientStats.WiFiStandard = wifiStd
-		} else if txBitrateInfo := stationStats["tx_bitrate_info"]; txBitrateInfo != "" {
-			wifiStandard, channelWidth, mimoConfig := parseBitrateInfo(txBitrateInfo)
-			ws.clientStats.WiFiStandard = wifiStandard
-			ws.clientStats.ChannelWidth, _ = strconv.Atoi(channelWidth)
-			ws.clientStats.MIMOConfig = mimoConfig
+		}
+		// Always run parseBitrateInfo when we have a bitrate string: it's the
+		// only source of MIMOConfig (and ChannelWidth on backends that don't
+		// emit it directly). Don't let an explicit wifi_standard skip it.
+		if txBitrateInfo := stationStats["tx_bitrate_info"]; txBitrateInfo != "" {
+			parsedStd, parsedWidth, parsedMimo := parseBitrateInfo(txBitrateInfo)
+			if ws.clientStats.WiFiStandard == "" {
+				ws.clientStats.WiFiStandard = parsedStd
+			}
+			if ws.clientStats.ChannelWidth == 0 {
+				ws.clientStats.ChannelWidth, _ = strconv.Atoi(parsedWidth)
+			}
+			if parsedMimo != "" && parsedMimo != "1x1" {
+				ws.clientStats.MIMOConfig = parsedMimo
+			} else if ws.clientStats.MIMOConfig == "" {
+				ws.clientStats.MIMOConfig = parsedMimo
+			}
+		}
+		if width, err := strconv.Atoi(stationStats["channel_width"]); err == nil && width != 0 && ws.clientStats.ChannelWidth == 0 {
+			ws.clientStats.ChannelWidth = width
+		}
+		if noise, err := strconv.Atoi(stationStats["noise"]); err == nil && noise != 0 {
+			ws.clientStats.Noise = noise
+		}
+		if snr, err := strconv.Atoi(stationStats["snr"]); err == nil && snr != 0 {
+			ws.clientStats.SNR = snr
 		}
 
 		if txBytes, err := strconv.ParseUint(stationStats["tx_bytes"], 10, 64); err == nil {

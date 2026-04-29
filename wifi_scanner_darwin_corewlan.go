@@ -425,9 +425,24 @@ func coreWLANScanNetworks(iface string) ([]AccessPoint, error) {
 		security, ciphers, authMethods, pmf := parseAirportSecurity(securityField)
 
 		caps := make([]string, 0, len(net.PhyModes))
+		hasHE, hasVHT, hasHT, hasEHT := false, false, false, false
+		topMode := 0
 		for _, m := range net.PhyModes {
 			if tag := cwPhyModeCapability(m); tag != "" {
 				caps = appendUnique(caps, tag)
+			}
+			if m > topMode {
+				topMode = m
+			}
+			switch m {
+			case 4:
+				hasHT = true
+			case 5:
+				hasVHT = true
+			case 6:
+				hasHE = true
+			case 7:
+				hasEHT = true
 			}
 		}
 
@@ -449,6 +464,17 @@ func coreWLANScanNetworks(iface string) ([]AccessPoint, error) {
 			SecurityCiphers: ciphers,
 			AuthMethods:     authMethods,
 			PMF:             pmf,
+			WiFiStandard:    cwPhyModeStandard(topMode),
+			// Mark features mandated by the highest supported PHY mode. CoreWLAN
+			// does not expose the underlying Information Elements, so anything
+			// that requires per-AP IE inspection (BSSColor, BSSLoad, 802.11k/v/r,
+			// DTIM, WPS, MaxPhyRate) stays at its zero value.
+			OFDMADownlink: hasHE || hasEHT,
+			OFDMAUplink:   hasHE || hasEHT,
+			TWTSupport:    hasHE || hasEHT,
+			MUMIMO:        hasVHT || hasHE || hasEHT,
+			Beamforming:   hasVHT || hasHE || hasEHT,
+			QoSSupport:    hasHT || hasVHT || hasHE || hasEHT,
 		}
 		if net.Noise < 0 {
 			ap.Noise = net.Noise
@@ -525,6 +551,13 @@ func coreWLANLinkInfo(iface string) (map[string]string, error) {
 	if current.Channel != 0 {
 		info["channel"] = strconv.Itoa(current.Channel)
 	}
+	band, freq := cwBandAndFrequency(current.Channel, current.ChannelBand)
+	if freq != 0 {
+		info["frequency"] = strconv.Itoa(freq)
+	}
+	if band != "" {
+		info["band"] = band
+	}
 	width := mapCWChannelWidth(current.ChannelWidth)
 	if width != 0 {
 		info["channel_width"] = strconv.Itoa(width)
@@ -576,7 +609,20 @@ func coreWLANStationInfo(iface string) (map[string]string, error) {
 	if current.TxRate != 0 {
 		stats["tx_bitrate"] = strconv.FormatFloat(current.TxRate, 'f', -1, 64)
 	}
+	if current.Channel != 0 {
+		stats["channel"] = strconv.Itoa(current.Channel)
+	}
+	band, freq := cwBandAndFrequency(current.Channel, current.ChannelBand)
+	if freq != 0 {
+		stats["frequency"] = strconv.Itoa(freq)
+	}
+	if band != "" {
+		stats["band"] = band
+	}
 	width := mapCWChannelWidth(current.ChannelWidth)
+	if width != 0 {
+		stats["channel_width"] = strconv.Itoa(width)
+	}
 	if rateInfo := cwBitrateInfoString(current.PhyMode, width, current.TxRate); rateInfo != "" {
 		stats["tx_bitrate_info"] = rateInfo
 		stats["rx_bitrate_info"] = rateInfo
