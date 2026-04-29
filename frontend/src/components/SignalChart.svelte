@@ -29,15 +29,32 @@
                     const bssid = ap?.bssid;
                     if (!bssid) return;
                     if (typeof ap.signal !== "number") return;
-                    const ssid = ap?.ssid || network?.ssid || "Unknown";
+                    const rawSsid = ap?.ssid || network?.ssid || "";
+                    const hidden = !rawSsid;
+                    const ssid = rawSsid || "Unknown";
                     seenBSSIDs.add(bssid);
 
                     let entry = moduleApHistory.get(bssid);
                     if (!entry) {
-                        entry = { bssid, ssid, points: [] };
+                        entry = { bssid, ssid, points: [], band: "", hidden };
                         moduleApHistory.set(bssid, entry);
                     }
                     entry.ssid = ssid;
+                    entry.hidden = hidden;
+                    // Cache band for the band filter so we don't have to
+                    // re-derive it from frequency on every chart render.
+                    if (ap.band) {
+                        entry.band = ap.band;
+                    } else if (typeof ap.frequency === "number") {
+                        entry.band =
+                            ap.frequency >= 5925
+                                ? "6GHz"
+                                : ap.frequency >= 4900
+                                  ? "5GHz"
+                                  : ap.frequency > 0
+                                    ? "2.4GHz"
+                                    : "";
+                    }
                     const lastPoint = entry.points[entry.points.length - 1];
                     if (!lastPoint || lastPoint.x !== now) {
                         entry.points.push({ x: now, y: ap.signal });
@@ -109,9 +126,12 @@
             if (points.length === 0) continue;
             const existing = moduleApHistory.get(h.bssid);
             if (existing && existing.points.length >= points.length) continue;
+            const rawSsid = h.ssid || "";
             moduleApHistory.set(h.bssid, {
                 bssid: h.bssid,
-                ssid: h.ssid || existing?.ssid || "Unknown",
+                ssid: rawSsid || existing?.ssid || "Unknown",
+                band: existing?.band || "",
+                hidden: rawSsid ? false : (existing?.hidden ?? true),
                 points,
             });
         }
@@ -158,6 +178,29 @@
     let range = "5m";
     $: rangeMs =
         RANGE_OPTIONS.find((r) => r.id === range)?.ms ?? 5 * 60 * 1000;
+
+    // ── Other-APs filters ────────────────────────────────────────
+    // Default tuned for an MSP technician walking a site: 8 strongest
+    // BSSIDs is enough to see overlap without legend clutter.
+    const TOPN_OPTIONS = [
+        { id: 5, label: "5" },
+        { id: 8, label: "8" },
+        { id: 10, label: "10" },
+        { id: 20, label: "20" },
+        { id: 0, label: "All" },
+    ];
+    const BAND_OPTIONS = [
+        { id: "all", label: "All" },
+        { id: "2.4GHz", label: "2.4" },
+        { id: "5GHz", label: "5" },
+        { id: "6GHz", label: "6" },
+    ];
+    let topN = 8;
+    let ssidFilter = "";
+    let bandFilter = "all";
+    let showHidden = false;
+    let othersTotal = 0;
+    let othersVisible = 0;
 
     // Inline Chart.js plugin — paints horizontal RSSI quality zones
     // (Excellent/Good/Fair/Weak/Poor) behind the data series, with right-edge
@@ -398,14 +441,19 @@
         othersChart = buildChart(othersCtx, "Other APs in Range");
     }
 
-    // Update chart when clientStats, networks, or range change. Recording
-    // itself happens in App.svelte's networks:updated handler so the store
-    // keeps growing while this tab is unmounted; here we just refresh the
-    // toolbar totals and re-render Chart.js datasets.
+    // Update chart when clientStats, networks, range, or any "Other APs"
+    // filter changes. Recording itself happens in App.svelte's
+    // networks:updated handler so the store keeps growing while this tab
+    // is unmounted; here we just refresh the toolbar totals and re-render
+    // Chart.js datasets.
     $: if (connectedChart && othersChart) {
         networks;
         clientStats;
         rangeMs;
+        topN;
+        ssidFilter;
+        bandFilter;
+        showHidden;
         const totals = apSignalHistoryTotals();
         historyAPs = totals.aps;
         historyPoints = totals.points;
@@ -615,41 +663,99 @@
             });
         }
 
-        entries.forEach(([bssid, data]) => {
-            // Find the corresponding AP to get SSID
-            const entry = apHistory.get(bssid);
-            let label = entry?.ssid ? `${entry.ssid} (${bssid})` : bssid;
-            const isConnected = connectedBSSID === bssid;
-            if (connectedBSSID === bssid && clientStats) {
-                label = `${clientStats.ssid || "Connected"} (${bssid})`;
-            }
-            const baseColor = isConnected
-                ? theme.accentStrong || theme.accent
-                : colors[colorIndex % colors.length];
+        // Build the connected-AP dataset (always shown when connected) and
+        // a candidate list of other APs that we'll filter + rank below.
+        const ssidQuery = (ssidFilter || "").trim().toLowerCase();
+        const otherCandidates = [];
 
-            const dataset = {
-                label: label,
-                data: filterToRange(normalizePoints(data), cutoff),
-                borderColor: baseColor,
-                backgroundColor: withAlpha(baseColor, isConnected ? 0.2 : 0.06),
-                borderWidth: isConnected ? 3 : 1.5,
-                borderDash: isConnected ? [] : [4, 3],
-                pointRadius: isConnected ? 3 : 2,
-                pointHoverRadius: isConnected ? 6 : 4,
-                pointBackgroundColor: baseColor,
-                tension: 0.25,
-                fill: isConnected ? "origin" : false,
-                showLine: true,
-                spanGaps: true,
-                order: isConnected ? 10 : 5,
-            };
+        entries.forEach(([bssid, data]) => {
+            const entry = apHistory.get(bssid);
+            const isConnected = connectedBSSID === bssid;
+
+            const windowed = filterToRange(normalizePoints(data), cutoff);
+
             if (isConnected) {
                 if (connectedHistoryWindowed.length <= 1) {
-                    connectedDatasets.push(dataset);
+                    const baseColor = theme.accentStrong || theme.accent;
+                    const label = clientStats
+                        ? `${clientStats.ssid || "Connected"} (${bssid})`
+                        : entry?.ssid
+                          ? `${entry.ssid} (${bssid})`
+                          : bssid;
+                    connectedDatasets.push({
+                        label,
+                        data: windowed,
+                        borderColor: baseColor,
+                        backgroundColor: withAlpha(baseColor, 0.2),
+                        borderWidth: 3,
+                        borderDash: [],
+                        pointRadius: 3,
+                        pointHoverRadius: 6,
+                        pointBackgroundColor: baseColor,
+                        tension: 0.25,
+                        fill: "origin",
+                        showLine: true,
+                        spanGaps: true,
+                        order: 10,
+                    });
                 }
-            } else otherDatasets.push(dataset);
-            colorIndex++;
+                return;
+            }
+
+            if (windowed.length === 0) return;
+
+            // Band filter — entry.band is cached on record from networks.
+            if (bandFilter !== "all" && entry?.band !== bandFilter) return;
+
+            // Hidden filter — drop hidden-SSID APs unless user opts in.
+            if (!showHidden && entry?.hidden) return;
+
+            // SSID search — case-insensitive substring; also matches BSSID
+            // so a user can paste a MAC fragment to pin a specific AP.
+            if (ssidQuery) {
+                const haystack = `${entry?.ssid || ""} ${bssid}`.toLowerCase();
+                if (!haystack.includes(ssidQuery)) return;
+            }
+
+            // Track max signal in window for Top-N ranking.
+            let maxSig = -Infinity;
+            for (const p of windowed) if (p.y > maxSig) maxSig = p.y;
+
+            otherCandidates.push({ bssid, entry, windowed, maxSig });
         });
+
+        // Top-N: keep strongest. topN === 0 means "All".
+        otherCandidates.sort((a, b) => b.maxSig - a.maxSig);
+        const visible =
+            topN > 0 ? otherCandidates.slice(0, topN) : otherCandidates;
+
+        othersTotal = otherCandidates.length;
+        othersVisible = visible.length;
+
+        for (const cand of visible) {
+            const { bssid, entry, windowed } = cand;
+            const baseColor = colors[colorIndex % colors.length];
+            const label = entry?.ssid
+                ? `${entry.ssid} (${bssid})`
+                : bssid;
+            otherDatasets.push({
+                label,
+                data: windowed,
+                borderColor: baseColor,
+                backgroundColor: withAlpha(baseColor, 0.06),
+                borderWidth: 1.5,
+                borderDash: [4, 3],
+                pointRadius: 2,
+                pointHoverRadius: 4,
+                pointBackgroundColor: baseColor,
+                tension: 0.25,
+                fill: false,
+                showLine: true,
+                spanGaps: true,
+                order: 5,
+            });
+            colorIndex++;
+        }
 
         // Add roaming events as vertical lines (only those within range)
         if (
@@ -719,6 +825,53 @@
 
     <div class="chart-wrapper">
         <canvas bind:this={connectedChartElement}></canvas>
+    </div>
+
+    <div class="others-toolbar">
+        <div class="others-filters">
+            <label class="filter-block">
+                <span class="filter-label">Top</span>
+                <div class="segmented small" role="tablist" aria-label="Top-N APs">
+                    {#each TOPN_OPTIONS as opt}
+                        <button
+                            type="button"
+                            aria-selected={topN === opt.id}
+                            class:active={topN === opt.id}
+                            on:click={() => (topN = opt.id)}
+                        >{opt.label}</button>
+                    {/each}
+                </div>
+            </label>
+            <label class="filter-block">
+                <span class="filter-label">Band</span>
+                <div class="segmented small" role="tablist" aria-label="Band">
+                    {#each BAND_OPTIONS as opt}
+                        <button
+                            type="button"
+                            aria-selected={bandFilter === opt.id}
+                            class:active={bandFilter === opt.id}
+                            on:click={() => (bandFilter = opt.id)}
+                        >{opt.label}</button>
+                    {/each}
+                </div>
+            </label>
+            <label class="filter-block grow">
+                <span class="filter-label">Search</span>
+                <input
+                    type="text"
+                    class="signal-search"
+                    placeholder="SSID or BSSID…"
+                    bind:value={ssidFilter}
+                />
+            </label>
+            <label class="filter-block checkbox">
+                <input type="checkbox" bind:checked={showHidden} />
+                <span class="filter-label">Show hidden</span>
+            </label>
+        </div>
+        <div class="others-meta mono">
+            {othersVisible} / {othersTotal}
+        </div>
     </div>
 
     <div class="chart-wrapper secondary">
@@ -811,6 +964,86 @@
 
     .segmented button:hover:not(.active) {
         color: var(--text);
+    }
+
+    .segmented.small button {
+        padding: 3px 8px;
+        font-size: 11px;
+    }
+
+    .others-toolbar {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        flex-wrap: wrap;
+    }
+
+    .others-filters {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        flex-wrap: wrap;
+        flex: 1;
+    }
+
+    .filter-block {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        font-size: 11px;
+        color: var(--muted-2);
+    }
+
+    .filter-block.grow {
+        flex: 1 1 200px;
+        min-width: 160px;
+    }
+
+    .filter-label {
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        font-size: 10px;
+        font-weight: 600;
+        color: var(--muted);
+    }
+
+    .filter-value {
+        min-width: 56px;
+        text-align: right;
+        color: var(--text);
+        font-size: 11px;
+    }
+
+    .signal-range {
+        flex: 1;
+        accent-color: var(--acc-1, var(--accent));
+    }
+
+    .signal-search {
+        flex: 1;
+        background: var(--bg-3, var(--panel-strong));
+        border: 1px solid var(--border-strong, var(--border));
+        border-radius: 6px;
+        padding: 4px 8px;
+        color: var(--text);
+        font-size: 12px;
+        font-family: inherit;
+        min-width: 0;
+    }
+
+    .signal-search:focus {
+        outline: none;
+        border-color: var(--acc-1, var(--accent));
+    }
+
+    .others-meta {
+        font-size: 11px;
+        color: var(--muted-2);
+        white-space: nowrap;
+    }
+
+    .mono {
+        font-family: var(--font-mono, ui-monospace, monospace);
     }
 
     /* Responsive adjustments */
