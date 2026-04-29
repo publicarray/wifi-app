@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -43,7 +44,9 @@ func (p *systemProfilerParser) ParseScan(output []byte) ([]AccessPoint, error) {
 				if bssid == "" {
 					bssid = synthesizeBSSID(ssid, getString(entry, "spairport_network_channel", "spairport_network_channel_string"), getString(entry, "spairport_network_security", "spairport_security_mode"))
 				}
-				if ssid == "" || bssid == "" {
+				// BSSID identifies the AP; empty SSID is a hidden network and
+				// must be retained (matches airportParser.ParseScan behaviour).
+				if bssid == "" {
 					continue
 				}
 
@@ -160,24 +163,29 @@ func parseSystemProfilerCurrentNetwork(output []byte) map[string]string {
 			info["connected"] = "true"
 			info["ssid"] = ssid
 			info["bssid"] = bssid
+			// Values from system_profiler often include units ("-55 dBm",
+			// "MCS 9", "20 MHz"). Downstream consumers parse with
+			// strconv.Atoi/ParseFloat, so normalise to bare numbers here.
 			if channel := getString(current, "spairport_network_channel", "spairport_network_channel_string"); channel != "" {
-				info["channel"] = channel
+				if ch := parseFirstInt(channel); ch != 0 {
+					info["channel"] = strconv.Itoa(ch)
+				}
 				if width := parseChannelWidth(channel); width != 0 {
-					info["channel_width"] = fmt.Sprintf("%d", width)
+					info["channel_width"] = strconv.Itoa(width)
 				}
 			}
-			if signal := getString(current, "spairport_network_rssi", "spairport_network_signal", "RSSI"); signal != "" {
-				info["signal"] = signal
-				info["signal_avg"] = signal
+			if signal := parseFirstInt(getString(current, "spairport_network_rssi", "spairport_network_signal", "RSSI")); signal != 0 {
+				info["signal"] = strconv.Itoa(signal)
+				info["signal_avg"] = strconv.Itoa(signal)
 			}
-			if noise := getString(current, "spairport_network_noise", "NOISE"); noise != "" {
-				info["noise"] = noise
+			if noise := parseFirstInt(getString(current, "spairport_network_noise", "NOISE")); noise != 0 {
+				info["noise"] = strconv.Itoa(noise)
 			}
-			if rx := getString(current, "spairport_network_last_rx_rate", "spairport_network_rx_rate", "RxRate"); rx != "" {
-				info["rx_bitrate"] = rx
+			if rx := parseFirstFloat(getString(current, "spairport_network_last_rx_rate", "spairport_network_rx_rate", "RxRate")); rx != 0 {
+				info["rx_bitrate"] = strconv.FormatFloat(rx, 'f', -1, 64)
 			}
-			if tx := getString(current, "spairport_network_last_tx_rate", "spairport_network_tx_rate", "TxRate"); tx != "" {
-				info["tx_bitrate"] = tx
+			if tx := parseFirstFloat(getString(current, "spairport_network_last_tx_rate", "spairport_network_tx_rate", "TxRate")); tx != 0 {
+				info["tx_bitrate"] = strconv.FormatFloat(tx, 'f', -1, 64)
 			}
 			if standard := getString(current, "spairport_network_phy_mode", "PHYMode"); standard != "" {
 				info["wifi_standard"] = normalizeWiFiStandard(standard)

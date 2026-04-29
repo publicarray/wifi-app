@@ -96,7 +96,6 @@ func (p *airportParser) ParseLink(output []byte) (map[string]string, error) {
 	stateRegex := regexpMust(`\s+state:\s+(\S+)`)
 	bssidRegex := regexpMust(`\s+BSSID:\s+([0-9a-f:]+)`)
 	rssiRegex := regexpMust(`\s+agrCtlRSSI:\s+(-?\d+)`)
-	agrCtlRSSIRegex := regexpMust(`\s+agrCtlRSSI:\s+(-?\d+)`)
 	rxMcsRegex := regexpMust(`\s+lastRxRate:\s+(\d+)`)
 	txMcsRegex := regexpMust(`\s+lastTxRate:\s+(\d+)`)
 	channelRegex := regexpMust(`\s+channel:\s+(\d+)(?:,\s*(\d+))?`)
@@ -110,10 +109,6 @@ func (p *airportParser) ParseLink(output []byte) (map[string]string, error) {
 			info["bssid"] = matches[1]
 		}
 		if matches := rssiRegex.FindStringSubmatch(line); matches != nil {
-			info["signal"] = matches[1]
-			info["signal_avg"] = matches[1]
-		}
-		if matches := agrCtlRSSIRegex.FindStringSubmatch(line); matches != nil {
 			info["signal"] = matches[1]
 			info["signal_avg"] = matches[1]
 		}
@@ -156,7 +151,6 @@ func (p *airportParser) ParseStation(output []byte) (map[string]string, error) {
 	rxBitrateRegex := regexpMust(`\s+lastRxRate:\s+(\d+)`)
 	txBitrateRegex := regexpMust(`\s+lastTxRate:\s+(\d+)`)
 	rssiRegex := regexpMust(`\s+agrCtlRSSI:\s+(-?\d+)`)
-	agrCtlRSSIRegex := regexpMust(`\s+agrCtlRSSI:\s+(-?\d+)`)
 	noiseRegex := regexpMust(`\s+agrCtlNoise:\s+(-?\d+)`)
 
 	connected := false
@@ -175,8 +169,6 @@ func (p *airportParser) ParseStation(output []byte) (map[string]string, error) {
 		}
 		if matches := rssiRegex.FindStringSubmatch(line); matches != nil {
 			stats["signal"] = matches[1]
-		}
-		if matches := agrCtlRSSIRegex.FindStringSubmatch(line); matches != nil {
 			stats["signal_avg"] = matches[1]
 		}
 		if matches := noiseRegex.FindStringSubmatch(line); matches != nil {

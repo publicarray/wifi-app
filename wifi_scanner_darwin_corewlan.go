@@ -315,7 +315,9 @@ func coreWLANScanNetworks(iface string) ([]AccessPoint, error) {
 
 	var aps []AccessPoint
 	for _, net := range nets {
-		if net.SSID == "" || net.BSSID == "" {
+		// BSSID is the unique key; an empty SSID is just a hidden network and
+		// must be retained (matches airportParser.ParseScan behaviour).
+		if net.BSSID == "" {
 			continue
 		}
 		channelWidth := mapCWChannelWidth(net.ChannelWidth)
@@ -381,9 +383,6 @@ func coreWLANConnectionInfo(iface string) (ConnectionInfo, error) {
 
 	_, freq := cwBandAndFrequency(current.Channel, current.ChannelBand)
 	standard := cwPhyModeStandard(current.PhyMode)
-	if standard == "" {
-		standard = "802.11ac/n"
-	}
 	conn := ConnectionInfo{
 		Connected:    current.SSID != "" || current.BSSID != "",
 		SSID:         current.SSID,

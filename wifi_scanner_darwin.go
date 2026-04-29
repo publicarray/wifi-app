@@ -280,8 +280,6 @@ func (s *darwinScanner) enrichWithTrafficStats(iface string, result map[string]s
 		delete(s.baselineStats, iface)
 		delete(s.connectionStart, iface)
 		s.mu.Unlock()
-		s.baselineStats[iface] = trafficStats{}
-		s.connectionStart[iface] = time.Time{}
 		return result
 	}
 
@@ -295,35 +293,38 @@ func (s *darwinScanner) enrichWithTrafficStats(iface string, result map[string]s
 		result["tx_failed"] = "0"
 		result["connected_time"] = "0"
 		result["retry_rate"] = "0.00"
-		if s.connectionStart[iface].IsZero() {
-			result["rx_bytes"] = "0"
-			return result
-		}
+		return result
 	}
+
+	rxBytesNow, _ := strconv.ParseUint(traffic["rx_bytes"], 10, 64)
+	txBytesNow, _ := strconv.ParseUint(traffic["tx_bytes"], 10, 64)
+	rxPktsNow, _ := strconv.ParseUint(traffic["rx_packets"], 10, 64)
+	txPktsNow, _ := strconv.ParseUint(traffic["tx_packets"], 10, 64)
 
 	s.mu.Lock()
 	baseline, hasBaseline := s.baselineStats[iface]
 	connStart, hasConnStart := s.connectionStart[iface]
 
 	if !hasBaseline {
-		s.updateTrafficBaseline(iface, traffic)
-		baseline = s.baselineStats[iface]
+		baseline = trafficStats{
+			inOctets:   rxBytesNow,
+			outOctets:  txBytesNow,
+			inPackets:  rxPktsNow,
+			outPackets: txPktsNow,
+			timestamp:  time.Now(),
+		}
+		s.baselineStats[iface] = baseline
 	}
 	if !hasConnStart {
-		s.connectionStart[iface] = time.Now()
-		connStart = s.connectionStart[iface]
+		connStart = time.Now()
+		s.connectionStart[iface] = connStart
 	}
 	s.mu.Unlock()
 
-	rxBytes, _ := strconv.ParseUint(traffic["rx_bytes"], 10, 64)
-	txBytes, _ := strconv.ParseUint(traffic["tx_bytes"], 10, 64)
-	rxPkts, _ := strconv.ParseUint(traffic["rx_packets"], 10, 64)
-	txPkts, _ := strconv.ParseUint(traffic["tx_packets"], 10, 64)
-
-	rxDelta := rxBytes - baseline.inOctets
-	txDelta := txBytes - baseline.outOctets
-	rxPktsDelta := rxPkts - baseline.inPackets
-	txPktsDelta := txPkts - baseline.outPackets
+	rxDelta := saturatingSubUint64(rxBytesNow, baseline.inOctets)
+	txDelta := saturatingSubUint64(txBytesNow, baseline.outOctets)
+	rxPktsDelta := saturatingSubUint64(rxPktsNow, baseline.inPackets)
+	txPktsDelta := saturatingSubUint64(txPktsNow, baseline.outPackets)
 	connectedTime := int(time.Since(connStart).Seconds())
 
 	result["rx_bytes"] = strconv.FormatUint(rxDelta, 10)
@@ -418,6 +419,13 @@ func (s *darwinScanner) getTrafficStats(iface string) (map[string]string, error)
 	return result, nil
 }
 
+func saturatingSubUint64(a, b uint64) uint64 {
+	if a < b {
+		return 0
+	}
+	return a - b
+}
+
 func (s *darwinScanner) updateTrafficBaseline(iface string, traffic map[string]string) {
 	if traffic == nil || traffic["rx_bytes"] == "0" {
 		return
@@ -468,7 +476,6 @@ func parseAirportConnectionInfo(output []byte) ConnectionInfo {
 	bssidRegex := regexp.MustCompile(`\s+BSSID:\s+([0-9a-f:]+)`)
 	channelRegex := regexp.MustCompile(`\s+channel:\s+(\d+)(?:,\s*(\d+))?`)
 	rssiRegex := regexp.MustCompile(`\s+agrCtlRSSI:\s+(-?\d+)`)
-	noiseRegex := regexp.MustCompile(`\s+agrCtlNoise:\s+(-?\d+)`)
 	rxMcsRegex := regexp.MustCompile(`\s+lastRxRate:\s+(\d+)`)
 	txMcsRegex := regexp.MustCompile(`\s+lastTxRate:\s+(\d+)`)
 	phyTypeRegex := regexp.MustCompile(`\s+phy mode:\s+(\S+)`)
@@ -500,11 +507,6 @@ func parseAirportConnectionInfo(output []byte) ConnectionInfo {
 			if rssi, err := strconv.Atoi(matches[1]); err == nil {
 				connInfo.Signal = rssi
 				connInfo.SignalAvg = rssi
-			}
-		}
-		if matches := noiseRegex.FindStringSubmatch(line); matches != nil {
-			if noise, err := strconv.Atoi(matches[1]); err == nil {
-				_ = noise
 			}
 		}
 		if matches := rxMcsRegex.FindStringSubmatch(line); matches != nil {
