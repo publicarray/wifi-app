@@ -32,12 +32,20 @@ static void cw_ensure_location_manager(void) {
 // cw_location_authorization_status returns the raw CLAuthorizationStatus.
 //   0 = NotDetermined, 1 = Restricted, 2 = Denied,
 //   3 = AuthorizedAlways, 4 = AuthorizedWhenInUse.
+//
+// macOS 11 deprecated +[CLLocationManager authorizationStatus] in favour of
+// the instance property; we use the instance form on 11+ and silence the
+// deprecation warning on the legacy fallback path. Both code paths are
+// reachable depending on LSMinimumSystemVersion.
 static int cw_location_authorization_status(void) {
 	cw_ensure_location_manager();
 	if (@available(macOS 11.0, *)) {
 		return (int)g_cw_locationManager.authorizationStatus;
 	}
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
 	return (int)[CLLocationManager authorizationStatus];
+#pragma clang diagnostic pop
 }
 
 // cw_location_services_enabled mirrors the system-wide toggle. macOS deprecated
@@ -49,12 +57,13 @@ static int cw_location_services_enabled(void) {
 
 // cw_request_location_authorization triggers the system prompt. Must run on a
 // thread with a runloop or CoreLocation silently no-ops, so we hop to the main
-// queue. The call is fire-and-forget; the caller polls
-// cw_location_authorization_status to observe the user's response.
+// queue. requestWhenInUseAuthorization landed in 10.15; the @available guard
+// satisfies -Wunguarded-availability-new while preserving the no-op fallback
+// for older macOS.
 static void cw_request_location_authorization(void) {
 	dispatch_async(dispatch_get_main_queue(), ^{
 		cw_ensure_location_manager();
-		if ([g_cw_locationManager respondsToSelector:@selector(requestWhenInUseAuthorization)]) {
+		if (@available(macOS 10.15, *)) {
 			[g_cw_locationManager requestWhenInUseAuthorization];
 		}
 	});
