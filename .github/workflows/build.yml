@@ -85,8 +85,97 @@ jobs:
           CGO_ENABLED: "0"
         run: go build ./...
 
+  macos-cgo:
+    # Compile + dlopen smoke test for the optional Apple80211 helper. The
+    # GitHub Actions macOS runner has no WiFi hardware (en0 is wired
+    # virtio/AWS Nitro), so we cannot exercise the actual scan path. We
+    # *can* validate that the helper builds with cgo, links against
+    # CoreFoundation/Foundation, and dlopens the private framework — which
+    # is where most ABI surprises bite. The helper is expected to fail
+    # bind/scan; the smoke test only asserts that the framework loaded and
+    # symbols resolved (i.e. dlopen succeeded), not that the scan worked.
+    name: macOS cgo smoke test
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          submodules: recursive
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Set up Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Build frontend assets
+        # main.go uses `//go:embed all:frontend/dist`, so any `go build|vet|test`
+        # over the main package needs a populated frontend/dist directory.
+        run: |
+          npm ci
+          npm run build
+        working-directory: frontend
+
+      - name: go vet (darwin, cgo)
+        env:
+          CGO_ENABLED: "1"
+        run: go vet ./...
+
+      - name: go test (darwin, cgo)
+        env:
+          CGO_ENABLED: "1"
+        # Tests are platform-agnostic IE parsers; running them under the
+        # darwin toolchain catches accidental Linux-only assumptions.
+        run: go test -count=1 ./...
+
+      - name: Build helper (darwin, cgo)
+        env:
+          CGO_ENABLED: "1"
+        run: |
+          mkdir -p build/bin
+          go build -o build/bin/wifi-app-mac-helper ./cmd/wifi-app-mac-helper
+
+      - name: dlopen smoke test
+        # Run the helper. Expected to either succeed (highly unlikely on a
+        # CI runner without WiFi hardware) or fail at bind/scan with a
+        # specific error string. A dlopen failure or missing-symbol error
+        # is the actual regression we want to catch — that means we picked
+        # wrong symbol names or Apple changed the framework path. Pass the
+        # job in the bind/scan-failure case; fail it otherwise.
+        run: |
+          set +e
+          out=$(./build/bin/wifi-app-mac-helper -iface en0 2>&1)
+          rc=$?
+          echo "helper exit code: $rc"
+          echo "helper output:"
+          echo "$out"
+          if [ $rc -eq 0 ]; then
+            echo "helper succeeded (unexpected on CI but not a failure)"
+            exit 0
+          fi
+          # Acceptable failures: the framework loaded and symbols resolved
+          # but the WiFi-specific calls had nothing to talk to.
+          if echo "$out" | grep -qE "Apple80211BindToInterface failed|Apple80211Scan/GetCachedScanResults failed|Apple80211Open failed"; then
+            echo "dlopen + symbol resolution succeeded; bind/scan failed as expected on CI"
+            exit 0
+          fi
+          # Hard failures: framework or symbol lookup broke. These are the
+          # regressions worth flagging.
+          if echo "$out" | grep -q "Apple80211 framework unavailable"; then
+            echo "::error::dlopen failed — framework path or library validation issue"
+            exit 1
+          fi
+          echo "::error::unexpected helper failure mode"
+          exit 1
+
   build:
-    needs: test
+    needs: [test, macos-cgo]
     strategy:
       fail-fast: false
       matrix:

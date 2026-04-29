@@ -1363,17 +1363,6 @@ func getVHTQAM(mcsMap uint16) int {
 	return 64
 }
 
-func parseEHTMaxMCS(data []byte) int {
-	// Best-effort parse: scan for a 2-byte MCS map where at least one stream is supported.
-	for i := 2; i+1 < len(data); i++ {
-		mcsMap := uint16(data[i]) | uint16(data[i+1])<<8
-		if max := maxHEMCSFromMap(mcsMap); max > 0 {
-			return max
-		}
-	}
-	return 0
-}
-
 func calculateRetryRate(retries, totalPackets uint64) float64 {
 	if totalPackets == 0 {
 		return 0.0
