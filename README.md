@@ -84,9 +84,24 @@ GOOS=windows GOARCH=amd64 wails build
 ## Platform Notes
 
 - WiFi scanning typically requires elevated privileges.
-- Linux uses the `nl80211` netlink backend.
-- macOS uses [CoreWLAN](https://developer.apple.com/documentation/corewlan) via cgo. (WIP - experimental)
+- Linux uses the `nl80211` netlink backend (no `iw` shell-out).
+- macOS uses [CoreWLAN](https://developer.apple.com/documentation/corewlan) via cgo, with an optional Apple80211 helper for advanced beacon data — see [macOS](#macos).
 - Windows uses the native WiFi API.
+
+### macOS
+
+**Supported versions.** Built with `LSMinimumSystemVersion = 10.13`. Practically usable on macOS 10.15+ (Catalina); recommended on 14+ (Sonoma). Apple removed the `airport` CLI in 14.4, so the app falls back to `wdutil` / `system_profiler` / CoreWLAN.
+
+**Location Services prompt.** macOS 14+ gates WiFi scanning behind Location Services. On first launch the app calls `requestWhenInUseAuthorization` and the system shows the standard "WiFi App would like to use your location" prompt. Without a grant, CoreWLAN returns blank SSID/BSSID and the network list will be empty. Re-enable from `System Settings → Privacy & Security → Location Services`.
+
+**Apple80211 helper (optional, bundled).** Apple's public CoreWLAN API does not expose raw 802.11 Information Elements, so several advanced fields (BSSColor, BSSLoad, 802.11k/v/r support, DTIM period, WPS, MaxPhyRate, MIMO streams, MLO/EHT capabilities) are unavailable through CoreWLAN alone. The app ships an optional helper, `wifi-app-mac-helper`, that calls the private `Apple80211.framework` via `dlopen`, retrieves the raw IE bytes, and feeds them back into the parser.
+  - **Local dev builds** (`wails dev` / `wails build`): the helper is **not** built. To build it locally, run:
+
+    ```bash
+    go build -o build/bin/wifi-app-mac-helper ./cmd/wifi-app-mac-helper
+    ```
+
+    The main app finds it as long as it sits next to the main binary at runtime.
 
 ## Events and UI
 
