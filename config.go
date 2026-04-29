@@ -36,13 +36,6 @@ type Config struct {
 	DefaultInterface     string   `toml:"default_interface" json:"defaultInterface"`
 	LatencyTargets       []string `toml:"latency_targets" json:"latencyTargets"`
 	ReportTemplatePath   string   `toml:"report_template_path" json:"reportTemplatePath"`
-	// MacOSHelperPath optionally points at the wifi-app-mac-helper binary
-	// (built from cmd/wifi-app-mac-helper). When set, the macOS scanner runs
-	// it after each CoreWLAN scan to retrieve the raw beacon Information
-	// Elements that Apple's public API does not expose, and uses them to
-	// populate fields like BSSColor, BSSLoad, 802.11k/v/r support, DTIM, WPS.
-	// Empty string disables the integration. Ignored on non-darwin builds.
-	MacOSHelperPath string `toml:"macos_helper_path" json:"macosHelperPath"`
 }
 
 // DefaultConfig returns the values used when no config file exists or fields

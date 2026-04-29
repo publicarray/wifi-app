@@ -103,12 +103,8 @@ func NewWiFiService() *WiFiService {
 		slog.Warn("config load failed, using defaults", "err", err)
 	}
 
-	scanner := NewWiFiScanner(cacheFile)
-	if setter, ok := scanner.(interface{ SetMacHelperPath(string) }); ok {
-		setter.SetMacHelperPath(cfg.MacOSHelperPath)
-	}
 	ws := &WiFiService{
-		scanner:         scanner,
+		scanner:         NewWiFiScanner(cacheFile),
 		config:          newLiveConfig(cfg),
 		networks:        []Network{},
 		channelInfo:     []ChannelInfo{},

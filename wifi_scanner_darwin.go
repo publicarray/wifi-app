@@ -28,24 +28,11 @@ type darwinScanner struct {
 	baselineStats     map[string]trafficStats
 	connectionStart   map[string]time.Time
 	mu                sync.Mutex
-	// macHelperPath, when set, is the absolute path to the optional
-	// wifi-app-mac-helper binary. Used to retrieve raw 802.11 IE bytes that
-	// CoreWLAN does not expose. Mutated only via SetMacHelperPath.
+	// macHelperPath is the absolute path to the bundled wifi-app-mac-helper
+	// binary, set at construction by defaultMacHelperPath(). Empty when no
+	// helper ships alongside the main executable, in which case scans fall
+	// back to plain CoreWLAN data without the IE-derived advanced fields.
 	macHelperPath string
-}
-
-// SetMacHelperPath updates the path to the optional Apple80211 helper binary.
-// Called by WiFiService after construction; safe to call again at runtime when
-// the user edits the config. An empty config value falls back to the helper
-// bundled alongside the main executable, so packaged .app builds need no
-// configuration.
-func (s *darwinScanner) SetMacHelperPath(path string) {
-	if path == "" {
-		path = defaultMacHelperPath()
-	}
-	s.mu.Lock()
-	s.macHelperPath = path
-	s.mu.Unlock()
 }
 
 type trafficStats struct {
@@ -77,6 +64,7 @@ func NewWiFiScanner(cacheFile string) WiFiBackend {
 		systemParser:      &systemProfilerParser{ouiLookup: ouiLookup},
 		baselineStats:     make(map[string]trafficStats),
 		connectionStart:   make(map[string]time.Time),
+		macHelperPath:     defaultMacHelperPath(),
 	}
 	// Trigger the macOS Location Services prompt at startup. CoreWLAN scans
 	// return blank SSID/BSSID without a grant on macOS 14+, so we ask early
