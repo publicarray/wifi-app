@@ -2,11 +2,22 @@
 
 package main
 
-import "fmt"
+import (
+	"errors"
+	"fmt"
+)
+
+// ErrLocationDenied is referenced from non-cgo darwin builds for type parity;
+// it's never returned because the stub backend is not used as a primary
+// source.
+var ErrLocationDenied = errors.New("macOS Location Services authorization required to scan WiFi networks")
 
 func coreWLANAvailable() bool {
 	return false
 }
+
+func coreWLANEnsureLocationAuthorization() error { return nil }
+func coreWLANPrimeLocationAuthorization()        {}
 
 func setCoreWLANLookup(_ *OUILookup) {}
 

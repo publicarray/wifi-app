@@ -4,11 +4,61 @@ package main
 
 /*
 #cgo CFLAGS: -x objective-c -fobjc-arc
-#cgo LDFLAGS: -framework CoreWLAN -framework Foundation
+#cgo LDFLAGS: -framework CoreWLAN -framework CoreLocation -framework Foundation
 
 #import <CoreWLAN/CoreWLAN.h>
+#import <CoreLocation/CoreLocation.h>
 #import <Foundation/Foundation.h>
 #import <stdlib.h>
+
+// CoreLocation glue.
+//
+// macOS Sonoma (14) made WiFi scanning gated by Location Services. Without an
+// authorized CLLocationManager, CWInterface.scanForNetworksWithName: returns
+// entries with empty SSID/BSSID strings, and CWInterface.bssid likewise comes
+// back blank. Just declaring NSLocationWhenInUseUsageDescription in Info.plist
+// is not enough — the OS only shows the prompt after the app actually calls
+// requestWhenInUseAuthorization on a CLLocationManager. We retain the manager
+// in a file-scope strong reference (ARC) so it outlives the C call that
+// created it and the system can deliver authorization callbacks.
+static CLLocationManager *g_cw_locationManager = nil;
+
+static void cw_ensure_location_manager(void) {
+	if (g_cw_locationManager == nil) {
+		g_cw_locationManager = [[CLLocationManager alloc] init];
+	}
+}
+
+// cw_location_authorization_status returns the raw CLAuthorizationStatus.
+//   0 = NotDetermined, 1 = Restricted, 2 = Denied,
+//   3 = AuthorizedAlways, 4 = AuthorizedWhenInUse.
+static int cw_location_authorization_status(void) {
+	cw_ensure_location_manager();
+	if (@available(macOS 11.0, *)) {
+		return (int)g_cw_locationManager.authorizationStatus;
+	}
+	return (int)[CLLocationManager authorizationStatus];
+}
+
+// cw_location_services_enabled mirrors the system-wide toggle. macOS deprecated
+// calling this on the main thread (it can block); cgo invokes it from a Go
+// goroutine, which is off-main, so this is safe.
+static int cw_location_services_enabled(void) {
+	return [CLLocationManager locationServicesEnabled] ? 1 : 0;
+}
+
+// cw_request_location_authorization triggers the system prompt. Must run on a
+// thread with a runloop or CoreLocation silently no-ops, so we hop to the main
+// queue. The call is fire-and-forget; the caller polls
+// cw_location_authorization_status to observe the user's response.
+static void cw_request_location_authorization(void) {
+	dispatch_async(dispatch_get_main_queue(), ^{
+		cw_ensure_location_manager();
+		if ([g_cw_locationManager respondsToSelector:@selector(requestWhenInUseAuthorization)]) {
+			[g_cw_locationManager requestWhenInUseAuthorization];
+		}
+	});
+}
 
 static char *cw_copy_interfaces_json() {
 	@autoreleasepool {
@@ -275,6 +325,48 @@ func coreWLANAvailable() bool {
 	return true
 }
 
+// CLAuthorizationStatus values (mirrors Apple's enum).
+const (
+	locationAuthNotDetermined = 0
+	locationAuthRestricted    = 1
+	locationAuthDenied        = 2
+	locationAuthAlways        = 3
+	locationAuthWhenInUse     = 4
+)
+
+// ErrLocationDenied is returned when CoreWLAN cannot scan because macOS
+// Location Services are disabled or the user has not authorized the app.
+// Callers should surface this to the UI so the user can enable the toggle in
+// System Settings → Privacy & Security → Location Services rather than seeing
+// an empty network list.
+var ErrLocationDenied = errors.New("macOS Location Services authorization required to scan WiFi networks")
+
+// coreWLANEnsureLocationAuthorization returns nil only when a Location Services
+// grant exists. It triggers the prompt the first time it sees an
+// "undetermined" status. Subsequent calls poll the (cached) status, so the
+// fast path is one C call.
+func coreWLANEnsureLocationAuthorization() error {
+	if int(C.cw_location_services_enabled()) == 0 {
+		return ErrLocationDenied
+	}
+	switch int(C.cw_location_authorization_status()) {
+	case locationAuthAlways, locationAuthWhenInUse:
+		return nil
+	case locationAuthNotDetermined:
+		C.cw_request_location_authorization()
+		return ErrLocationDenied
+	default:
+		return ErrLocationDenied
+	}
+}
+
+// coreWLANPrimeLocationAuthorization is called once at scanner startup so the
+// system prompt is triggered as early as possible (rather than waiting for the
+// first scan tick). Errors are not actionable here; just kick the request.
+func coreWLANPrimeLocationAuthorization() {
+	_ = coreWLANEnsureLocationAuthorization()
+}
+
 // coreWLANInterfaces returns the list of WiFi interface names visible to
 // CoreWLAN. Used as a first-choice source on macOS before falling back to
 // `networksetup -listallhardwareports`.
@@ -294,6 +386,9 @@ func coreWLANInterfaces() ([]string, error) {
 }
 
 func coreWLANScanNetworks(iface string) ([]AccessPoint, error) {
+	if err := coreWLANEnsureLocationAuthorization(); err != nil {
+		return nil, err
+	}
 	cIface := C.CString(iface)
 	defer C.free(unsafe.Pointer(cIface))
 	jsonStr := C.cw_copy_scan_json(cIface)

@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"bytes"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -46,7 +47,7 @@ func NewWiFiScanner(cacheFile string) WiFiBackend {
 	_, networksetupErr := exec.LookPath("networksetup")
 	setCoreWLANLookup(ouiLookup)
 
-	return &darwinScanner{
+	scanner := &darwinScanner{
 		ouiLookup:         ouiLookup,
 		airportPath:       airportPath,
 		hasAirport:        airportPath != "",
@@ -59,6 +60,13 @@ func NewWiFiScanner(cacheFile string) WiFiBackend {
 		baselineStats:     make(map[string]trafficStats),
 		connectionStart:   make(map[string]time.Time),
 	}
+	// Trigger the macOS Location Services prompt at startup. CoreWLAN scans
+	// return blank SSID/BSSID without a grant on macOS 14+, so we ask early
+	// rather than waiting for the first scan tick.
+	if scanner.hasCoreWLAN {
+		coreWLANPrimeLocationAuthorization()
+	}
+	return scanner
 }
 
 func (s *darwinScanner) ScanNetworks(iface string) ([]AccessPoint, error) {
@@ -66,6 +74,12 @@ func (s *darwinScanner) ScanNetworks(iface string) ([]AccessPoint, error) {
 		aps, err := coreWLANScanNetworks(iface)
 		if err == nil && len(aps) > 0 {
 			return aps, nil
+		}
+		// Surface a Location Services denial directly: the airport CLI and
+		// system_profiler are subject to the same gate on macOS 14+, so the
+		// fallback would just return an empty list without explanation.
+		if errors.Is(err, ErrLocationDenied) {
+			return nil, err
 		}
 	}
 	if s.hasAirport {
