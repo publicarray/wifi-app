@@ -28,6 +28,19 @@ type darwinScanner struct {
 	baselineStats     map[string]trafficStats
 	connectionStart   map[string]time.Time
 	mu                sync.Mutex
+	// macHelperPath, when set, is the absolute path to the optional
+	// wifi-app-mac-helper binary. Used to retrieve raw 802.11 IE bytes that
+	// CoreWLAN does not expose. Mutated only via SetMacHelperPath.
+	macHelperPath string
+}
+
+// SetMacHelperPath updates the path to the optional Apple80211 helper binary.
+// Called by WiFiService after construction; safe to call again at runtime when
+// the user edits the config.
+func (s *darwinScanner) SetMacHelperPath(path string) {
+	s.mu.Lock()
+	s.macHelperPath = path
+	s.mu.Unlock()
 }
 
 type trafficStats struct {
@@ -73,6 +86,7 @@ func (s *darwinScanner) ScanNetworks(iface string) ([]AccessPoint, error) {
 	if s.hasCoreWLAN {
 		aps, err := coreWLANScanNetworks(iface)
 		if err == nil && len(aps) > 0 {
+			s.augmentWithHelper(iface, aps)
 			return aps, nil
 		}
 		// Surface a Location Services denial directly: the airport CLI and
