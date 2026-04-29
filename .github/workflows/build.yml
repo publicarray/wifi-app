@@ -241,6 +241,57 @@ jobs:
         run: |
           Move-Item build\bin\${{ matrix.build.name }} build\bin\${{ matrix.build.out }}
 
+      # -------------------------
+      # macOS: build the optional Apple80211 helper as a universal binary
+      # and inject it into the .app bundle so users get full beacon-IE
+      # data without configuring MacOSHelperPath. The main app auto-detects
+      # the sibling helper via defaultMacHelperPath().
+      # -------------------------
+      - name: Build mac helper (universal)
+        if: runner.os == 'macOS'
+        env:
+          CGO_ENABLED: "1"
+        run: |
+          set -e
+          mkdir -p build/helper
+          # Cross-compiling cgo on macOS needs explicit -arch flags to pick
+          # the right target SDK out of Xcode. Match the LSMinimumSystemVersion
+          # advertised in build/darwin/Info.plist (10.13).
+          GOOS=darwin GOARCH=amd64 \
+            CGO_CFLAGS="-arch x86_64 -mmacosx-version-min=10.13" \
+            CGO_LDFLAGS="-arch x86_64 -mmacosx-version-min=10.13" \
+            go build -o build/helper/wifi-app-mac-helper-amd64 ./cmd/wifi-app-mac-helper
+          GOOS=darwin GOARCH=arm64 \
+            CGO_CFLAGS="-arch arm64 -mmacosx-version-min=11.0" \
+            CGO_LDFLAGS="-arch arm64 -mmacosx-version-min=11.0" \
+            go build -o build/helper/wifi-app-mac-helper-arm64 ./cmd/wifi-app-mac-helper
+          lipo -create \
+            build/helper/wifi-app-mac-helper-amd64 \
+            build/helper/wifi-app-mac-helper-arm64 \
+            -output build/helper/wifi-app-mac-helper
+          file build/helper/wifi-app-mac-helper
+
+      - name: Inject helper into .app bundle
+        if: runner.os == 'macOS'
+        run: |
+          set -e
+          # snider/build@main produces build/bin/<name>.app.zip. We unzip,
+          # drop the helper into Contents/MacOS/ next to the main binary,
+          # and re-zip so downstream rename + release upload work unchanged.
+          cd build/bin
+          unzip -q ${{ matrix.build.name }}.app.zip
+          rm ${{ matrix.build.name }}.app.zip
+          cp ../helper/wifi-app-mac-helper ${{ matrix.build.name }}.app/Contents/MacOS/
+          chmod +x ${{ matrix.build.name }}.app/Contents/MacOS/wifi-app-mac-helper
+          # Ad-hoc sign the helper with the same entitlements as the main app
+          # so future hardened-runtime builds work; on unsigned dev builds
+          # this is harmless.
+          codesign --force --sign - \
+            --entitlements ../../build/darwin/entitlements.plist \
+            ${{ matrix.build.name }}.app/Contents/MacOS/wifi-app-mac-helper || true
+          ditto -c -k --keepParent ${{ matrix.build.name }}.app ${{ matrix.build.name }}.app.zip
+          rm -rf ${{ matrix.build.name }}.app
+
       - name: Rename macOS zip
         if: runner.os == 'macOS'
         run: |

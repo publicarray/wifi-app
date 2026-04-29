@@ -8,10 +8,30 @@ import (
 	"encoding/json"
 	"errors"
 	"log/slog"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
 )
+
+// defaultMacHelperPath returns the path to wifi-app-mac-helper bundled
+// alongside the main executable, or "" when no such file exists. Used as a
+// fallback when MacOSHelperPath is unset, so packaged .app builds work
+// without configuration: the build pipeline drops the helper into
+// Contents/MacOS/ next to the main binary.
+func defaultMacHelperPath() string {
+	exe, err := os.Executable()
+	if err != nil {
+		return ""
+	}
+	candidate := filepath.Join(filepath.Dir(exe), "wifi-app-mac-helper")
+	info, err := os.Stat(candidate)
+	if err != nil || info.IsDir() {
+		return ""
+	}
+	return candidate
+}
 
 // helperRecord is the per-BSS payload emitted by wifi-app-mac-helper. The
 // helper writes a JSON document of shape {"records":[...]} to stdout.

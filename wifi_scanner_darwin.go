@@ -36,8 +36,13 @@ type darwinScanner struct {
 
 // SetMacHelperPath updates the path to the optional Apple80211 helper binary.
 // Called by WiFiService after construction; safe to call again at runtime when
-// the user edits the config.
+// the user edits the config. An empty config value falls back to the helper
+// bundled alongside the main executable, so packaged .app builds need no
+// configuration.
 func (s *darwinScanner) SetMacHelperPath(path string) {
+	if path == "" {
+		path = defaultMacHelperPath()
+	}
 	s.mu.Lock()
 	s.macHelperPath = path
 	s.mu.Unlock()

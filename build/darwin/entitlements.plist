@@ -10,5 +10,11 @@
     <true/>
     <key>com.apple.security.network.server</key>
     <true/>
+    <!-- The optional Apple80211 helper dlopens a private framework. With
+         hardened runtime + library validation, that load is blocked unless
+         this entitlement is set. Required only for signed / notarised
+         builds that opt into hardened runtime. -->
+    <key>com.apple.security.cs.disable-library-validation</key>
+    <true/>
 </dict>
 </plist>
