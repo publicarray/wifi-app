@@ -216,14 +216,12 @@ jobs:
             libgtk-3-dev libwebkit2gtk-4.1-dev pkg-config
 
       - uses: snider/build@main
-        if: matrix.build.tags
-        with:
-          build-name: ${{ matrix.build.name }}
-          build-platform: ${{ matrix.build.platform }}
-          build-tags: ${{ matrix.build.tags }}
-
-      - uses: snider/build@main
-        if: ${{ !matrix.build.tags }}
+        # snider/build@main dropped the build-tags input; the underlying
+        # wails2 sub-action still accepts WAILS_BUILD_TAGS via env. Pass
+        # the per-matrix tag string through that env var so Linux
+        # (webkit2_41) builds against the right WebKitGTK version.
+        env:
+          WAILS_BUILD_TAGS: ${{ matrix.build.tags }}
         with:
           build-name: ${{ matrix.build.name }}
           build-platform: ${{ matrix.build.platform }}
