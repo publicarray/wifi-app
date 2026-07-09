@@ -12,6 +12,7 @@
         GetAPPlacementRecommendations,
         GetAPSignalHistory,
         GetConfig,
+        GetUniFiStatus,
     } from "../wailsjs/go/main/App.js";
     import { EventsOn, EventsOff, Environment } from "../wailsjs/runtime/runtime.js";
 
@@ -26,6 +27,7 @@
     import SettingsPanel from "./components/SettingsPanel.svelte";
     import LatencyChart from "./components/LatencyChart.svelte";
     import ReportWindow from "./components/ReportWindow.svelte";
+    import UniFiPanel from "./components/UniFiPanel.svelte";
 
     let interfaces = [];
     let selectedInterface = "";
@@ -33,6 +35,7 @@
     let networks = [];
     let clientStats = null;
     let channelAnalysis = [];
+    let unifiStatus = null;
     let errorMessage = "";
     let activeTab = "networks";
     let roamingMetrics = null;
@@ -100,16 +103,18 @@
         }
 
         try {
-            const [n, c, ch, alreadyScanning, apHist] = await Promise.all([
+            const [n, c, ch, alreadyScanning, apHist, unifi] = await Promise.all([
                 GetNetworks(),
                 GetClientStats(),
                 GetChannelAnalysis(),
                 IsScanning(),
                 GetAPSignalHistory(),
+                GetUniFiStatus(),
             ]);
             if (n) networks = n;
             if (c) clientStats = c;
             if (ch) channelAnalysis = ch;
+            if (unifi) unifiStatus = unifi;
             scanning = !!alreadyScanning;
             // Hydrate the in-memory per-AP signal store from the backend's
             // persistent history so the Signal tab is non-empty on the
@@ -141,6 +146,10 @@
 
         EventsOn("channels:updated", (data) => {
             channelAnalysis = data || [];
+        });
+
+        EventsOn("unifi:updated", (data) => {
+            unifiStatus = data;
         });
 
         EventsOn("scan:error", (error) => {
@@ -180,6 +189,7 @@
         EventsOff("networks:updated");
         EventsOff("client:updated");
         EventsOff("channels:updated");
+        EventsOff("unifi:updated");
         EventsOff("scan:error");
         EventsOff("scan:debug");
         EventsOff("scan:status");
@@ -394,6 +404,7 @@
                 {#if activeTab === "networks"}
                     <div class="content-panel">
                         <NetworkList {networks} {clientStats} />
+                        <UniFiPanel {unifiStatus} />
                     </div>
                 {:else if activeTab === "signal"}
                     <div class="content-panel signal-panel">

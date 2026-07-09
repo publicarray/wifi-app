@@ -120,6 +120,11 @@ export namespace main {
 	    qosSupport: boolean;
 	    countryCode: string;
 	    apName: string;
+	    unifiName?: string;
+	    unifiModel?: string;
+	    unifiIp?: string;
+	    unifiState?: string;
+	    unifiClientCount?: number;
 	
 	    static createFrom(source: any = {}) {
 	        return new AccessPoint(source);
@@ -176,6 +181,11 @@ export namespace main {
 	        this.qosSupport = source["qosSupport"];
 	        this.countryCode = source["countryCode"];
 	        this.apName = source["apName"];
+	        this.unifiName = source["unifiName"];
+	        this.unifiModel = source["unifiModel"];
+	        this.unifiIp = source["unifiIp"];
+	        this.unifiState = source["unifiState"];
+	        this.unifiClientCount = source["unifiClientCount"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
@@ -358,6 +368,10 @@ export namespace main {
 	    defaultInterface: string;
 	    latencyTargets: string[];
 	    reportTemplatePath: string;
+	    unifiControllerUrl: string;
+	    unifiApiKey: string;
+	    unifiSite: string;
+	    unifiAllowInsecureTls: boolean;
 	
 	    static createFrom(source: any = {}) {
 	        return new Config(source);
@@ -371,6 +385,10 @@ export namespace main {
 	        this.defaultInterface = source["defaultInterface"];
 	        this.latencyTargets = source["latencyTargets"];
 	        this.reportTemplatePath = source["reportTemplatePath"];
+	        this.unifiControllerUrl = source["unifiControllerUrl"];
+	        this.unifiApiKey = source["unifiApiKey"];
+	        this.unifiSite = source["unifiSite"];
+	        this.unifiAllowInsecureTls = source["unifiAllowInsecureTls"];
 	    }
 	}
 	export class LatencyProbe {
@@ -558,6 +576,84 @@ export namespace main {
 	        this.maxRoamDurationMs = source["maxRoamDurationMs"];
 	        this.slowRoamCount = source["slowRoamCount"];
 	    }
+	}
+	
+	export class UniFiDeviceInfo {
+	    id: string;
+	    name: string;
+	    model: string;
+	    mac: string;
+	    ip: string;
+	    state: string;
+	    firmwareVersion?: string;
+	    clientCount: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new UniFiDeviceInfo(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.name = source["name"];
+	        this.model = source["model"];
+	        this.mac = source["mac"];
+	        this.ip = source["ip"];
+	        this.state = source["state"];
+	        this.firmwareVersion = source["firmwareVersion"];
+	        this.clientCount = source["clientCount"];
+	    }
+	}
+	export class UniFiStatus {
+	    configured: boolean;
+	    connected: boolean;
+	    error?: string;
+	    controllerUrl?: string;
+	    applicationVersion?: string;
+	    siteId?: string;
+	    siteName?: string;
+	    devices?: UniFiDeviceInfo[];
+	    wirelessClients: number;
+	    wiredClients: number;
+	    // Go type: time
+	    lastUpdated: any;
+	
+	    static createFrom(source: any = {}) {
+	        return new UniFiStatus(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.configured = source["configured"];
+	        this.connected = source["connected"];
+	        this.error = source["error"];
+	        this.controllerUrl = source["controllerUrl"];
+	        this.applicationVersion = source["applicationVersion"];
+	        this.siteId = source["siteId"];
+	        this.siteName = source["siteName"];
+	        this.devices = this.convertValues(source["devices"], UniFiDeviceInfo);
+	        this.wirelessClients = source["wirelessClients"];
+	        this.wiredClients = source["wiredClients"];
+	        this.lastUpdated = this.convertValues(source["lastUpdated"], null);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
 	}
 
 }

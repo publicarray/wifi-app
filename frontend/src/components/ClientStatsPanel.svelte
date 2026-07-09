@@ -292,6 +292,20 @@
                                 {clientStats.gateway || "—"}
                             </span>
                         </div>
+                        {#if connectedAP?.unifiName}
+                            <div class="stat-row">
+                                <span class="k">AP (controller)</span>
+                                <span class="v mono">
+                                    {connectedAP.unifiName}{connectedAP.unifiModel ? ` · ${connectedAP.unifiModel}` : ""}
+                                </span>
+                            </div>
+                            {#if connectedAP.unifiClientCount !== null && connectedAP.unifiClientCount !== undefined}
+                                <div class="stat-row">
+                                    <span class="k">Clients on this AP</span>
+                                    <span class="v mono">{connectedAP.unifiClientCount}</span>
+                                </div>
+                            {/if}
+                        {/if}
                     </div>
                 </div>
             </div>

@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -36,6 +37,17 @@ type Config struct {
 	DefaultInterface     string   `toml:"default_interface" json:"defaultInterface"`
 	LatencyTargets       []string `toml:"latency_targets" json:"latencyTargets"`
 	ReportTemplatePath   string   `toml:"report_template_path" json:"reportTemplatePath"`
+
+	// UniFi Network controller integration (optional). When URL + API key are
+	// set, a background poller fetches devices/clients from the controller's
+	// Integration API and enriches scan results. The API key is stored in
+	// this file as plaintext — SaveConfig writes the file 0600 for that
+	// reason. UniFiSite selects a site by name or id; empty means the first
+	// site the API returns (the common single-site case).
+	UniFiControllerURL    string `toml:"unifi_controller_url" json:"unifiControllerUrl"`
+	UniFiAPIKey           string `toml:"unifi_api_key" json:"unifiApiKey"`
+	UniFiSite             string `toml:"unifi_site" json:"unifiSite"`
+	UniFiAllowInsecureTLS bool   `toml:"unifi_allow_insecure_tls" json:"unifiAllowInsecureTls"`
 }
 
 // DefaultConfig returns the values used when no config file exists or fields
@@ -49,6 +61,11 @@ func DefaultConfig() Config {
 		DefaultInterface:     "",
 		LatencyTargets:       []string{"gateway", "1.1.1.1"},
 		ReportTemplatePath:   "",
+
+		UniFiControllerURL:    "",
+		UniFiAPIKey:           "",
+		UniFiSite:             "",
+		UniFiAllowInsecureTLS: false,
 	}
 }
 
@@ -86,6 +103,18 @@ func (c Config) validate() (Config, error) {
 	if c.LatencyTargets == nil {
 		c.LatencyTargets = defaults.LatencyTargets
 	}
+
+	// Normalise the controller URL: trim whitespace and trailing slashes so
+	// path joining in the UniFi client is predictable; default the scheme to
+	// https (UniFi consoles only serve TLS).
+	c.UniFiControllerURL = strings.TrimRight(strings.TrimSpace(c.UniFiControllerURL), "/")
+	if c.UniFiControllerURL != "" &&
+		!strings.HasPrefix(c.UniFiControllerURL, "http://") &&
+		!strings.HasPrefix(c.UniFiControllerURL, "https://") {
+		c.UniFiControllerURL = "https://" + c.UniFiControllerURL
+	}
+	c.UniFiAPIKey = strings.TrimSpace(c.UniFiAPIKey)
+	c.UniFiSite = strings.TrimSpace(c.UniFiSite)
 
 	if len(notes) == 0 {
 		return c, nil
@@ -197,8 +226,9 @@ func SaveConfig(cfg Config) error {
 		return fmt.Errorf("encode toml: %w", err)
 	}
 
+	// 0600: the config can carry the UniFi API key, so keep it owner-only.
 	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, buf.Bytes(), 0o644); err != nil {
+	if err := os.WriteFile(tmp, buf.Bytes(), 0o600); err != nil {
 		return fmt.Errorf("write %s: %w", tmp, err)
 	}
 	if err := os.Rename(tmp, path); err != nil {

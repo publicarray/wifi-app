@@ -24,6 +24,8 @@ export function GetNetworks():Promise<Array<main.Network>>;
 
 export function GetRoamingAnalysis():Promise<main.RoamingQualityReport>;
 
+export function GetUniFiStatus():Promise<main.UniFiStatus>;
+
 export function IsScanning():Promise<boolean>;
 
 export function SaveConfig(arg1:main.Config):Promise<void>;

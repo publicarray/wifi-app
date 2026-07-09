@@ -61,6 +61,11 @@ type WiFiService struct {
 	samplerOnce    sync.Once
 	samplerCancel  context.CancelFunc
 
+	// unifiPoller pulls device/client data from an optional UniFi controller
+	// (see unifi_poller.go). Shares the sampler's lifecycle: started once from
+	// SetContext, no-ops each tick until a controller URL + API key are set.
+	unifiPoller *UniFiPoller
+
 	// Aggregated data
 	networks       []Network
 	channelInfo    []ChannelInfo
@@ -113,6 +118,7 @@ func NewWiFiService() *WiFiService {
 		apSignalHistory: make(map[string]*apSignalEntry),
 	}
 	ws.latencySampler = NewLatencySampler(ws.config)
+	ws.unifiPoller = NewUniFiPoller(ws.config)
 	return ws
 }
 
@@ -123,11 +129,16 @@ func (ws *WiFiService) GetConfig() Config {
 
 // UpdateConfig validates, persists, and applies a new config. The next scan
 // loop iteration picks up the new values; ongoing work isn't interrupted.
+// The UniFi poller is poked so freshly entered controller credentials take
+// effect immediately instead of on its next scheduled tick.
 func (ws *WiFiService) UpdateConfig(cfg Config) error {
 	if err := SaveConfig(cfg); err != nil {
 		return err
 	}
 	ws.config.Set(cfg)
+	if ws.unifiPoller != nil {
+		ws.unifiPoller.Poke()
+	}
 	return nil
 }
 
@@ -138,12 +149,20 @@ func (ws *WiFiService) SetContext(ctx context.Context) {
 	ws.ctx = ctx
 	if ws.latencySampler != nil {
 		ws.latencySampler.SetWailsContext(ctx)
-		ws.samplerOnce.Do(func() {
-			samplerCtx, cancel := context.WithCancel(ctx)
-			ws.samplerCancel = cancel
-			ws.latencySampler.Start(samplerCtx)
-		})
 	}
+	if ws.unifiPoller != nil {
+		ws.unifiPoller.SetWailsContext(ctx)
+	}
+	ws.samplerOnce.Do(func() {
+		samplerCtx, cancel := context.WithCancel(ctx)
+		ws.samplerCancel = cancel
+		if ws.latencySampler != nil {
+			ws.latencySampler.Start(samplerCtx)
+		}
+		if ws.unifiPoller != nil {
+			ws.unifiPoller.Start(samplerCtx)
+		}
+	})
 }
 
 // StartScanning begins periodic WiFi scanning
@@ -194,6 +213,9 @@ func (ws *WiFiService) Close() error {
 	if ws.latencySampler != nil {
 		ws.latencySampler.Stop()
 	}
+	if ws.unifiPoller != nil {
+		ws.unifiPoller.Stop()
+	}
 	if ws.scanner != nil {
 		return ws.scanner.Close()
 	}
@@ -208,6 +230,16 @@ func (ws *WiFiService) GetLatencySummaries() []LatencyTargetSummary {
 		return []LatencyTargetSummary{}
 	}
 	return ws.latencySampler.SnapshotSummaries()
+}
+
+// GetUniFiStatus returns the last UniFi controller snapshot. Used by the
+// GetUniFiStatus binding so the frontend can hydrate synchronously; live
+// updates arrive via the `unifi:updated` event.
+func (ws *WiFiService) GetUniFiStatus() UniFiStatus {
+	if ws.unifiPoller == nil {
+		return UniFiStatus{}
+	}
+	return ws.unifiPoller.Snapshot()
 }
 
 // scanLoop runs the periodic scanning loop
@@ -255,6 +287,12 @@ func (ws *WiFiService) performScan(ctx context.Context, iface string) {
 	}
 	for i := range aps {
 		NormalizeAccessPoint(&aps[i])
+	}
+
+	// Join UniFi controller data (AP name/model/client count) onto the scan
+	// results before aggregation copies APs into networks. In-memory only.
+	if ws.unifiPoller != nil {
+		ws.unifiPoller.EnrichAccessPoints(aps)
 	}
 
 	// Aggregate data (read-only — no shared state touched)
