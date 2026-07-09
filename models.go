@@ -60,6 +60,15 @@ type AccessPoint struct {
 	QoSSupport  bool   `json:"qosSupport"`  // WMM/QoS support
 	CountryCode string `json:"countryCode"` // Regulatory country code (US, EU, etc.)
 	APName      string `json:"apName"`      // AP name/description if advertised
+
+	// UniFi controller enrichment — populated when the optional UniFi
+	// integration is configured and this BSSID matched a controller-managed
+	// device. Empty/nil otherwise.
+	UniFiName        string `json:"unifiName,omitempty"`        // device name from the controller
+	UniFiModel       string `json:"unifiModel,omitempty"`       // hardware model (e.g. U6-Pro)
+	UniFiIP          string `json:"unifiIp,omitempty"`          // device management IP
+	UniFiState       string `json:"unifiState,omitempty"`       // ONLINE / OFFLINE / ...
+	UniFiClientCount *int   `json:"unifiClientCount,omitempty"` // wireless clients on this device; nil when unknown
 }
 
 // Network represents a WiFi network (SSID) that may have multiple access points
@@ -261,4 +270,34 @@ type StationStats struct {
 	WiFiStandard string  `json:"wifiStandard"`
 	ChannelWidth int     `json:"channelWidth"`
 	MIMOConfig   string  `json:"mimoConfig"`
+}
+
+// UniFiDeviceInfo is the UI-facing summary of one controller-managed device
+// from the UniFi Integration API. MAC is normalized (lowercase, zero-padded).
+type UniFiDeviceInfo struct {
+	ID              string `json:"id"`
+	Name            string `json:"name"`
+	Model           string `json:"model"`
+	MAC             string `json:"mac"`
+	IP              string `json:"ip"`
+	State           string `json:"state"`
+	FirmwareVersion string `json:"firmwareVersion,omitempty"`
+	ClientCount     int    `json:"clientCount"` // wireless clients uplinked to this device
+}
+
+// UniFiStatus is the snapshot the UniFi poller emits on `unifi:updated` and
+// returns from the GetUniFiStatus binding. Configured=false means no
+// controller URL/API key is set; Connected reflects the last poll outcome.
+type UniFiStatus struct {
+	Configured         bool              `json:"configured"`
+	Connected          bool              `json:"connected"`
+	Error              string            `json:"error,omitempty"`
+	ControllerURL      string            `json:"controllerUrl,omitempty"`
+	ApplicationVersion string            `json:"applicationVersion,omitempty"`
+	SiteID             string            `json:"siteId,omitempty"`
+	SiteName           string            `json:"siteName,omitempty"`
+	Devices            []UniFiDeviceInfo `json:"devices,omitempty"`
+	WirelessClients    int               `json:"wirelessClients"`
+	WiredClients       int               `json:"wiredClients"`
+	LastUpdated        time.Time         `json:"lastUpdated"`
 }

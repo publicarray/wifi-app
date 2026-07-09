@@ -46,6 +46,10 @@ export function GetRoamingAnalysis() {
   return window['go']['main']['App']['GetRoamingAnalysis']();
 }
 
+export function GetUniFiStatus() {
+  return window['go']['main']['App']['GetUniFiStatus']();
+}
+
 export function IsScanning() {
   return window['go']['main']['App']['IsScanning']();
 }

@@ -858,9 +858,14 @@ Network health and connection state.
                                                                 Connected
                                                             </span>
                                                         {/if}
+                                                        {#if ap.unifiName}
+                                                            <span class="unifi-badge" title="Matched to UniFi controller device {ap.unifiName}{ap.unifiModel ? ` (${ap.unifiModel})` : ''}{ap.unifiIp ? ` at ${ap.unifiIp}` : ''}">
+                                                                {ap.unifiName}{#if ap.unifiModel}&nbsp;· {ap.unifiModel}{/if}
+                                                            </span>
+                                                        {/if}
                                                     </div>
                                                     <div class="ap-header-sub mono">
-                                                        {ap.bssid}{#if ap.vendor} · {ap.vendor}{/if} · {ap.band || networkBand(network)}{#if ap.channel} channel {ap.channel}{/if}{#if ap.channelWidth} ({ap.channelWidth} MHz){/if}{#if ap.dfs}<span class="dfs-badge">DFS</span>{/if}
+                                                        {ap.bssid}{#if ap.vendor} · {ap.vendor}{/if} · {ap.band || networkBand(network)}{#if ap.channel} channel {ap.channel}{/if}{#if ap.channelWidth} ({ap.channelWidth} MHz){/if}{#if ap.dfs}<span class="dfs-badge">DFS</span>{/if}{#if ap.unifiClientCount !== null && ap.unifiClientCount !== undefined} · {ap.unifiClientCount} clients (controller){/if}
                                                     </div>
                                                 </div>
                                                 {#if apSp.last}
@@ -2704,6 +2709,19 @@ NOT RECOMMENDED FOR:
         border: 1px solid color-mix(in srgb, var(--warning) 45%, transparent);
         margin-left: 4px;
         vertical-align: middle;
+    }
+
+    .unifi-badge {
+        display: inline-block;
+        padding: 1px 7px;
+        border-radius: 999px;
+        font-size: 10px;
+        font-weight: 600;
+        background: var(--acc-1-bg, rgba(92, 225, 230, 0.12));
+        color: var(--acc-1, #5ce1e6);
+        border: 1px solid var(--acc-1-line, rgba(92, 225, 230, 0.35));
+        vertical-align: middle;
+        white-space: nowrap;
     }
 
     .wifi-standard-badge {

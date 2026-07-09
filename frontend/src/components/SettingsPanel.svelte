@@ -168,6 +168,60 @@
                 <small>Override the default MSP report HTML template. Leave blank to use the embedded default.</small>
             </label>
 
+            <h3>UniFi controller (optional)</h3>
+            <p class="hint">
+                Connects to a UniFi Network controller to enrich scan results with
+                AP names, models, and client counts. Create an API key in the UniFi
+                console under <em>Settings → Control Plane → Integrations</em>.
+                The key is stored locally in the config file (owner-only permissions).
+            </p>
+
+            <label>
+                <span>Controller URL</span>
+                <input
+                    type="text"
+                    bind:value={config.unifiControllerUrl}
+                    on:input={markDirty}
+                    placeholder="https://192.168.1.1"
+                />
+                <small>Base URL of the UniFi console or self-hosted Network Server (e.g. <code>https://192.168.1.1</code> or <code>https://unifi.local:8443</code>). Leave blank to disable the integration.</small>
+            </label>
+
+            <label>
+                <span>API key</span>
+                <input
+                    type="password"
+                    autocomplete="off"
+                    bind:value={config.unifiApiKey}
+                    on:input={markDirty}
+                    placeholder="paste API key"
+                />
+                <small>UniFi Network Integration API key. Sent as the <code>X-API-KEY</code> header; never leaves this machine otherwise.</small>
+            </label>
+
+            <label>
+                <span>Site (optional)</span>
+                <input
+                    type="text"
+                    bind:value={config.unifiSite}
+                    on:input={markDirty}
+                    placeholder="— first site —"
+                />
+                <small>Site name or id. Leave blank for the first site — correct for the common single-site setup.</small>
+            </label>
+
+            <label class="checkbox">
+                <span class="checkbox-row">
+                    <input
+                        type="checkbox"
+                        bind:checked={config.unifiAllowInsecureTls}
+                        on:change={markDirty}
+                    />
+                    Allow self-signed certificate
+                </span>
+                <small>UniFi controllers ship with a self-signed HTTPS certificate. Enable this to skip TLS verification for the controller connection only. Leave off if your controller has a proper certificate.</small>
+            </label>
+
             <div class="actions">
                 <button
                     type="submit"
@@ -200,6 +254,32 @@
     h2 {
         margin: 0 0 8px;
         color: var(--text);
+    }
+
+    h3 {
+        margin: 16px 0 0;
+        color: var(--text);
+        font-size: 15px;
+        border-top: 1px solid var(--border);
+        padding-top: 18px;
+    }
+
+    form .hint {
+        margin: 0;
+    }
+
+    .checkbox-row {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-weight: 500;
+        color: var(--text);
+        font-size: 14px;
+    }
+
+    .checkbox-row input[type="checkbox"] {
+        width: auto;
+        margin: 0;
     }
 
     .hint {

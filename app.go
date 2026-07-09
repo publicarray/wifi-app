@@ -109,6 +109,12 @@ func (a *App) GetLatency() []LatencyTargetSummary {
 	return a.wifiService.GetLatencySummaries()
 }
 
+// GetUniFiStatus returns the latest UniFi controller snapshot. The poller
+// also emits `unifi:updated` events — this is the synchronous hydrate path.
+func (a *App) GetUniFiStatus() UniFiStatus {
+	return a.wifiService.GetUniFiStatus()
+}
+
 func (a *App) ExportNetworks(format string) (string, error) {
 	networks := a.wifiService.GetNetworks()
 
