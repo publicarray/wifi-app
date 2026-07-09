@@ -84,6 +84,9 @@ static char *cw_copy_interfaces_json() {
 			return strdup("[]");
 		}
 		NSString *json = [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding];
+		if (!json) {
+			return strdup("[]");
+		}
 		return strdup([json UTF8String]);
 	}
 }
@@ -246,16 +249,33 @@ static NSDictionary *cw_interface_current_dict(CWInterface *iface) {
 	return dict;
 }
 
+// cw_copy_error_json serialises an error description as {"error":"..."} so
+// the Go side can distinguish "scan failed: <reason>" from a genuinely empty
+// scan result instead of silently falling back.
+static char *cw_copy_error_json(NSString *desc) {
+	if (!desc) {
+		desc = @"scan failed";
+	}
+	NSData *data = [NSJSONSerialization dataWithJSONObject:@{@"error": desc} options:0 error:nil];
+	if (data) {
+		NSString *json = [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding];
+		if (json) {
+			return strdup([json UTF8String]);
+		}
+	}
+	return strdup("{\"error\":\"scan failed\"}");
+}
+
 static char *cw_copy_scan_json(const char *ifaceName) {
 	@autoreleasepool {
 		CWInterface *iface = cw_select_interface(ifaceName);
 		if (!iface) {
-			return strdup("[]");
+			return cw_copy_error_json(@"interface not found");
 		}
 		NSError *error = nil;
 		NSSet<CWNetwork *> *nets = [iface scanForNetworksWithName:nil error:&error];
 		if (!nets) {
-			return strdup("[]");
+			return cw_copy_error_json(error ? [error localizedDescription] : nil);
 		}
 		NSMutableArray *items = [NSMutableArray array];
 		for (CWNetwork *net in nets) {
@@ -266,6 +286,9 @@ static char *cw_copy_scan_json(const char *ifaceName) {
 			return strdup("[]");
 		}
 		NSString *json = [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding];
+		if (!json) {
+			return strdup("[]");
+		}
 		return strdup([json UTF8String]);
 	}
 }
@@ -279,6 +302,9 @@ static char *cw_copy_current_json(const char *ifaceName) {
 			return strdup("{}");
 		}
 		NSString *json = [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding];
+		if (!json) {
+			return strdup("{}");
+		}
 		return strdup([json UTF8String]);
 	}
 }
@@ -406,6 +432,18 @@ func coreWLANScanNetworks(iface string) ([]AccessPoint, error) {
 	raw := C.GoString(jsonStr)
 	if raw == "" || raw == "[]" {
 		return nil, errors.New("corewlan scan returned empty result")
+	}
+
+	// Scan failures come back as {"error":"..."} so the actual NSError text
+	// reaches the log instead of being flattened into "empty result".
+	if strings.HasPrefix(raw, "{") {
+		var failure struct {
+			Error string `json:"error"`
+		}
+		if err := json.Unmarshal([]byte(raw), &failure); err == nil && failure.Error != "" {
+			return nil, fmt.Errorf("corewlan scan failed: %s", failure.Error)
+		}
+		return nil, errors.New("corewlan scan returned unexpected payload")
 	}
 
 	var nets []coreWLANNetwork
@@ -770,10 +808,7 @@ func cwBandAndFrequency(channel, band int) (string, int) {
 		return "6GHz", 5950 + channel*5
 	}
 	freq := channelToFrequency(channel)
-	switch {
-	default:
-		return frequencyToBand(freq), freq
-	}
+	return frequencyToBand(freq), freq
 }
 
 func mapCWSecurity(sec int) string {

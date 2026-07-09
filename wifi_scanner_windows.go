@@ -5,6 +5,7 @@ package main
 import (
 	"fmt"
 	"log/slog"
+	"net"
 	"strings"
 	"sync"
 	"syscall"
@@ -28,7 +29,6 @@ const (
 
 	wlanIntfOpcodeCurrentConnection = 7
 	wlanIntfOpcodeChannelNumber     = 8
-	wlanIntfOpcodeStatistics        = 0x10000101
 	wlanIntfOpcodeRssi              = 0x10000102
 
 	dot11BssTypeInfrastructure = 1
@@ -330,6 +330,9 @@ func (s *windowsScanner) GetInterfaces() ([]string, error) {
 	interfaces := make([]string, 0, interfaceList.NumberOfItems)
 	infoSize := unsafe.Sizeof(WLAN_INTERFACE_INFO{})
 
+	// interfaceCache is read concurrently by the scan-loop goroutine via
+	// resolveInterfaceGUID while Wails bindings call GetInterfaces — guard it.
+	s.mu.Lock()
 	for i := uint32(0); i < interfaceList.NumberOfItems; i++ {
 		infoPtr := unsafe.Add(unsafe.Pointer(&interfaceList.InterfaceInfo[0]), uintptr(i)*infoSize)
 		info := (*WLAN_INTERFACE_INFO)(infoPtr)
@@ -346,6 +349,7 @@ func (s *windowsScanner) GetInterfaces() ([]string, error) {
 
 		interfaces = append(interfaces, description)
 	}
+	s.mu.Unlock()
 
 	return interfaces, nil
 }
@@ -372,6 +376,11 @@ func (s *windowsScanner) ScanNetworks(iface string) ([]AccessPoint, error) {
 		slog.Warn("WlanScan failed", "ret", ret)
 	}
 
+	// WlanScan is asynchronous and typically takes ~4 s to sweep all channels;
+	// the BSS list fetched below therefore reflects the *previous* sweep. At
+	// the app's 4 s poll cadence that is one tick of staleness, which we accept
+	// to avoid the complexity of WlanRegisterNotification scan-complete
+	// callbacks. The short sleep just gives fast partial results a chance.
 	time.Sleep(100 * time.Millisecond)
 
 	var bssList *WLAN_BSS_LIST
@@ -451,394 +460,18 @@ func (p *windowsParser) bssEntryToAccessPoint(entry *WLAN_BSS_ENTRY) AccessPoint
 		DFS:           isDFSChannel(channel),
 	}
 
+	// Feed the raw IE TLV stream through the shared parser (wifi_ie_parser.go)
+	// — the same code path the Linux scanner and the macOS helper use — so
+	// per-IE semantics can't drift between platforms. Defaults for fields the
+	// IEs don't cover (MIMOStreams, QAMSupport, SNR) are applied later by
+	// NormalizeAccessPoint.
 	if entry.IESize > 0 && entry.IEOffset > 0 {
-		p.parseInformationElements(&ap, entry)
+		iePtr := unsafe.Add(unsafe.Pointer(entry), uintptr(entry.IEOffset))
+		ieData := unsafe.Slice((*byte)(iePtr), entry.IESize)
+		parseInformationElements(ieData, &ap)
 	}
 
 	return ap
-}
-
-func (p *windowsParser) parseInformationElements(ap *AccessPoint, entry *WLAN_BSS_ENTRY) {
-	iePtr := unsafe.Add(unsafe.Pointer(entry), uintptr(entry.IEOffset))
-	ieData := unsafe.Slice((*byte)(iePtr), entry.IESize)
-
-	// Track parsed values for speed calculation
-	var htMCSSet []byte
-	var vhtMCSMap uint16
-	var heMCSMap uint16
-	var hasVHT, hasHE, hasEHT bool
-
-	offset := uint32(0)
-	for offset+2 <= entry.IESize {
-		elementID := ieData[offset]
-		length := ieData[offset+1]
-
-		if offset+2+uint32(length) > entry.IESize {
-			break
-		}
-
-		data := ieData[offset+2 : offset+2+uint32(length)]
-
-		switch elementID {
-		case 5: // TIM (Traffic Indication Map)
-			if length >= 2 {
-				ap.DTIM = int(data[1])
-			}
-
-		case 7: // Country Information
-			if length >= 2 {
-				// First 2 bytes are the country code (ASCII)
-				ap.CountryCode = string(data[0:2])
-			}
-
-		case 38: // TPC Report
-			if length >= 1 {
-				ap.TxPower = int(int8(data[0]))
-			}
-
-		case 11: // BSS Load
-			if length >= 5 {
-				// Byte 0-1: Station Count (little-endian)
-				ap.BSSLoadStations = intPtr(int(uint16(data[0]) | uint16(data[1])<<8))
-				// Byte 2: Channel Utilization — raw byte (0-255) mapped to 0-100%.
-				ap.BSSLoadUtilization = intPtr(int(data[2]) * 100 / 255)
-			}
-
-		case 45: // HT Capabilities
-			if length >= 2 {
-				htCaps := uint16(data[0]) | uint16(data[1])<<8
-				if htCaps&0x0002 != 0 {
-					ap.ChannelWidth = 40
-				}
-			}
-			// Extract MIMO streams from HT MCS Set (bytes 3-6)
-			if length >= 6 {
-				htMCSSet = data[3:7]
-				streams := countHTStreams(htMCSSet)
-				if streams > ap.MIMOStreams {
-					ap.MIMOStreams = streams
-				}
-			}
-
-		case 48: // RSN
-			p.parseRSNElement(ap, data)
-
-		case 61: // HT Operation
-			if length >= 2 {
-				if ap.Channel == 0 {
-					ap.Channel = int(data[0])
-				}
-				htOpInfo := data[1]
-				secondaryOffset := htOpInfo & 0x03
-				staWidth := (htOpInfo & 0x04) != 0
-				if staWidth && secondaryOffset != 0 {
-					ap.ChannelWidth = 40
-				} else if ap.ChannelWidth == 0 {
-					ap.ChannelWidth = 20
-				}
-			}
-
-		case 54: // Mobility Domain (802.11r)
-			if length >= 2 {
-				ap.FastRoaming = true
-			}
-
-		case 70: // RM Enabled Capabilities (802.11k)
-			if length >= 1 {
-				ap.NeighborReport = (data[0] & 0x02) != 0
-				ap.BSSTransition = (data[0] & 0x08) != 0
-			}
-
-		case 127: // Extended Capabilities
-			if length >= 3 {
-				ap.BSSTransition = (data[2] & 0x08) != 0
-			}
-			if length >= 6 {
-				ap.TWTSupport = (data[5] & 0x02) != 0
-			}
-
-		case 191: // VHT Capabilities
-			hasVHT = true
-			if length >= 4 {
-				vhtCaps := uint32(data[0]) | uint32(data[1])<<8 | uint32(data[2])<<16 | uint32(data[3])<<24
-				if vhtCaps&(1<<19) != 0 {
-					ap.MUMIMO = true
-				}
-			}
-			// VHT MCS Map starts at byte 4 (RX map), then RX highest, TX map, TX highest.
-			if length >= 8 {
-				vhtMCSMap = uint16(data[4]) | uint16(data[5])<<8
-				streams := countVHTStreams(vhtMCSMap)
-				if streams > ap.MIMOStreams {
-					ap.MIMOStreams = streams
-				}
-				// Determine QAM from MCS map
-				qam := getVHTQAM(vhtMCSMap)
-				if qam > ap.QAMSupport {
-					ap.QAMSupport = qam
-				}
-			}
-			if length >= 12 {
-				rxHighest := int(uint16(data[6]) | uint16(data[7])<<8)
-				txHighest := int(uint16(data[10]) | uint16(data[11])<<8)
-				if ap.MaxPhyRate == 0 && rxHighest > 0 {
-					ap.MaxPhyRate = rxHighest
-				}
-				if ap.MaxPhyRate == 0 && txHighest > 0 {
-					ap.MaxPhyRate = txHighest
-				}
-			}
-		case 192: // VHT Operation
-			if length >= 3 {
-				switch data[0] {
-				case 0: // 20/40 MHz (keep HT operation if present)
-					if ap.ChannelWidth == 0 {
-						ap.ChannelWidth = 20
-					}
-				case 1: // 80 MHz
-					ap.ChannelWidth = 80
-				case 2: // 160 MHz
-					ap.ChannelWidth = 160
-				case 3: // 80+80 MHz
-					ap.ChannelWidth = 160
-				}
-			}
-
-		case 221: // Vendor Specific
-			if length >= 4 {
-				// Microsoft WPA OUI
-				if data[0] == 0x00 && data[1] == 0x50 && data[2] == 0xF2 {
-					switch data[3] {
-					case 0x01: // WPA
-						if ap.Security == "Open" || ap.Security == "WEP" {
-							ap.Security = "WPA"
-						}
-					case 0x02: // WMM/WME
-						ap.QoSSupport = true
-						if length >= 8 {
-							ap.UAPSD = (data[7] & 0x80) != 0
-						}
-					case 0x04: // WPS
-						ap.WPS = true
-					}
-				}
-			}
-
-		case 255: // Extension Element
-			if length >= 1 {
-				extID := data[0]
-				extData := data[1:]
-
-				switch extID {
-				case 35: // HE Capabilities
-					hasHE = true
-					ap.Capabilities = appendUnique(ap.Capabilities, "WiFi6")
-					ap.OFDMADownlink = true
-					// OFDMA RA Support — HE MAC Cap bit 26 (byte 3, bit 2).
-					if len(extData) >= 4 && (extData[3]&0x04) != 0 {
-						ap.OFDMAUplink = true
-					}
-					if len(extData) >= 6 {
-						ap.TWTSupport = (extData[0] & 0x04) != 0
-						ap.UAPSD = (extData[0] & 0x08) != 0
-					}
-					// HE MCS/NSS map starts after MAC (6) + PHY (11) = 17 bytes.
-					// The first 2 bytes are RX MCS for <= 80 MHz.
-					if len(extData) >= 19 {
-						heMCSMap = uint16(extData[17]) | uint16(extData[18])<<8
-						streams := countHEStreams(heMCSMap)
-						if streams > ap.MIMOStreams {
-							ap.MIMOStreams = streams
-						}
-						if rate := maxPhyRateFromHEMCS(ap.ChannelWidth, maxHEMCSFromMap(heMCSMap), streams); rate > 0 {
-							ap.MaxPhyRate = rate
-						}
-						// HE supports 1024-QAM
-						if ap.QAMSupport < 1024 {
-							ap.QAMSupport = 1024
-						}
-					}
-
-				case 36: // HE Operation
-					if len(extData) >= 4 {
-						heOp := extData[0]
-						if heOp&0x04 != 0 {
-							ap.BSSColor = int(extData[3] & 0x3F)
-						}
-					}
-
-				case 107: // Multi-Link Element (WiFi 7 — MLD advertisement)
-					if len(extData) >= 2 && (extData[0]&0x07) == 0 {
-						// Type 0 = Basic Multi-Link; presence in beacon means MLO.
-						ap.MLO = true
-					}
-
-				case 108: // EHT Capabilities (WiFi 7)
-					hasEHT = true
-					ap.Capabilities = appendUnique(ap.Capabilities, "WiFi7")
-					if len(extData) >= 2 && ap.ChannelWidth < 320 {
-						if extData[1]&0x02 != 0 {
-							ap.ChannelWidth = 320
-						}
-					}
-					// EHT supports 4096-QAM
-					if ap.QAMSupport < 4096 {
-						ap.QAMSupport = 4096
-					}
-					if maxMcs := parseEHTMaxMCS(extData); maxMcs > 0 {
-						streams := ap.MIMOStreams
-						if streams <= 0 {
-							streams = 1
-						}
-						if rate := maxPhyRateFromHEMCS(ap.ChannelWidth, maxMcs, streams); rate > 0 {
-							ap.MaxPhyRate = rate
-						}
-					}
-				}
-			}
-		}
-
-		offset += 2 + uint32(length)
-	}
-
-	if ap.MIMOStreams == 0 {
-		ap.MIMOStreams = 1
-	}
-
-	if ap.QAMSupport == 0 {
-		if hasEHT {
-			ap.QAMSupport = 4096
-		} else if hasHE {
-			ap.QAMSupport = 1024
-		} else if hasVHT {
-			ap.QAMSupport = 256
-		} else {
-			ap.QAMSupport = 64
-		}
-	}
-
-	// Windows WLAN API does not expose a real noise floor. Leave Noise=0
-	// (the caller's convention for "unknown") and only compute SNR when we
-	// actually have a measurement — otherwise SNR would equal Signal and
-	// mislead the UI.
-	if ap.Noise != 0 {
-		ap.SNR = ap.Signal - ap.Noise
-	}
-}
-
-func (p *windowsParser) parseRSNElement(ap *AccessPoint, data []byte) {
-	if len(data) < 8 {
-		ap.Security = "WPA2"
-		return
-	}
-
-	groupCipher := ""
-	if len(data) >= 6 {
-		if data[2] == 0x00 && data[3] == 0x0F && data[4] == 0xAC {
-			switch data[5] {
-			case 2:
-				groupCipher = "TKIP"
-			case 4:
-				groupCipher = "CCMP"
-			case 8:
-				groupCipher = "GCMP"
-			case 9:
-				groupCipher = "GCMP-256"
-			}
-		}
-	}
-
-	offset := 6
-	if len(data) < offset+2 {
-		ap.Security = "WPA2"
-		return
-	}
-
-	pairwiseCount := uint16(data[offset]) | uint16(data[offset+1])<<8
-	offset += 2
-
-	pairwiseCiphers := []string{}
-	for i := uint16(0); i < pairwiseCount && offset+4 <= len(data); i++ {
-		if data[offset] == 0x00 && data[offset+1] == 0x0F && data[offset+2] == 0xAC {
-			switch data[offset+3] {
-			case 2:
-				pairwiseCiphers = append(pairwiseCiphers, "TKIP")
-			case 4:
-				pairwiseCiphers = append(pairwiseCiphers, "CCMP")
-			case 8:
-				pairwiseCiphers = append(pairwiseCiphers, "GCMP")
-			case 9:
-				pairwiseCiphers = append(pairwiseCiphers, "GCMP-256")
-			}
-		}
-		offset += 4
-	}
-
-	if len(data) < offset+2 {
-		ap.Security = "WPA2"
-		ap.SecurityCiphers = pairwiseCiphers
-		return
-	}
-
-	akmCount := uint16(data[offset]) | uint16(data[offset+1])<<8
-	offset += 2
-
-	authMethods := []string{}
-	securityType := "WPA2"
-
-	for i := uint16(0); i < akmCount && offset+4 <= len(data); i++ {
-		if data[offset] == 0x00 && data[offset+1] == 0x0F && data[offset+2] == 0xAC {
-			switch data[offset+3] {
-			case 1:
-				authMethods = append(authMethods, "EAP")
-			case 2:
-				authMethods = append(authMethods, "PSK")
-			case 5:
-				authMethods = append(authMethods, "EAP-SHA256")
-			case 6:
-				authMethods = append(authMethods, "PSK-SHA256")
-			case 8:
-				authMethods = append(authMethods, "SAE")
-				securityType = "WPA3"
-			case 9:
-				authMethods = append(authMethods, "FT-SAE")
-				securityType = "WPA3"
-				ap.FastRoaming = true
-			case 12:
-				authMethods = append(authMethods, "EAP-SUITE-B")
-				securityType = "WPA3-Enterprise"
-			case 13:
-				authMethods = append(authMethods, "EAP-SUITE-B-192")
-				securityType = "WPA3-Enterprise"
-			case 18:
-				authMethods = append(authMethods, "OWE")
-				securityType = "OWE"
-			}
-		}
-		offset += 4
-	}
-
-	if len(data) >= offset+2 {
-		rsnCaps := uint16(data[offset]) | uint16(data[offset+1])<<8
-
-		mfpCapable := (rsnCaps & 0x0080) != 0
-		mfpRequired := (rsnCaps & 0x0040) != 0
-
-		if mfpRequired {
-			ap.PMF = "Required"
-		} else if mfpCapable {
-			ap.PMF = "Optional"
-		} else {
-			ap.PMF = "Disabled"
-		}
-	}
-
-	ap.Security = securityType
-	ap.SecurityCiphers = pairwiseCiphers
-	ap.AuthMethods = authMethods
-	if groupCipher != "" && len(ap.SecurityCiphers) == 0 {
-		ap.SecurityCiphers = []string{groupCipher}
-	}
 }
 
 func (s *windowsScanner) GetConnectionInfo(iface string) (ConnectionInfo, error) {
@@ -1012,6 +645,70 @@ func (s *windowsScanner) getInterfaceStats(guid windows.GUID) (*MIB_IF_ROW2, err
 	return &row, nil
 }
 
+// applyTrafficStats fills the traffic-derived keys on result from the
+// interface counters, establishing per-interface baselines on first sight.
+// Deltas are saturating: adapter counters can reset (driver restart,
+// sleep/resume) and must not wrap to huge values. Writes zero values when
+// stats is nil so consumers always see the keys.
+func (s *windowsScanner) applyTrafficStats(iface string, result map[string]string, stats *MIB_IF_ROW2) {
+	if stats == nil {
+		result["rx_bytes"] = "0"
+		result["tx_bytes"] = "0"
+		result["rx_packets"] = "0"
+		result["tx_packets"] = "0"
+		result["tx_retries"] = "0"
+		result["tx_failed"] = "0"
+		result["connected_time"] = "0"
+		result["retry_rate"] = "0.00"
+		return
+	}
+
+	s.mu.Lock()
+	baseline, hasBaseline := s.baselineStats[iface]
+	connStart, hasConnStart := s.connectionStart[iface]
+
+	if !hasBaseline {
+		baseline = trafficStats{
+			inOctets:   stats.InOctets,
+			outOctets:  stats.OutOctets,
+			inPackets:  stats.InUcastPkts + stats.InNUcastPkts,
+			outPackets: stats.OutUcastPkts + stats.OutNUcastPkts,
+			timestamp:  time.Now(),
+		}
+		s.baselineStats[iface] = baseline
+	}
+
+	if !hasConnStart {
+		connStart = time.Now()
+		s.connectionStart[iface] = connStart
+	}
+	s.mu.Unlock()
+
+	rxBytes := saturatingSubUint64(stats.InOctets, baseline.inOctets)
+	txBytes := saturatingSubUint64(stats.OutOctets, baseline.outOctets)
+	rxPackets := saturatingSubUint64(stats.InUcastPkts+stats.InNUcastPkts, baseline.inPackets)
+	txPackets := saturatingSubUint64(stats.OutUcastPkts+stats.OutNUcastPkts, baseline.outPackets)
+	connectedTime := int(time.Since(connStart).Seconds())
+
+	result["rx_bytes"] = fmt.Sprintf("%d", rxBytes)
+	result["tx_bytes"] = fmt.Sprintf("%d", txBytes)
+	result["rx_packets"] = fmt.Sprintf("%d", rxPackets)
+	result["tx_packets"] = fmt.Sprintf("%d", txPackets)
+	result["tx_retries"] = fmt.Sprintf("%d", stats.OutDiscards)
+	result["tx_failed"] = fmt.Sprintf("%d", stats.OutErrors)
+	result["connected_time"] = fmt.Sprintf("%d", connectedTime)
+	result["retry_rate"] = fmt.Sprintf("%.2f", calculateRetryRate(stats.OutDiscards, txPackets))
+}
+
+// clearBaselines drops the traffic baseline and connection-start markers for
+// a disconnected interface so the next association starts fresh.
+func (s *windowsScanner) clearBaselines(iface string) {
+	s.mu.Lock()
+	delete(s.baselineStats, iface)
+	delete(s.connectionStart, iface)
+	s.mu.Unlock()
+}
+
 func (s *windowsScanner) GetLinkInfo(iface string) (map[string]string, error) {
 	info, err := s.GetConnectionInfo(iface)
 	if err != nil {
@@ -1019,15 +716,15 @@ func (s *windowsScanner) GetLinkInfo(iface string) (map[string]string, error) {
 	}
 
 	if !info.Connected {
-		s.mu.Lock()
-		delete(s.baselineStats, iface)
-		delete(s.connectionStart, iface)
-		s.mu.Unlock()
+		s.clearBaselines(iface)
 		return map[string]string{"connected": "false"}, nil
 	}
 
 	guid, _ := s.resolveInterfaceGUID(iface)
 	stats, err := s.getInterfaceStats(guid)
+	if err != nil {
+		stats = nil
+	}
 
 	result := map[string]string{
 		"connected":       "true",
@@ -1043,52 +740,17 @@ func (s *windowsScanner) GetLinkInfo(iface string) (map[string]string, error) {
 		"rx_bitrate_info": formatRateInfoFromAssoc(info),
 	}
 
-	if err == nil && stats != nil {
-		s.mu.Lock()
-		baseline, hasBaseline := s.baselineStats[iface]
-		connStart, hasConnStart := s.connectionStart[iface]
-
-		if !hasBaseline {
-			s.baselineStats[iface] = trafficStats{
-				inOctets:   stats.InOctets,
-				outOctets:  stats.OutOctets,
-				inPackets:  stats.InUcastPkts + stats.InNUcastPkts,
-				outPackets: stats.OutUcastPkts + stats.OutNUcastPkts,
-				timestamp:  time.Now(),
-			}
-			baseline = s.baselineStats[iface]
-		}
-
-		if !hasConnStart {
-			s.connectionStart[iface] = time.Now()
-			connStart = s.connectionStart[iface]
-		}
-		s.mu.Unlock()
-
-		rxBytes := stats.InOctets - baseline.inOctets
-		txBytes := stats.OutOctets - baseline.outOctets
-		rxPackets := (stats.InUcastPkts + stats.InNUcastPkts) - baseline.inPackets
-		txPackets := (stats.OutUcastPkts + stats.OutNUcastPkts) - baseline.outPackets
-		connectedTime := int(time.Since(connStart).Seconds())
-
-		result["rx_bytes"] = fmt.Sprintf("%d", rxBytes)
-		result["tx_bytes"] = fmt.Sprintf("%d", txBytes)
-		result["rx_packets"] = fmt.Sprintf("%d", rxPackets)
-		result["tx_packets"] = fmt.Sprintf("%d", txPackets)
-		result["tx_retries"] = fmt.Sprintf("%d", stats.OutDiscards)
-		result["tx_failed"] = fmt.Sprintf("%d", stats.OutErrors)
-		result["connected_time"] = fmt.Sprintf("%d", connectedTime)
-		result["retry_rate"] = fmt.Sprintf("%.2f", calculateRetryRate(stats.OutDiscards, txPackets))
+	s.applyTrafficStats(iface, result, stats)
+	if stats != nil {
 		result["frequency"] = fmt.Sprintf("%d", info.Frequency)
+		// The WLAN API identifies interfaces by adapter *description*, which
+		// net.InterfaceByName can't resolve (it matches the friendly name,
+		// e.g. "Wi-Fi"). Resolve the local IP via the interface index instead
+		// so the service layer doesn't have to guess.
+		if ip := ipv4ForInterfaceIndex(int(stats.InterfaceIndex)); ip != "" {
+			result["local_ip"] = ip
+		}
 	} else {
-		result["rx_bytes"] = "0"
-		result["tx_bytes"] = "0"
-		result["rx_packets"] = "0"
-		result["tx_packets"] = "0"
-		result["tx_retries"] = "0"
-		result["tx_failed"] = "0"
-		result["connected_time"] = "0"
-		result["retry_rate"] = "0.00"
 		result["frequency"] = "0"
 	}
 
@@ -1102,11 +764,15 @@ func (s *windowsScanner) GetStationStats(iface string) (map[string]string, error
 	}
 
 	if !info.Connected {
+		s.clearBaselines(iface)
 		return map[string]string{"connected": "false"}, nil
 	}
 
 	guid, _ := s.resolveInterfaceGUID(iface)
 	stats, err := s.getInterfaceStats(guid)
+	if err != nil {
+		stats = nil
+	}
 
 	result := map[string]string{
 		"connected":       "true",
@@ -1119,56 +785,42 @@ func (s *windowsScanner) GetStationStats(iface string) (map[string]string, error
 		"rx_bitrate_info": formatRateInfoFromAssoc(info),
 	}
 
-	if err == nil && stats != nil {
-		s.mu.Lock()
-		baseline, hasBaseline := s.baselineStats[iface]
-		connStart, hasConnStart := s.connectionStart[iface]
-
-		if !hasBaseline {
-			s.baselineStats[iface] = trafficStats{
-				inOctets:   stats.InOctets,
-				outOctets:  stats.OutOctets,
-				inPackets:  stats.InUcastPkts + stats.InNUcastPkts,
-				outPackets: stats.OutUcastPkts + stats.OutNUcastPkts,
-				timestamp:  time.Now(),
-			}
-			baseline = s.baselineStats[iface]
-		}
-
-		if !hasConnStart {
-			s.connectionStart[iface] = time.Now()
-			connStart = s.connectionStart[iface]
-		}
-		s.mu.Unlock()
-
-		rxBytes := stats.InOctets - baseline.inOctets
-		txBytes := stats.OutOctets - baseline.outOctets
-		rxPackets := (stats.InUcastPkts + stats.InNUcastPkts) - baseline.inPackets
-		txPackets := (stats.OutUcastPkts + stats.OutNUcastPkts) - baseline.outPackets
-		connectedTime := int(time.Since(connStart).Seconds())
-
-		result["rx_bytes"] = fmt.Sprintf("%d", rxBytes)
-		result["tx_bytes"] = fmt.Sprintf("%d", txBytes)
-		result["rx_packets"] = fmt.Sprintf("%d", rxPackets)
-		result["tx_packets"] = fmt.Sprintf("%d", txPackets)
-		result["tx_retries"] = fmt.Sprintf("%d", stats.OutDiscards)
-		result["tx_failed"] = fmt.Sprintf("%d", stats.OutErrors)
-		result["connected_time"] = fmt.Sprintf("%d", connectedTime)
+	s.applyTrafficStats(iface, result, stats)
+	if stats != nil {
 		result["last_ack_signal"] = fmt.Sprintf("%d", info.Signal)
-		result["retry_rate"] = fmt.Sprintf("%.2f", calculateRetryRate(stats.OutDiscards, txPackets))
 	} else {
-		result["rx_bytes"] = "0"
-		result["tx_bytes"] = "0"
-		result["rx_packets"] = "0"
-		result["tx_packets"] = "0"
-		result["tx_retries"] = "0"
-		result["tx_failed"] = "0"
-		result["connected_time"] = "0"
 		result["last_ack_signal"] = "0"
-		result["retry_rate"] = "0.00"
 	}
 
 	return result, nil
+}
+
+// ipv4ForInterfaceIndex returns the first non-loopback IPv4 address bound to
+// the interface with the given OS index, or "" when unavailable.
+func ipv4ForInterfaceIndex(index int) string {
+	if index <= 0 {
+		return ""
+	}
+	iface, err := net.InterfaceByIndex(index)
+	if err != nil {
+		return ""
+	}
+	addrs, err := iface.Addrs()
+	if err != nil {
+		return ""
+	}
+	for _, a := range addrs {
+		ipnet, ok := a.(*net.IPNet)
+		if !ok || ipnet.IP == nil {
+			continue
+		}
+		ip := ipnet.IP.To4()
+		if ip == nil || ip.IsLoopback() {
+			continue
+		}
+		return ip.String()
+	}
+	return ""
 }
 
 func (s *windowsScanner) Close() error {
@@ -1183,7 +835,10 @@ func (s *windowsScanner) Close() error {
 }
 
 func (s *windowsScanner) resolveInterfaceGUID(iface string) (windows.GUID, error) {
-	if cached, ok := s.interfaceCache[iface]; ok {
+	s.mu.Lock()
+	cached, ok := s.interfaceCache[iface]
+	s.mu.Unlock()
+	if ok {
 		return cached.guid, nil
 	}
 
@@ -1232,13 +887,6 @@ func (s *windowsScanner) findInterfaceGUID(name string) (windows.GUID, error) {
 	}
 
 	return windows.GUID{}, fmt.Errorf("interface not found: %s", name)
-}
-
-func guidToString(guid windows.GUID) string {
-	return fmt.Sprintf("{%08X-%04X-%04X-%02X%02X-%02X%02X%02X%02X%02X%02X}",
-		guid.Data1, guid.Data2, guid.Data3,
-		guid.Data4[0], guid.Data4[1],
-		guid.Data4[2], guid.Data4[3], guid.Data4[4], guid.Data4[5], guid.Data4[6], guid.Data4[7])
 }
 
 func stringToGUID(s string) (windows.GUID, error) {
@@ -1302,65 +950,6 @@ func phyTypeToStandard(phyType uint32) string {
 	default:
 		return "802.11"
 	}
-}
-
-func countHTStreams(mcsSet []byte) int {
-	if len(mcsSet) < 4 {
-		return 1
-	}
-	streams := 0
-	for i := 0; i < 4; i++ {
-		if mcsSet[i] != 0 {
-			streams = i + 1
-		}
-	}
-	if streams == 0 {
-		return 1
-	}
-	return streams
-}
-
-func countVHTStreams(mcsMap uint16) int {
-	streams := 0
-	for ss := 0; ss < 8; ss++ {
-		mcs := (mcsMap >> (ss * 2)) & 0x03
-		if mcs != 0x03 {
-			streams = ss + 1
-		}
-	}
-	if streams == 0 {
-		return 1
-	}
-	return streams
-}
-
-func countHEStreams(mcsMap uint16) int {
-	streams := 0
-	for ss := 0; ss < 8; ss++ {
-		mcs := (mcsMap >> (ss * 2)) & 0x03
-		if mcs != 0x03 {
-			streams = ss + 1
-		}
-	}
-	if streams == 0 {
-		return 1
-	}
-	return streams
-}
-
-func getVHTQAM(mcsMap uint16) int {
-	for ss := 0; ss < 8; ss++ {
-		mcs := (mcsMap >> (ss * 2)) & 0x03
-		switch mcs {
-		case 0:
-			return 64
-		case 1:
-			return 256
-		case 2:
-			return 256
-		}
-	}
-	return 64
 }
 
 func calculateRetryRate(retries, totalPackets uint64) float64 {

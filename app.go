@@ -140,7 +140,7 @@ func (a *App) exportToCSV(networks []Network) (string, error) {
 	if err := w.Write([]string{
 		"SSID", "BSSID", "Vendor", "Signal_dBm", "SignalQuality_pct",
 		"Noise_dBm", "SNR_dB", "Channel", "ChannelWidth_MHz", "Frequency_MHz",
-		"Band", "Security", "SecurityCiphers", "AuthMethods", "PMF", "DFS",
+		"Band", "BeaconInt_TU", "Security", "SecurityCiphers", "AuthMethods", "PMF", "DFS",
 		"BSSLoadStations", "BSSLoadUtilization_pct", "MaxPhyRate_Mbps",
 		"MIMOStreams", "Capabilities", "APCount", "NetworkHasIssues",
 		"NetworkIssues", "WiFiGeneration", "WiFiStandard", "Beamforming",
@@ -167,6 +167,7 @@ func (a *App) exportToCSV(networks []Network) (string, error) {
 				strconv.Itoa(ap.ChannelWidth),
 				strconv.Itoa(ap.Frequency),
 				ap.Band,
+				strconv.Itoa(ap.BeaconInt),
 				ap.Security,
 				strings.Join(ap.SecurityCiphers, "|"),
 				strings.Join(ap.AuthMethods, "|"),

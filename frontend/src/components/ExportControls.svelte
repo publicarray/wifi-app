@@ -1522,8 +1522,8 @@
               `  signal: ${escapeHtml(stats.signal ?? "—")} dBm\n` +
               `  rx bitrate: ${escapeHtml(fmtMbps(stats.rxBitrate))}\n` +
               `  tx bitrate: ${escapeHtml(fmtMbps(stats.txBitrate))}\n` +
-              (ap?.dtim ? `  dtim period: ${escapeHtml(ap.dtim)}\n` : "") +
-              (ap?.beaconInt ? `  beacon int: ${escapeHtml(ap.beaconInt)}` : "")
+              (ap?.dtim ? `  dtim period: ${escapeHtml(ap.dtim)} beacons\n` : "") +
+              (ap?.beaconInt ? `  beacon int: ${escapeHtml(ap.beaconInt)} TU (${(ap.beaconInt * 1.024).toFixed(1)} ms)` : "")
             : "Not connected at the time of capture.";
 
         const page5 = `

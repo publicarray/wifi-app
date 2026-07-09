@@ -227,7 +227,9 @@ func (p *mdlayherParser) convertBSSToAccessPoint(bss *wifi.BSS) []AccessPoint {
 	} else if bss.SignalUnspecified > 0 {
 		ap.SignalQuality = int(bss.SignalUnspecified)
 	}
-	ap.BeaconInt = int(bss.BeaconInterval.Seconds() / 0.1024)
+	// BeaconInterval is stored as TU * 1024µs; convert back to TUs (typically
+	// 100) to match the Windows/CoreWLAN backends and the models.go contract.
+	ap.BeaconInt = int(bss.BeaconInterval / (1024 * time.Microsecond))
 
 	ap.ChannelWidth = 20
 	ap.Band = frequencyToBand(ap.Frequency)
@@ -355,13 +357,29 @@ func (s *WiFiScannerNL80211) GetLinkInfo(iface string) (map[string]string, error
 	station := stations[0]
 
 	// Lookup SSID and frequency from BSS scan results
+	connFreq := 0
 	bssList, err := s.client.AccessPoints(targetIface)
 	if err == nil && len(bssList) > 0 {
 		for _, bss := range bssList {
 			if bss.BSSID.String() == station.HardwareAddr.String() {
 				info["ssid"] = bss.SSID
 				info["frequency"] = fmt.Sprintf("%d", bss.Frequency)
+				connFreq = bss.Frequency
 				break
+			}
+		}
+	}
+
+	// Surface the survey-derived noise floor for the associated frequency so
+	// ClientStats gets Noise/SNR on Linux, like the macOS backends do.
+	if connFreq != 0 {
+		if surveys, serr := s.client.SurveyInfo(targetIface); serr == nil {
+			for _, survey := range surveys {
+				if survey.Frequency == connFreq && survey.Noise != 0 {
+					info["noise"] = fmt.Sprintf("%d", survey.Noise)
+					info["snr"] = fmt.Sprintf("%d", int(station.Signal)-survey.Noise)
+					break
+				}
 			}
 		}
 	}

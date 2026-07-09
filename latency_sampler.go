@@ -75,6 +75,7 @@ type LatencySampler struct {
 
 	icmpConn    *icmp.PacketConn
 	icmpNetwork string // "udp4" (unprivileged) or "ip4:icmp" (raw)
+	icmpNative  bool   // Windows: probe via iphlpapi IcmpSendEcho instead of a socket
 	icmpErr     string // populated when the sampler gave up trying to open ICMP
 
 	// pending tracks in-flight ICMP echoes. The reader goroutine routes an
@@ -125,8 +126,14 @@ func (s *LatencySampler) Start(parent context.Context) {
 	ctx, cancel := context.WithCancel(parent)
 	s.running = true
 	s.cancelLoop = cancel
+	s.mu.Unlock()
+
 	// Resolve targets up front so the first tick has something to probe.
-	s.targets = s.resolveTargetsLocked(s.cfg.Get().LatencyTargets)
+	// Resolution can block on DNS / gateway lookups, so it runs off-lock.
+	targets := s.resolveTargets(s.cfg.Get().LatencyTargets)
+
+	s.mu.Lock()
+	s.targets = targets
 	startedReader := s.icmpConn != nil
 	if startedReader {
 		s.readerWG.Add(1)
@@ -286,7 +293,12 @@ func (s *LatencySampler) probeOne(ctx context.Context, t *probeTarget) LatencyPr
 func (s *LatencySampler) probeICMP(ctx context.Context, t *probeTarget) (float64, error) {
 	s.mu.RLock()
 	conn := s.icmpConn
+	native := s.icmpNative
 	s.mu.RUnlock()
+	// Windows path: iphlpapi handles the echo end-to-end, no shared socket.
+	if native {
+		return nativeICMPProbe(ctx, t.ip, probeTimeout)
+	}
 	if conn == nil {
 		return 0, fmt.Errorf("icmp socket unavailable")
 	}
@@ -441,41 +453,60 @@ func (s *LatencySampler) probeTCP(ctx context.Context, t *probeTarget) (float64,
 
 // reconcileTargets re-resolves the target list if it changed since the last
 // tick, and re-resolves "gateway" every tick in case DHCP only just handed
-// one over. Called from tick under no lock; takes the lock internally.
+// one over. Called from tick with no lock held; all blocking work (DNS,
+// gateway lookups — the latter walks the OS routing table) happens off-lock
+// so emitSummary/SnapshotSummaries readers are never stalled behind it.
 func (s *LatencySampler) reconcileTargets(configured []string) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	s.mu.RLock()
+	differ := targetsDiffer(s.targets, configured)
+	gatewayUnresolved := false
+	if !differ {
+		for _, t := range s.targets {
+			if strings.EqualFold(t.raw, gatewayLabel) && t.transport == "unavailable" {
+				gatewayUnresolved = true
+				break
+			}
+		}
+	}
+	s.mu.RUnlock()
 
-	if !targetsDiffer(s.targets, configured) {
+	if !differ {
 		// Still try to re-resolve "gateway" if it was unavailable — the
 		// system may have gained a default route since last tick.
+		if !gatewayUnresolved {
+			return
+		}
+		ip, err := defaultGateway()
+		if err != nil || ip == nil {
+			return
+		}
+		transport := s.chooseTransportForIP(ip)
+		s.mu.Lock()
 		for _, t := range s.targets {
-			if !strings.EqualFold(t.raw, gatewayLabel) {
-				continue
-			}
-			if t.transport != "unavailable" {
-				continue
-			}
-			if ip, err := defaultGateway(); err == nil && ip != nil {
+			if strings.EqualFold(t.raw, gatewayLabel) && t.transport == "unavailable" {
 				t.ip = ip
 				t.host = ip.String()
 				t.statusErr = ""
-				t.transport = s.chooseTransportForIP(ip)
+				t.transport = transport
 			}
 		}
+		s.mu.Unlock()
 		return
 	}
-	s.targets = s.resolveTargetsLocked(configured)
+
+	targets := s.resolveTargets(configured)
+	s.mu.Lock()
+	s.targets = targets
+	s.mu.Unlock()
 }
 
-// resolveTargetsLocked turns the user's string list into probe targets. ICMP
-// is preferred; TCP is the fallback when ICMP setup failed globally or when a
-// host can't be resolved to an IPv4 address. Caller must hold s.mu.
-func (s *LatencySampler) resolveTargetsLocked(configured []string) []*probeTarget {
+// resolveTargets turns the user's string list into probe targets. ICMP is
+// preferred; TCP is the fallback when ICMP setup failed globally or when a
+// host can't be resolved to an IPv4 address. May block on DNS / gateway
+// resolution — call without holding s.mu.
+func (s *LatencySampler) resolveTargets(configured []string) []*probeTarget {
 	// Lazy-init ICMP once per sampler lifetime.
-	if s.icmpConn == nil && s.icmpErr == "" {
-		s.tryOpenICMP()
-	}
+	s.ensureICMP()
 
 	// De-duplicate by trimmed label so a config with "1.1.1.1" twice only
 	// probes once. Empty entries are silently dropped.
@@ -526,24 +557,45 @@ func (s *LatencySampler) resolveTargetsLocked(configured []string) []*probeTarge
 	return out
 }
 
-// chooseTransportForIP picks ICMP when the sampler has a working socket and
-// an IPv4 address is available; otherwise falls back to TCP. Called on every
-// target resolve; cheap.
+// chooseTransportForIP picks ICMP when the sampler has a working ICMP path
+// (shared socket or native Windows echo API) and an IPv4 address is
+// available; otherwise falls back to TCP.
 func (s *LatencySampler) chooseTransportForIP(ip net.IP) string {
-	if s.icmpConn != nil && ip != nil {
+	s.mu.RLock()
+	hasICMP := s.icmpConn != nil || s.icmpNative
+	s.mu.RUnlock()
+	if hasICMP && ip != nil {
 		return "icmp"
 	}
 	return "tcp"
 }
 
-// tryOpenICMP attempts an unprivileged ICMP socket first (Linux
-// ping_group_range + macOS are happy; Windows is not), then the privileged
-// raw ip4:icmp socket. On failure, s.icmpErr is set and the sampler falls
-// back to TCP probes. Caller must hold s.mu.
-func (s *LatencySampler) tryOpenICMP() {
-	// Windows needs special handling we don't have today — skip straight to TCP.
+// ensureICMP lazily initialises the ICMP transport once per sampler lifetime.
+// Takes s.mu internally.
+func (s *LatencySampler) ensureICMP() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.icmpConn != nil || s.icmpNative || s.icmpErr != "" {
+		return
+	}
+	s.tryOpenICMPLocked()
+}
+
+// tryOpenICMPLocked sets up an ICMP transport. On Windows it uses iphlpapi's
+// IcmpSendEcho (works unprivileged; raw sockets there need admin). Elsewhere
+// it attempts an unprivileged datagram ICMP socket first (Linux
+// ping_group_range + macOS are happy), then the privileged raw ip4:icmp
+// socket. On failure, s.icmpErr is set and the sampler falls back to TCP
+// probes. Caller must hold s.mu.
+func (s *LatencySampler) tryOpenICMPLocked() {
 	if goruntime.GOOS == "windows" {
-		s.icmpErr = "icmp not supported on windows path yet"
+		if nativeICMPAvailable() {
+			s.icmpNative = true
+			return
+		}
+		s.icmpErr = "icmp unavailable: iphlpapi IcmpSendEcho not found"
+		slog.Info("latency sampler: icmp unavailable, falling back to tcp",
+			"event", "latency_icmp_unavailable", "err", s.icmpErr)
 		return
 	}
 
