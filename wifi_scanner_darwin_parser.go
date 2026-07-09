@@ -16,17 +16,16 @@ type airportParser struct {
 
 // Regexes for the legacy `airport -I` output. Compiled once — these run on
 // every scan tick on the fallback path. Shared with parseAirportConnectionInfo
-// in wifi_scanner_darwin.go.
+// in wifi_scanner_darwin.go, which adds the SSID/phy-mode patterns it alone
+// needs (keeping them here would trip staticcheck U1000 on non-darwin builds).
 var (
 	airportStateRegex   = regexp.MustCompile(`\s+state:\s+(\S+)`)
-	airportSSIDRegex    = regexp.MustCompile(`\s+SSID:\s+(.+)`)
 	airportBSSIDRegex   = regexp.MustCompile(`\s+BSSID:\s+([0-9a-fA-F:]+)`)
 	airportChannelRegex = regexp.MustCompile(`\s+channel:\s+(\d+)(?:,\s*(\d+))?`)
 	airportRSSIRegex    = regexp.MustCompile(`\s+agrCtlRSSI:\s+(-?\d+)`)
 	airportNoiseRegex   = regexp.MustCompile(`\s+agrCtlNoise:\s+(-?\d+)`)
 	airportRxRateRegex  = regexp.MustCompile(`\s+lastRxRate:\s+(\d+)`)
 	airportTxRateRegex  = regexp.MustCompile(`\s+lastTxRate:\s+(\d+)`)
-	airportPhyRegex     = regexp.MustCompile(`\s+phy mode:\s+(\S+)`)
 )
 
 func (p *airportParser) ParseScan(output []byte) ([]AccessPoint, error) {

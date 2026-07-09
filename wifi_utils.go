@@ -123,16 +123,6 @@ func intPtr(v int) *int {
 	return &v
 }
 
-// saturatingSubUint64 returns a-b, clamped at 0. Interface byte/packet
-// counters can reset (driver restart, sleep/resume); a plain unsigned
-// subtraction would wrap to ~1.8e19 and wreck the traffic display.
-func saturatingSubUint64(a, b uint64) uint64 {
-	if a < b {
-		return 0
-	}
-	return a - b
-}
-
 // normalizeMAC lowercases a colon- or dash-separated MAC address and
 // zero-pads each octet. Legacy macOS tools (airport) print unpadded octets
 // ("0:1b:63:4:5:6") which would otherwise fail OUI lookups and BSSID

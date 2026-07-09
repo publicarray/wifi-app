@@ -456,6 +456,13 @@ func findAirportPath() string {
 	return ""
 }
 
+// airport -I patterns used only by parseAirportConnectionInfo; the rest of
+// the airport regexes live in wifi_scanner_darwin_parser.go (portable file).
+var (
+	airportSSIDRegex = regexp.MustCompile(`\s+SSID:\s+(.+)`)
+	airportPhyRegex  = regexp.MustCompile(`\s+phy mode:\s+(\S+)`)
+)
+
 func parseAirportConnectionInfo(output []byte) ConnectionInfo {
 	lines := strings.Split(string(output), "\n")
 
