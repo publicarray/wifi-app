@@ -129,6 +129,108 @@ func TestParseInformationElements_TruncatedTrailing(t *testing.T) {
 	}
 }
 
+func TestParseInformationElements_BSSLoad(t *testing.T) {
+	// BSS Load (ID 11): stations=5 (LE), utilization=128/255 -> 50 %.
+	load := buildIE(11, []byte{0x05, 0x00, 0x80, 0x00, 0x00})
+
+	var ap AccessPoint
+	parseInformationElements(load, &ap)
+	if ap.BSSLoadStations == nil || *ap.BSSLoadStations != 5 {
+		t.Errorf("BSSLoadStations = %v, want 5", ap.BSSLoadStations)
+	}
+	if ap.BSSLoadUtilization == nil || *ap.BSSLoadUtilization != 50 {
+		t.Errorf("BSSLoadUtilization = %v, want 50", ap.BSSLoadUtilization)
+	}
+}
+
+func TestParseInformationElements_MobilityDomain(t *testing.T) {
+	// Mobility Domain (ID 54): MDID + FT capability byte.
+	mde := buildIE(54, []byte{0x12, 0x34, 0x01})
+
+	var ap AccessPoint
+	parseInformationElements(mde, &ap)
+	if !ap.FastRoaming {
+		t.Errorf("FastRoaming not set from Mobility Domain IE")
+	}
+}
+
+func TestParseInformationElements_RSN_WPA3SAE(t *testing.T) {
+	// RSN (ID 48): version=1, group=CCMP, 1 pairwise (CCMP),
+	// 2 AKMs (PSK + SAE), RSN caps with MFPC set (bit 7).
+	rsn := buildIE(48, []byte{
+		0x01, 0x00, // version
+		0x00, 0x0F, 0xAC, 0x04, // group cipher CCMP
+		0x01, 0x00, // pairwise count
+		0x00, 0x0F, 0xAC, 0x04, // CCMP
+		0x02, 0x00, // AKM count
+		0x00, 0x0F, 0xAC, 0x02, // PSK
+		0x00, 0x0F, 0xAC, 0x08, // SAE
+		0x80, 0x00, // RSN caps: MFPC
+	})
+
+	var ap AccessPoint
+	parseInformationElements(rsn, &ap)
+	if ap.Security != "WPA3" {
+		t.Errorf("Security = %q, want WPA3", ap.Security)
+	}
+	if len(ap.SecurityCiphers) != 1 || ap.SecurityCiphers[0] != "CCMP" {
+		t.Errorf("SecurityCiphers = %v, want [CCMP]", ap.SecurityCiphers)
+	}
+	if len(ap.AuthMethods) != 2 || ap.AuthMethods[0] != "PSK" || ap.AuthMethods[1] != "SAE" {
+		t.Errorf("AuthMethods = %v, want [PSK SAE]", ap.AuthMethods)
+	}
+	if ap.PMF != "Optional" {
+		t.Errorf("PMF = %q, want Optional", ap.PMF)
+	}
+}
+
+func TestParseInformationElements_WMM_UAPSD(t *testing.T) {
+	// WMM Parameter Element: OUI 00:50:F2, Type 2, Subtype 1, Version 1,
+	// QoS Info with U-APSD bit (0x80) set.
+	wmm := buildIE(221, []byte{0x00, 0x50, 0xF2, 0x02, 0x01, 0x01, 0x80})
+
+	var ap AccessPoint
+	parseInformationElements(wmm, &ap)
+	if !ap.QoSSupport {
+		t.Errorf("QoSSupport not set from WMM IE")
+	}
+	if !ap.UAPSD {
+		t.Errorf("UAPSD not set from WMM QoS Info bit 7")
+	}
+}
+
+func TestParseInformationElements_HTOperation_ChannelFallback(t *testing.T) {
+	// HT Operation (ID 61): primary channel 11, no 40 MHz.
+	htOp := buildIE(61, []byte{0x0B, 0x00, 0x00, 0x00, 0x00})
+
+	var ap AccessPoint
+	parseInformationElements(htOp, &ap)
+	if ap.Channel != 11 {
+		t.Errorf("Channel = %d, want 11 (HT Operation fallback)", ap.Channel)
+	}
+
+	// An already-known channel must not be overwritten.
+	ap2 := AccessPoint{Channel: 6}
+	parseInformationElements(htOp, &ap2)
+	if ap2.Channel != 6 {
+		t.Errorf("Channel = %d, want 6 (existing value preserved)", ap2.Channel)
+	}
+}
+
+func TestParseInformationElements_HECaps_TWT(t *testing.T) {
+	// HE Capabilities (ext-ID 35): MAC caps byte 0 with TWT Responder (B2).
+	body := make([]byte, 20)
+	body[0] = 35   // extension ID
+	body[1] = 0x04 // HE MAC caps byte 0: TWT Responder
+	he := buildIE(255, body)
+
+	var ap AccessPoint
+	parseInformationElements(he, &ap)
+	if !ap.TWTSupport {
+		t.Errorf("TWTSupport not set from HE MAC caps B2")
+	}
+}
+
 func TestParseInformationElements_BeaconHexFromHelper(t *testing.T) {
 	// Sanity-check the helper's expected wire format: hex-decoded IE bytes
 	// flow through parseInformationElements unchanged. Synthesises what the

@@ -22,16 +22,12 @@ const (
 
 	// 6GHz band channels
 	Freq5935MHz = 5935
-	Freq5955MHz = 5955
-	Freq5965MHz = 5965
-	Freq5985MHz = 5985
 	Freq5950MHz = 5950
 	Freq7115MHz = 7115
 
 	// Channel constants
 	Channel14 = 14
 	Channel2  = 2
-	Channel6  = 6
 
 	// DFS (Dynamic Frequency Selection) channels - 5GHz band
 	DFSChannel52  = 52
@@ -127,6 +123,51 @@ func intPtr(v int) *int {
 	return &v
 }
 
+// normalizeMAC lowercases a colon- or dash-separated MAC address and
+// zero-pads each octet. Legacy macOS tools (airport) print unpadded octets
+// ("0:1b:63:4:5:6") which would otherwise fail OUI lookups and BSSID
+// matching. Returns "" when the input is not a 6-octet MAC.
+func normalizeMAC(s string) string {
+	s = strings.ToLower(strings.TrimSpace(strings.ReplaceAll(s, "-", ":")))
+	parts := strings.Split(s, ":")
+	if len(parts) != 6 {
+		return ""
+	}
+	var b strings.Builder
+	for i, p := range parts {
+		if len(p) == 1 {
+			p = "0" + p
+		}
+		if len(p) != 2 || !isHexDigit(p[0]) || !isHexDigit(p[1]) {
+			return ""
+		}
+		if i > 0 {
+			b.WriteByte(':')
+		}
+		b.WriteString(p)
+	}
+	return b.String()
+}
+
+func isHexDigit(c byte) bool {
+	return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f')
+}
+
+// capsMatchAny reports whether any capability token equals (case-insensitive)
+// one of the given keys. Exact token comparison — substring matching caused
+// false positives (e.g. "EHT" containing "HT").
+func capsMatchAny(capabilities []string, keys ...string) bool {
+	for _, c := range capabilities {
+		c = strings.TrimSpace(c)
+		for _, k := range keys {
+			if strings.EqualFold(c, k) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 // NormalizeAccessPoint applies consistent defaults and derived values across platforms.
 func NormalizeAccessPoint(ap *AccessPoint) {
 	if ap == nil {
@@ -187,6 +228,20 @@ func NormalizeAccessPoint(ap *AccessPoint) {
 	}
 	if ap.MaxPhyRate == 0 {
 		ap.MaxPhyRate = estimateMaxPhyRate(ap)
+	}
+	// Infer the modulation ceiling from the PHY generation when no IE-derived
+	// value is present, so all platforms report a comparable QAMSupport.
+	if ap.QAMSupport == 0 {
+		switch {
+		case capsMatchAny(ap.Capabilities, "WiFi7", "EHT"):
+			ap.QAMSupport = 4096
+		case capsMatchAny(ap.Capabilities, "HE", "WiFi6"):
+			ap.QAMSupport = 1024
+		case capsMatchAny(ap.Capabilities, "VHT", "WiFi5"):
+			ap.QAMSupport = 256
+		case capsMatchAny(ap.Capabilities, "HT", "WiFi4"):
+			ap.QAMSupport = 64
+		}
 	}
 	if ap.Noise != 0 {
 		ap.SNR = ap.Signal - ap.Noise
@@ -347,24 +402,15 @@ func estimateMaxPhyRate(ap *AccessPoint) int {
 		width = 20
 	}
 
-	hasCap := func(key string) bool {
-		for _, c := range ap.Capabilities {
-			if strings.EqualFold(c, key) {
-				return true
-			}
-		}
-		return false
-	}
-
 	var perStream int
 	switch {
-	case hasCap("WiFi7") || hasCap("EHT"):
+	case capsMatchAny(ap.Capabilities, "WiFi7", "EHT"):
 		perStream = basePhyRateHE(width)
-	case hasCap("HE") || hasCap("WiFi6"):
+	case capsMatchAny(ap.Capabilities, "HE", "WiFi6"):
 		perStream = basePhyRateHE(width)
-	case hasCap("VHT") || hasCap("WiFi5"):
+	case capsMatchAny(ap.Capabilities, "VHT", "WiFi5"):
 		perStream = basePhyRateVHT(width)
-	case hasCap("HT") || hasCap("WiFi4"):
+	case capsMatchAny(ap.Capabilities, "HT", "WiFi4"):
 		perStream = basePhyRateHT(width)
 	default:
 		perStream = 0
@@ -435,26 +481,24 @@ func NormalizeClientStats(stats *ClientStats) {
 	}
 }
 
+// channelToFrequency maps a bare channel number to a center frequency in MHz.
+// Channel numbers alone are ambiguous: 1-14 exist in both 2.4 GHz and 6 GHz,
+// and 36-165 exist in both 5 GHz and 6 GHz. Without band context we resolve
+// to 2.4 GHz / 5 GHz respectively (what every current caller expects); only
+// the unambiguous 6 GHz ranges (15-35, 166-233) map to the 6 GHz formula.
+// Callers that know the band (e.g. CoreWLAN) must do their own mapping.
 func channelToFrequency(channel int) int {
-	if channel >= 1 && channel <= 14 {
+	switch {
+	case channel >= 1 && channel <= 14:
 		if channel == 14 {
 			return 2484
 		}
 		return 2407 + (channel * 5)
-	}
-	if channel >= 36 && channel <= 165 {
+	case channel >= 36 && channel <= 165:
 		return 5000 + (channel * 5)
-	}
-	if channel >= 1 && channel <= 233 {
-		if channel == 2 || channel == 1 {
-			return 5935
-		}
-		if channel == 5 || channel == 9 {
-			return 5950 + ((channel - 5) * 20)
-		}
-		if channel >= 11 && channel <= 253 {
-			return 5950 + (channel * 20)
-		}
+	case channel >= 15 && channel <= 233:
+		// 6 GHz: center = 5950 + 5*channel (IEEE 802.11ax Annex E, Table E-4).
+		return 5950 + (channel * 5)
 	}
 	return 0
 }
@@ -612,14 +656,17 @@ func frequencyToChannel(freq int) int {
 		return (freq - Freq2407MHz) / ChannelSpacing5MHz
 	case freq >= Freq5170MHz && freq <= Freq5825MHz:
 		return (freq - Freq5000MHz) / ChannelSpacing5MHz
-	case freq >= Freq5955MHz && freq <= Freq7115MHz:
-		if freq == Freq5935MHz || freq == Freq5955MHz {
+	case freq >= Freq5935MHz && freq <= Freq7115MHz:
+		// 6 GHz. Channel 2 sits at 5935 MHz, below the 5950 MHz anchor used
+		// by every other 6 GHz channel (center = 5950 + 5*channel).
+		if freq == Freq5935MHz {
 			return Channel2
 		}
-		if freq == Freq5965MHz || freq == Freq5985MHz {
-			return Channel6
+		ch := (freq - Freq5950MHz) / ChannelSpacing5MHz
+		if ch < 1 {
+			return 0
 		}
-		return (freq - Freq5950MHz) / ChannelSpacing5MHz
+		return ch
 	default:
 		return 0
 	}
@@ -641,95 +688,40 @@ func frequencyToBand(freq int) string {
 	}
 }
 
-// deriveWiFiGeneration returns the WiFi generation number (5, 6, 7, 8) or
+// deriveWiFiGeneration returns the WiFi generation number (4, 5, 6, 7) or
 // "Unknown" if it cannot be determined from the capabilities array.
 func deriveWiFiGeneration(capabilities []string) string {
-	if len(capabilities) == 0 {
-		return "Unknown"
+	switch {
+	case capsMatchAny(capabilities, "WiFi7", "802.11be", "EHT"):
+		return "7"
+	case capsMatchAny(capabilities, "WiFi6", "HE", "802.11ax"):
+		return "6"
+	case capsMatchAny(capabilities, "WiFi5", "VHT", "802.11ac"):
+		return "5"
+	case capsMatchAny(capabilities, "WiFi4", "HT", "802.11n"):
+		return "4"
 	}
-
-	lowerCaps := make([]string, len(capabilities))
-	for i, cap := range capabilities {
-		lowerCaps[i] = strings.ToLower(strings.TrimSpace(cap))
-	}
-
-	for _, cap := range lowerCaps {
-		if strings.Contains(cap, "wifi7") || strings.Contains(cap, "802.11be") || strings.Contains(cap, "eht") {
-			return "7"
-		}
-	}
-
-	for _, cap := range lowerCaps {
-		if strings.Contains(cap, "wifi6") || strings.Contains(cap, "he") || strings.Contains(cap, "802.11ax") {
-			return "6"
-		}
-	}
-
-	for _, cap := range lowerCaps {
-		if strings.Contains(cap, "wifi5") || strings.Contains(cap, "vht") || strings.Contains(cap, "802.11ac") {
-			return "5"
-		}
-	}
-
-	for _, cap := range lowerCaps {
-		if strings.Contains(cap, "wifi4") || strings.Contains(cap, "ht") || strings.Contains(cap, "802.11n") {
-			return "4"
-		}
-	}
-
 	return "Unknown"
 }
 
 // getDominantWiFiStandard returns the dominant WiFi standard (e.g. "WiFi 6E (802.11ax)")
 // based on the capabilities array. Returns "Unknown" if it cannot be determined.
 func getDominantWiFiStandard(capabilities []string, band string) string {
-	if len(capabilities) == 0 {
-		return "Unknown"
-	}
-
-	lowerCaps := make([]string, len(capabilities))
-	for i, cap := range capabilities {
-		lowerCaps[i] = strings.ToLower(strings.TrimSpace(cap))
-	}
-
-	for _, cap := range lowerCaps {
-		if strings.Contains(cap, "eht") || strings.Contains(cap, "wifi7") {
-			return "WiFi 7 (802.11be)"
+	switch {
+	case capsMatchAny(capabilities, "EHT", "WiFi7", "802.11be"):
+		return "WiFi 7 (802.11be)"
+	case capsMatchAny(capabilities, "HE", "WiFi6", "802.11ax"):
+		if band == "6GHz" {
+			return "WiFi 6E (802.11ax)"
 		}
-	}
-
-	hasHE := false
-	for _, cap := range lowerCaps {
-		if strings.Contains(cap, "he") || strings.Contains(cap, "wifi6") || strings.Contains(cap, "802.11ax") {
-			hasHE = true
-			break
-		}
-	}
-	if hasHE && band == "6GHz" {
-		return "WiFi 6E (802.11ax)"
-	}
-	if hasHE {
 		return "WiFi 6 (802.11ax)"
+	case capsMatchAny(capabilities, "VHT", "WiFi5", "802.11ac"):
+		return "WiFi 5 (802.11ac)"
+	case capsMatchAny(capabilities, "HT", "WiFi4", "802.11n"):
+		return "WiFi 4 (802.11n)"
+	case capsMatchAny(capabilities, "Legacy", "802.11a", "802.11b", "802.11g"):
+		return "Legacy (802.11a/b/g)"
 	}
-
-	for _, cap := range lowerCaps {
-		if strings.Contains(cap, "vht") || strings.Contains(cap, "wifi5") || strings.Contains(cap, "802.11ac") {
-			return "WiFi 5 (802.11ac)"
-		}
-	}
-
-	for _, cap := range lowerCaps {
-		if strings.Contains(cap, "ht") || strings.Contains(cap, "wifi4") || strings.Contains(cap, "802.11n") {
-			return "WiFi 4 (802.11n)"
-		}
-	}
-
-	for _, cap := range lowerCaps {
-		if strings.Contains(cap, "legacy") || strings.Contains(cap, "802.11a") || strings.Contains(cap, "802.11b") || strings.Contains(cap, "802.11g") {
-			return "Legacy (802.11a/b/g)"
-		}
-	}
-
 	return "Unknown"
 }
 
@@ -748,12 +740,9 @@ func hasBeamformingSupport(capabilities []string, muMIMO bool) bool {
 		if strings.Contains(lower, "txbf") || strings.Contains(lower, "beamform") {
 			return true
 		}
-		if strings.Contains(lower, "vht") || strings.Contains(lower, "he") ||
-			strings.Contains(lower, "802.11ac") || strings.Contains(lower, "802.11ax") ||
-			strings.Contains(lower, "wifi5") || strings.Contains(lower, "wifi6") {
-			return true
-		}
 	}
 
-	return false
+	// SU beamforming is mandatory-capable from VHT (WiFi 5) onward.
+	return capsMatchAny(capabilities,
+		"VHT", "HE", "EHT", "WiFi5", "WiFi6", "WiFi7", "802.11ac", "802.11ax", "802.11be")
 }

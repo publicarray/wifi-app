@@ -62,6 +62,52 @@ func TestFrequencyChannelRoundTrip(t *testing.T) {
 	}
 }
 
+// TestFrequencyChannel6GHz covers the 6 GHz band one-directionally: channel
+// numbers 1-14 and 36-165 are ambiguous with 2.4/5 GHz and resolve to those
+// bands in channelToFrequency, so only unambiguous channels round-trip.
+func TestFrequencyChannel6GHz(t *testing.T) {
+	freqToCh := []struct{ freq, channel int }{
+		{5935, 2},   // channel 2 sits below the 5950 anchor
+		{5955, 1},   // first PSC-adjacent channel
+		{5985, 7},   // 5950 + 7*5
+		{6115, 33},  // mid-band
+		{7115, 233}, // last channel
+	}
+	for _, c := range freqToCh {
+		if got := frequencyToChannel(c.freq); got != c.channel {
+			t.Errorf("frequencyToChannel(%d) = %d, want %d", c.freq, got, c.channel)
+		}
+	}
+
+	chToFreq := []struct{ channel, freq int }{
+		{15, 6025},  // unambiguous 6 GHz range starts above 14
+		{33, 6115},  // below the 5 GHz collision range (36-165)
+		{233, 7115}, // last channel
+	}
+	for _, c := range chToFreq {
+		if got := channelToFrequency(c.channel); got != c.freq {
+			t.Errorf("channelToFrequency(%d) = %d, want %d", c.channel, got, c.freq)
+		}
+	}
+}
+
+func TestNormalizeMAC(t *testing.T) {
+	cases := []struct{ in, want string }{
+		{"aa:bb:cc:dd:ee:ff", "aa:bb:cc:dd:ee:ff"},
+		{"AA-BB-CC-DD-EE-FF", "aa:bb:cc:dd:ee:ff"},
+		{"0:1b:63:4:5:6", "00:1b:63:04:05:06"}, // legacy airport unpadded form
+		{" 68:D7:9A:00:11:22 ", "68:d7:9a:00:11:22"},
+		{"aa:bb:cc:dd:ee", ""},    // too few octets
+		{"zz:bb:cc:dd:ee:ff", ""}, // non-hex
+		{"", ""},
+	}
+	for _, c := range cases {
+		if got := normalizeMAC(c.in); got != c.want {
+			t.Errorf("normalizeMAC(%q) = %q, want %q", c.in, got, c.want)
+		}
+	}
+}
+
 func TestParseBitrateInfo(t *testing.T) {
 	cases := []struct {
 		in           string

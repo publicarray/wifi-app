@@ -14,6 +14,20 @@ type airportParser struct {
 	ouiLookup *OUILookup
 }
 
+// Regexes for the legacy `airport -I` output. Compiled once — these run on
+// every scan tick on the fallback path. Shared with parseAirportConnectionInfo
+// in wifi_scanner_darwin.go, which adds the SSID/phy-mode patterns it alone
+// needs (keeping them here would trip staticcheck U1000 on non-darwin builds).
+var (
+	airportStateRegex   = regexp.MustCompile(`\s+state:\s+(\S+)`)
+	airportBSSIDRegex   = regexp.MustCompile(`\s+BSSID:\s+([0-9a-fA-F:]+)`)
+	airportChannelRegex = regexp.MustCompile(`\s+channel:\s+(\d+)(?:,\s*(\d+))?`)
+	airportRSSIRegex    = regexp.MustCompile(`\s+agrCtlRSSI:\s+(-?\d+)`)
+	airportNoiseRegex   = regexp.MustCompile(`\s+agrCtlNoise:\s+(-?\d+)`)
+	airportRxRateRegex  = regexp.MustCompile(`\s+lastRxRate:\s+(\d+)`)
+	airportTxRateRegex  = regexp.MustCompile(`\s+lastTxRate:\s+(\d+)`)
+)
+
 func (p *airportParser) ParseScan(output []byte) ([]AccessPoint, error) {
 	entries, err := parsePlistArray(output)
 	if err != nil {
@@ -30,6 +44,11 @@ func (p *airportParser) ParseScan(output []byte) ([]AccessPoint, error) {
 		// shows up as its own row labelled "(hidden)" in the UI.
 		if bssid == "" {
 			continue
+		}
+		// airport emits unpadded octets ("0:1b:63:4:5:6"); zero-pad so OUI
+		// lookups and cross-source AP matching work.
+		if norm := normalizeMAC(bssid); norm != "" {
+			bssid = norm
 		}
 
 		signal := getInt(entry, "RSSI")
@@ -93,32 +112,29 @@ func (p *airportParser) ParseLink(output []byte) (map[string]string, error) {
 	info := make(map[string]string)
 	lines := strings.Split(string(output), "\n")
 
-	stateRegex := regexpMust(`\s+state:\s+(\S+)`)
-	bssidRegex := regexpMust(`\s+BSSID:\s+([0-9a-f:]+)`)
-	rssiRegex := regexpMust(`\s+agrCtlRSSI:\s+(-?\d+)`)
-	rxMcsRegex := regexpMust(`\s+lastRxRate:\s+(\d+)`)
-	txMcsRegex := regexpMust(`\s+lastTxRate:\s+(\d+)`)
-	channelRegex := regexpMust(`\s+channel:\s+(\d+)(?:,\s*(\d+))?`)
-
 	connected := false
 	for _, line := range lines {
-		if matches := stateRegex.FindStringSubmatch(line); matches != nil {
+		if matches := airportStateRegex.FindStringSubmatch(line); matches != nil {
 			connected = matches[1] == "running"
 		}
-		if matches := bssidRegex.FindStringSubmatch(line); matches != nil {
-			info["bssid"] = matches[1]
+		if matches := airportBSSIDRegex.FindStringSubmatch(line); matches != nil {
+			if norm := normalizeMAC(matches[1]); norm != "" {
+				info["bssid"] = norm
+			} else {
+				info["bssid"] = matches[1]
+			}
 		}
-		if matches := rssiRegex.FindStringSubmatch(line); matches != nil {
+		if matches := airportRSSIRegex.FindStringSubmatch(line); matches != nil {
 			info["signal"] = matches[1]
 			info["signal_avg"] = matches[1]
 		}
-		if matches := rxMcsRegex.FindStringSubmatch(line); matches != nil {
+		if matches := airportRxRateRegex.FindStringSubmatch(line); matches != nil {
 			info["rx_bitrate"] = matches[1]
 		}
-		if matches := txMcsRegex.FindStringSubmatch(line); matches != nil {
+		if matches := airportTxRateRegex.FindStringSubmatch(line); matches != nil {
 			info["tx_bitrate"] = matches[1]
 		}
-		if matches := channelRegex.FindStringSubmatch(line); matches != nil {
+		if matches := airportChannelRegex.FindStringSubmatch(line); matches != nil {
 			info["channel"] = matches[1]
 			if len(matches) > 2 && matches[2] != "" {
 				info["channel_width"] = matches[2]
@@ -146,32 +162,29 @@ func (p *airportParser) ParseStation(output []byte) (map[string]string, error) {
 	stats := make(map[string]string)
 	lines := strings.Split(string(output), "\n")
 
-	stateRegex := regexpMust(`\s+state:\s+(\S+)`)
-	bssidRegex := regexpMust(`\s+BSSID:\s+([0-9a-f:]+)`)
-	rxBitrateRegex := regexpMust(`\s+lastRxRate:\s+(\d+)`)
-	txBitrateRegex := regexpMust(`\s+lastTxRate:\s+(\d+)`)
-	rssiRegex := regexpMust(`\s+agrCtlRSSI:\s+(-?\d+)`)
-	noiseRegex := regexpMust(`\s+agrCtlNoise:\s+(-?\d+)`)
-
 	connected := false
 	for _, line := range lines {
-		if matches := stateRegex.FindStringSubmatch(line); matches != nil {
+		if matches := airportStateRegex.FindStringSubmatch(line); matches != nil {
 			connected = matches[1] == "running"
 		}
-		if matches := bssidRegex.FindStringSubmatch(line); matches != nil {
-			stats["bssid"] = matches[1]
+		if matches := airportBSSIDRegex.FindStringSubmatch(line); matches != nil {
+			if norm := normalizeMAC(matches[1]); norm != "" {
+				stats["bssid"] = norm
+			} else {
+				stats["bssid"] = matches[1]
+			}
 		}
-		if matches := rxBitrateRegex.FindStringSubmatch(line); matches != nil {
+		if matches := airportRxRateRegex.FindStringSubmatch(line); matches != nil {
 			stats["rx_bitrate"] = matches[1]
 		}
-		if matches := txBitrateRegex.FindStringSubmatch(line); matches != nil {
+		if matches := airportTxRateRegex.FindStringSubmatch(line); matches != nil {
 			stats["tx_bitrate"] = matches[1]
 		}
-		if matches := rssiRegex.FindStringSubmatch(line); matches != nil {
+		if matches := airportRSSIRegex.FindStringSubmatch(line); matches != nil {
 			stats["signal"] = matches[1]
 			stats["signal_avg"] = matches[1]
 		}
-		if matches := noiseRegex.FindStringSubmatch(line); matches != nil {
+		if matches := airportNoiseRegex.FindStringSubmatch(line); matches != nil {
 			stats["noise"] = matches[1]
 			if signal, exists := stats["signal"]; exists {
 				if noise, err := strconv.Atoi(matches[1]); err == nil {
@@ -412,6 +425,3 @@ func getBool(entry map[string]interface{}, key string) bool {
 	return false
 }
 
-func regexpMust(expr string) *regexp.Regexp {
-	return regexp.MustCompile(expr)
-}

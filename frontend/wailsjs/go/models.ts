@@ -358,7 +358,6 @@ export namespace main {
 	    defaultInterface: string;
 	    latencyTargets: string[];
 	    reportTemplatePath: string;
-	    macosHelperPath: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new Config(source);
@@ -372,7 +371,6 @@ export namespace main {
 	        this.defaultInterface = source["defaultInterface"];
 	        this.latencyTargets = source["latencyTargets"];
 	        this.reportTemplatePath = source["reportTemplatePath"];
-	        this.macosHelperPath = source["macosHelperPath"];
 	    }
 	}
 	export class LatencyProbe {

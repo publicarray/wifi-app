@@ -260,20 +260,44 @@ func (ws *WiFiService) performScan(ctx context.Context, iface string) {
 	// Aggregate data (read-only — no shared state touched)
 	result := ws.aggregateData(aps, iface)
 
+	// Gather client-link data BEFORE taking the write lock: backends may
+	// shell out (macOS wdutil/system_profiler can take seconds) and the
+	// gateway lookup walks OS routing tables. Holding ws.mu through that
+	// would stall every UI binding waiting on RLock.
+	linkInfo, linkErr := ws.scanner.GetLinkInfo(iface)
+	var stationStats map[string]string
+	var stationErr error
+	gateway, localIP := "", ""
+	if linkErr == nil && linkInfo["connected"] == "true" {
+		stationStats, stationErr = ws.scanner.GetStationStats(iface)
+		gateway = defaultGatewayString()
+		// Backends that identify interfaces by something the net package
+		// can't resolve (Windows uses the adapter description) supply
+		// local_ip themselves; otherwise resolve by interface name.
+		if ip := linkInfo["local_ip"]; ip != "" {
+			localIP = ip
+		} else {
+			localIP = ifaceIPv4(iface)
+		}
+	}
+
 	// Commit aggregated results + refresh client stats under a single write
-	// lock, then snapshot what we're about to emit. The emit happens *after*
+	// lock, then snapshot what we're about to emit. The emits happen *after*
 	// the lock is released so slow listeners can't block further scans.
 	ws.mu.Lock()
 	ws.lastScanResult = result
 	ws.networks = result.Networks
 	ws.channelInfo = result.Channels
 	ws.recordAPSignalHistoryLocked(aps, result.Timestamp)
-	ws.updateClientStatsLocked(iface)
+	roamingEvent := ws.updateClientStatsLocked(iface, linkInfo, linkErr, stationStats, stationErr, gateway, localIP)
 	networksSnapshot := ws.networks
 	channelsSnapshot := ws.channelInfo
 	clientSnapshot := ws.cloneClientStatsLocked()
 	ws.mu.Unlock()
 
+	if roamingEvent != nil {
+		runtime.EventsEmit(ws.ctx, "roaming:detected", *roamingEvent)
+	}
 	runtime.EventsEmit(ws.ctx, "networks:updated", networksSnapshot)
 	runtime.EventsEmit(ws.ctx, "channels:updated", channelsSnapshot)
 	runtime.EventsEmit(ws.ctx, "client:updated", clientSnapshot)
@@ -461,28 +485,33 @@ func (ws *WiFiService) countOverlappingChannels(channel int, channelMap map[int]
 	return count
 }
 
-// updateClientStatsLocked updates client connection statistics.
-// The caller MUST hold ws.mu.Lock for the duration of the call; the function
-// reads and writes ws.clientStats, ws.signalHistory, ws.roamingHistory, and
-// ws.lastBSSID without acquiring the mutex itself.
-func (ws *WiFiService) updateClientStatsLocked(iface string) {
-	linkInfo, err := ws.scanner.GetLinkInfo(iface)
-	if err != nil {
+// updateClientStatsLocked updates client connection statistics from
+// pre-fetched backend data. The backend calls (GetLinkInfo/GetStationStats)
+// and gateway/local-IP resolution happen in performScan BEFORE the lock is
+// taken — they can block for seconds on some platforms and must not run
+// under ws.mu. The caller MUST hold ws.mu.Lock for the duration of the call;
+// the function reads and writes ws.clientStats, ws.signalHistory,
+// ws.roamingHistory, and ws.lastBSSID without acquiring the mutex itself.
+//
+// Returns a non-nil RoamingEvent when this tick detected a BSSID transition;
+// the caller emits it after releasing the lock.
+func (ws *WiFiService) updateClientStatsLocked(iface string, linkInfo map[string]string, linkErr error, stationStats map[string]string, stationErr error, gateway, localIP string) *RoamingEvent {
+	if linkErr != nil {
 		ws.clientStats.Connected = false
-		return
+		return nil
 	}
 
 	if linkInfo["connected"] == "false" {
 		ws.clientStats.Connected = false
-		return
+		return nil
 	}
 
 	ws.clientStats.Connected = true
 	ws.clientStats.Interface = iface
 	ws.clientStats.SSID = linkInfo["ssid"]
 	ws.clientStats.BSSID = linkInfo["bssid"]
-	ws.clientStats.LocalIP = ifaceIPv4(iface)
-	ws.clientStats.Gateway = defaultGatewayString()
+	ws.clientStats.LocalIP = localIP
+	ws.clientStats.Gateway = gateway
 
 	if freq, err := strconv.ParseFloat(linkInfo["frequency"], 64); err == nil && freq != 0 {
 		ws.clientStats.Frequency = freq
@@ -509,8 +538,7 @@ func (ws *WiFiService) updateClientStatsLocked(iface string) {
 		ws.clientStats.Signal = signal
 	}
 
-	stationStats, err := ws.scanner.GetStationStats(iface)
-	if err == nil {
+	if stationErr == nil && stationStats != nil {
 		if signalAvg, err := strconv.Atoi(stationStats["signal_avg"]); err == nil {
 			ws.clientStats.SignalAvg = signalAvg
 		} else {
@@ -587,12 +615,16 @@ func (ws *WiFiService) updateClientStatsLocked(iface string) {
 		}
 	}
 
-	ws.updateSignalHistoryLocked()
+	roamingEvent := ws.updateSignalHistoryLocked()
 	NormalizeClientStats(&ws.clientStats)
+	return roamingEvent
 }
 
 // updateSignalHistoryLocked appends the current signal reading and detects
-// roaming events. Caller must hold ws.mu.Lock.
+// roaming events. Caller must hold ws.mu.Lock. Returns the detected roaming
+// event (nil when no BSSID transition happened); the caller is responsible
+// for emitting it after the lock is released — EventsEmit must not run under
+// ws.mu.
 //
 // This function only runs on scan ticks where the client is connected —
 // updateClientStatsLocked early-returns on a disconnected interface. That
@@ -604,7 +636,7 @@ func (ws *WiFiService) updateClientStatsLocked(iface string) {
 // cadence a 200 ms real roam and a 1500 ms real roam will both report
 // somewhere in the 0–4000 ms range depending on tick phase. Tighten
 // `scan_interval_seconds` in config for finer granularity.
-func (ws *WiFiService) updateSignalHistoryLocked() {
+func (ws *WiFiService) updateSignalHistoryLocked() *RoamingEvent {
 	now := time.Now()
 	dataPoint := SignalDataPoint{
 		Timestamp: now,
@@ -618,6 +650,7 @@ func (ws *WiFiService) updateSignalHistoryLocked() {
 	ws.signalHistory = appendCapped(ws.signalHistory, dataPoint, cfg.SignalHistorySize())
 
 	// Detect roaming events
+	var detected *RoamingEvent
 	if ws.lastBSSID != "" && ws.lastBSSID != ws.clientStats.BSSID {
 		// Find previous signal
 		var prevSignal int
@@ -642,8 +675,7 @@ func (ws *WiFiService) updateSignalHistoryLocked() {
 			DurationMs:     durationMs,
 		}
 		ws.roamingHistory = appendCapped(ws.roamingHistory, roamingEvent, cfg.RoamingHistorySize)
-
-		runtime.EventsEmit(ws.ctx, "roaming:detected", roamingEvent)
+		detected = &roamingEvent
 	}
 
 	ws.lastBSSID = ws.clientStats.BSSID
@@ -651,6 +683,7 @@ func (ws *WiFiService) updateSignalHistoryLocked() {
 	// Note: SignalHistory/RoamingHistory on ClientStats are populated lazily
 	// via cloneClientStatsLocked when a caller asks for a snapshot; we never
 	// hand out the live backing slices anymore.
+	return detected
 }
 
 // recordAPSignalHistoryLocked appends one signal sample per observed BSSID

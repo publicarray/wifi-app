@@ -440,39 +440,6 @@ func (s *darwinScanner) getTrafficStats(iface string) (map[string]string, error)
 	return result, nil
 }
 
-func saturatingSubUint64(a, b uint64) uint64 {
-	if a < b {
-		return 0
-	}
-	return a - b
-}
-
-func (s *darwinScanner) updateTrafficBaseline(iface string, traffic map[string]string) {
-	if traffic == nil || traffic["rx_bytes"] == "0" {
-		return
-	}
-
-	rxBytes, _ := strconv.ParseUint(traffic["rx_bytes"], 10, 64)
-	txBytes, _ := strconv.ParseUint(traffic["tx_bytes"], 10, 64)
-	rxPkts, _ := strconv.ParseUint(traffic["rx_packets"], 10, 64)
-	txPkts, _ := strconv.ParseUint(traffic["tx_packets"], 10, 64)
-
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	s.baselineStats[iface] = trafficStats{
-		inOctets:   rxBytes,
-		outOctets:  txBytes,
-		inPackets:  rxPkts,
-		outPackets: txPkts,
-		timestamp:  time.Now(),
-	}
-
-	if _, ok := s.connectionStart[iface]; !ok {
-		s.connectionStart[iface] = time.Now()
-	}
-}
-
 func findAirportPath() string {
 	candidates := []string{
 		"/System/Library/PrivateFrameworks/Apple80211.framework/Versions/Current/Resources/airport",
@@ -489,17 +456,24 @@ func findAirportPath() string {
 	return ""
 }
 
+// airport -I patterns used only by parseAirportConnectionInfo; the rest of
+// the airport regexes live in wifi_scanner_darwin_parser.go (portable file).
+var (
+	airportSSIDRegex = regexp.MustCompile(`\s+SSID:\s+(.+)`)
+	airportPhyRegex  = regexp.MustCompile(`\s+phy mode:\s+(\S+)`)
+)
+
 func parseAirportConnectionInfo(output []byte) ConnectionInfo {
 	lines := strings.Split(string(output), "\n")
 
-	stateRegex := regexp.MustCompile(`\s+state:\s+(\S+)`)
-	ssidRegex := regexp.MustCompile(`\s+SSID:\s+(.+)`)
-	bssidRegex := regexp.MustCompile(`\s+BSSID:\s+([0-9a-f:]+)`)
-	channelRegex := regexp.MustCompile(`\s+channel:\s+(\d+)(?:,\s*(\d+))?`)
-	rssiRegex := regexp.MustCompile(`\s+agrCtlRSSI:\s+(-?\d+)`)
-	rxMcsRegex := regexp.MustCompile(`\s+lastRxRate:\s+(\d+)`)
-	txMcsRegex := regexp.MustCompile(`\s+lastTxRate:\s+(\d+)`)
-	phyTypeRegex := regexp.MustCompile(`\s+phy mode:\s+(\S+)`)
+	stateRegex := airportStateRegex
+	ssidRegex := airportSSIDRegex
+	bssidRegex := airportBSSIDRegex
+	channelRegex := airportChannelRegex
+	rssiRegex := airportRSSIRegex
+	rxMcsRegex := airportRxRateRegex
+	txMcsRegex := airportTxRateRegex
+	phyTypeRegex := airportPhyRegex
 
 	connInfo := ConnectionInfo{}
 
@@ -511,7 +485,13 @@ func parseAirportConnectionInfo(output []byte) ConnectionInfo {
 			connInfo.SSID = matches[1]
 		}
 		if matches := bssidRegex.FindStringSubmatch(line); matches != nil {
-			connInfo.BSSID = matches[1]
+			// airport prints unpadded octets ("0:1b:63:4:5:6"); normalise so
+			// OUI lookups and AP matching work.
+			if norm := normalizeMAC(matches[1]); norm != "" {
+				connInfo.BSSID = norm
+			} else {
+				connInfo.BSSID = matches[1]
+			}
 		}
 		if matches := channelRegex.FindStringSubmatch(line); matches != nil {
 			if ch, err := strconv.Atoi(matches[1]); err == nil {
@@ -797,9 +777,19 @@ func firstValue(values map[string]string, keys ...string) string {
 	return ""
 }
 
+// Parsing helpers below run once per key per tick on the wdutil /
+// system_profiler fallback paths — keep their regexes package-level.
+var (
+	firstIntRegex      = regexp.MustCompile(`-?\d+`)
+	firstFloatRegex    = regexp.MustCompile(`-?\d+(?:\.\d+)?`)
+	channelWidthRegex  = regexp.MustCompile(`(\d+)\s*MHz`)
+	wdutilChannelRegex = regexp.MustCompile(`(?i)(?:2g|5g|6g)?\s*(\d+)\s*/\s*(\d+)`)
+	// Octets may be unpadded in legacy tool output ("0:1b:63:4:5:6").
+	bssidExtractRegex = regexp.MustCompile(`([0-9a-fA-F]{1,2}:){5}[0-9a-fA-F]{1,2}`)
+)
+
 func parseFirstInt(value string) int {
-	re := regexp.MustCompile(`-?\d+`)
-	match := re.FindString(value)
+	match := firstIntRegex.FindString(value)
 	if match == "" {
 		return 0
 	}
@@ -810,8 +800,7 @@ func parseFirstInt(value string) int {
 }
 
 func parseFirstFloat(value string) float64 {
-	re := regexp.MustCompile(`-?\d+(?:\.\d+)?`)
-	match := re.FindString(value)
+	match := firstFloatRegex.FindString(value)
 	if match == "" {
 		return 0
 	}
@@ -822,8 +811,7 @@ func parseFirstFloat(value string) float64 {
 }
 
 func parseChannelWidth(value string) int {
-	re := regexp.MustCompile(`(\d+)\s*MHz`)
-	matches := re.FindStringSubmatch(value)
+	matches := channelWidthRegex.FindStringSubmatch(value)
 	if len(matches) < 2 {
 		return 0
 	}
@@ -834,8 +822,7 @@ func parseChannelWidth(value string) int {
 }
 
 func parseWdutilChannel(value string) (int, int) {
-	re := regexp.MustCompile(`(?i)(?:2g|5g|6g)?\s*(\d+)\s*/\s*(\d+)`)
-	matches := re.FindStringSubmatch(value)
+	matches := wdutilChannelRegex.FindStringSubmatch(value)
 	if len(matches) < 3 {
 		return 0, 0
 	}
@@ -850,9 +837,8 @@ func isEmptyWdutilValue(value string) bool {
 }
 
 func extractBSSID(value string) string {
-	re := regexp.MustCompile(`([0-9a-fA-F]{2}:){5}[0-9a-fA-F]{2}`)
-	match := re.FindString(value)
-	return strings.ToLower(match)
+	match := bssidExtractRegex.FindString(value)
+	return normalizeMAC(match)
 }
 
 func isConnectedState(value string) bool {

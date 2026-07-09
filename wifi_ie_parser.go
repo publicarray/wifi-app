@@ -30,7 +30,16 @@ func parseInformationElements(buf []byte, ap *AccessPoint) {
 			return
 		}
 		body := buf[2 : 2+length]
-		dispatchElement(id, body, ap)
+		// RSN (48) is handled here rather than in dispatchElement: the Linux
+		// scanner derives security from nl80211's typed RSN struct and feeds
+		// all IEs through dispatchElement, so parsing 48 there would clobber
+		// its richer AKM strings. Windows and the macOS helper only have raw
+		// IE bytes and come through this walker.
+		if id == 48 {
+			parseRSNIE(body, ap)
+		} else {
+			dispatchElement(id, body, ap)
+		}
 		buf = buf[2+length:]
 	}
 }
@@ -43,10 +52,14 @@ func dispatchElement(id byte, body []byte, ap *AccessPoint) {
 		parseTIM(body, ap)
 	case 7:
 		parseCountryIE(body, ap)
+	case 11:
+		parseBSSLoad(body, ap)
 	case 38:
 		parseTPCReport(body, ap)
 	case 45:
 		parseHTCapabilities(body, ap)
+	case 54:
+		parseMobilityDomain(body, ap)
 	case 61:
 		parseHTOperation(body, ap)
 	case 70:
@@ -61,6 +74,151 @@ func dispatchElement(id byte, body []byte, ap *AccessPoint) {
 		parseVendorSpecificIE(body, ap)
 	case 255:
 		parseHECapabilities(body, ap)
+	}
+}
+
+// parseBSSLoad reads the BSS Load IE (ID 11): Station Count (2 bytes LE) +
+// Channel Utilization (1 byte, 0-255 mapped to 0-100 %) + Available Admission
+// Capacity (2 bytes, unused here).
+func parseBSSLoad(data []byte, ap *AccessPoint) {
+	if len(data) < 3 {
+		return
+	}
+	ap.BSSLoadStations = intPtr(int(uint16(data[0]) | uint16(data[1])<<8))
+	ap.BSSLoadUtilization = intPtr(int(data[2]) * 100 / 255)
+}
+
+// parseMobilityDomain reads the Mobility Domain IE (ID 54): MDID (2 bytes) +
+// FT Capability & Policy (1 byte). Presence in a beacon advertises Fast BSS
+// Transition (802.11r) support.
+func parseMobilityDomain(data []byte, ap *AccessPoint) {
+	if len(data) < 2 {
+		return
+	}
+	ap.FastRoaming = true
+}
+
+// parseRSNIE derives security type, pairwise ciphers, AKMs, and PMF from a
+// raw RSN IE (ID 48) body: Version (2) + Group Cipher Suite (4) + Pairwise
+// Count (2) + suites + AKM Count (2) + suites + RSN Capabilities (2).
+// Used by backends that only have IE bytes (Windows, macOS helper); the Linux
+// scanner uses nl80211's typed RSN data instead.
+func parseRSNIE(data []byte, ap *AccessPoint) {
+	if len(data) < 8 {
+		ap.Security = "WPA2"
+		return
+	}
+
+	groupCipher := ""
+	if data[2] == 0x00 && data[3] == 0x0F && data[4] == 0xAC {
+		switch data[5] {
+		case 2:
+			groupCipher = "TKIP"
+		case 4:
+			groupCipher = "CCMP"
+		case 8:
+			groupCipher = "GCMP"
+		case 9:
+			groupCipher = "GCMP-256"
+		}
+	}
+
+	offset := 6
+	if len(data) < offset+2 {
+		ap.Security = "WPA2"
+		return
+	}
+
+	pairwiseCount := uint16(data[offset]) | uint16(data[offset+1])<<8
+	offset += 2
+
+	pairwiseCiphers := []string{}
+	for i := uint16(0); i < pairwiseCount && offset+4 <= len(data); i++ {
+		if data[offset] == 0x00 && data[offset+1] == 0x0F && data[offset+2] == 0xAC {
+			switch data[offset+3] {
+			case 2:
+				pairwiseCiphers = append(pairwiseCiphers, "TKIP")
+			case 4:
+				pairwiseCiphers = append(pairwiseCiphers, "CCMP")
+			case 8:
+				pairwiseCiphers = append(pairwiseCiphers, "GCMP")
+			case 9:
+				pairwiseCiphers = append(pairwiseCiphers, "GCMP-256")
+			}
+		}
+		offset += 4
+	}
+
+	if len(data) < offset+2 {
+		ap.Security = "WPA2"
+		ap.SecurityCiphers = pairwiseCiphers
+		return
+	}
+
+	akmCount := uint16(data[offset]) | uint16(data[offset+1])<<8
+	offset += 2
+
+	authMethods := []string{}
+	securityType := "WPA2"
+
+	for i := uint16(0); i < akmCount && offset+4 <= len(data); i++ {
+		if data[offset] == 0x00 && data[offset+1] == 0x0F && data[offset+2] == 0xAC {
+			switch data[offset+3] {
+			case 1:
+				authMethods = append(authMethods, "EAP")
+			case 2:
+				authMethods = append(authMethods, "PSK")
+			case 3:
+				authMethods = append(authMethods, "FT-EAP")
+				ap.FastRoaming = true
+			case 4:
+				authMethods = append(authMethods, "FT-PSK")
+				ap.FastRoaming = true
+			case 5:
+				authMethods = append(authMethods, "EAP-SHA256")
+			case 6:
+				authMethods = append(authMethods, "PSK-SHA256")
+			case 8:
+				authMethods = append(authMethods, "SAE")
+				securityType = "WPA3"
+			case 9:
+				authMethods = append(authMethods, "FT-SAE")
+				securityType = "WPA3"
+				ap.FastRoaming = true
+			case 12:
+				authMethods = append(authMethods, "EAP-SUITE-B")
+				securityType = "WPA3-Enterprise"
+			case 13:
+				authMethods = append(authMethods, "EAP-SUITE-B-192")
+				securityType = "WPA3-Enterprise"
+			case 18:
+				authMethods = append(authMethods, "OWE")
+				securityType = "OWE"
+			}
+		}
+		offset += 4
+	}
+
+	if len(data) >= offset+2 {
+		rsnCaps := uint16(data[offset]) | uint16(data[offset+1])<<8
+
+		mfpCapable := (rsnCaps & 0x0080) != 0
+		mfpRequired := (rsnCaps & 0x0040) != 0
+
+		if mfpRequired {
+			ap.PMF = "Required"
+		} else if mfpCapable {
+			ap.PMF = "Optional"
+		} else {
+			ap.PMF = "Disabled"
+		}
+	}
+
+	ap.Security = securityType
+	ap.SecurityCiphers = pairwiseCiphers
+	ap.AuthMethods = authMethods
+	if groupCipher != "" && len(ap.SecurityCiphers) == 0 {
+		ap.SecurityCiphers = []string{groupCipher}
 	}
 }
 
@@ -135,6 +293,10 @@ func parseVHTCapabilities(data []byte, ap *AccessPoint) {
 		ap.MIMOStreams = maxStream
 	}
 
+	if qam := vhtQAMFromMCSMap(rxMcsMap); qam > ap.QAMSupport {
+		ap.QAMSupport = qam
+	}
+
 	rxHighest := int(uint16(data[6]) | uint16(data[7])<<8)
 	txHighest := int(uint16(data[10]) | uint16(data[11])<<8)
 	if ap.MaxPhyRate == 0 && rxHighest > 0 {
@@ -143,6 +305,21 @@ func parseVHTCapabilities(data []byte, ap *AccessPoint) {
 	if ap.MaxPhyRate == 0 && txHighest > 0 {
 		ap.MaxPhyRate = txHighest
 	}
+}
+
+// vhtQAMFromMCSMap derives the max modulation from the first supported
+// spatial stream in a VHT MCS map: map value 0 = MCS 0-7 (64-QAM),
+// 1/2 = MCS 0-8/0-9 (256-QAM), 3 = stream not supported.
+func vhtQAMFromMCSMap(mcsMap uint16) int {
+	for ss := 0; ss < 8; ss++ {
+		switch (mcsMap >> (ss * 2)) & 0x03 {
+		case 0:
+			return 64
+		case 1, 2:
+			return 256
+		}
+	}
+	return 64
 }
 
 func parseHECapabilities(data []byte, ap *AccessPoint) {
@@ -176,8 +353,8 @@ func parseHECapabilitiesElement(data []byte, ap *AccessPoint) {
 	ap.Capabilities = appendUnique(ap.Capabilities, "HE")
 	ap.Capabilities = appendUnique(ap.Capabilities, "WiFi6")
 
-	// Byte 1, bit 3: TWT Responder Support.
-	if (data[1] & 0x08) != 0 {
+	// HE MAC Capabilities byte 0: B1 = TWT Requester, B2 = TWT Responder.
+	if (data[0] & 0x06) != 0 {
 		ap.TWTSupport = true
 	}
 
@@ -301,9 +478,13 @@ func parseRMCapabilities(data []byte, ap *AccessPoint) {
 }
 
 func parseHTOperation(data []byte, ap *AccessPoint) {
-	// HT Operation IE (ID 61). Byte 1 carries STA Channel Width.
+	// HT Operation IE (ID 61). Byte 0 = Primary Channel, byte 1 carries STA
+	// Channel Width.
 	if len(data) < 2 {
 		return
+	}
+	if ap.Channel == 0 && data[0] != 0 {
+		ap.Channel = int(data[0])
 	}
 	if (data[1]&0x04)>>2 == 1 {
 		if ap.ChannelWidth < 40 {
@@ -360,8 +541,13 @@ func parseVendorSpecificIE(data []byte, ap *AccessPoint) {
 			ap.WPS = true
 		case 0x02:
 			ap.QoSSupport = true
+			// WMM Parameter/Information Element: OUI(3) + Type(1) +
+			// Subtype(1) + Version(1) + QoS Info(1). QoS Info bit 7 = U-APSD.
+			if len(data) >= 7 && (data[6]&0x80) != 0 {
+				ap.UAPSD = true
+			}
 		case 0x01:
-			if ap.Security == "" {
+			if ap.Security == "" || ap.Security == "Open" || ap.Security == "WEP" {
 				ap.Security = "WPA"
 			}
 		}

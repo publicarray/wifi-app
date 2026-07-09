@@ -65,8 +65,12 @@ func defaultGateway() (net.IP, error) {
 		return nil, fmt.Errorf("send routing message: %w", err)
 	}
 
+	// The kernel's RTM_GET reply can carry more sockaddrs than we requested
+	// (RTA_IFP/RTA_IFA), so receive into a buffer comfortably larger than the
+	// request — reusing the small request buffer would truncate the reply.
+	reply := make([]byte, 2048)
 	for {
-		n, _, err := unix.Recvfrom(sock, buf, 0)
+		n, _, err := unix.Recvfrom(sock, reply, 0)
 		if err != nil {
 			slog.Error("gateway_darwin: recv routing reply failed", "err", err)
 			return nil, fmt.Errorf("recv routing reply: %w", err)
@@ -74,18 +78,19 @@ func defaultGateway() (net.IP, error) {
 		if n < unix.SizeofRtMsghdr {
 			continue
 		}
-		if hdr.Type != uint8(rtmGetDarwin) {
+		rhdr := (*unix.RtMsghdr)(unsafe.Pointer(&reply[0]))
+		if rhdr.Type != uint8(rtmGetDarwin) {
 			continue
 		}
-		if hdr.Seq != seq {
+		if rhdr.Seq != seq {
 			continue
 		}
-		if hdr.Errno != 0 {
-			slog.Error("gateway_darwin: routing error", "errno", hdr.Errno)
-			return nil, fmt.Errorf("routing error: %d", hdr.Errno)
+		if rhdr.Errno != 0 {
+			slog.Error("gateway_darwin: routing error", "errno", rhdr.Errno)
+			return nil, fmt.Errorf("routing error: %d", rhdr.Errno)
 		}
 
-		ip := extractGatewayIP(buf[:n], int32(hdr.Addrs))
+		ip := extractGatewayIP(reply[:n], int32(rhdr.Addrs))
 		if ip != nil {
 			slog.Info("gateway_darwin: found default gateway", "ip", ip.String())
 			return ip, nil
@@ -95,6 +100,11 @@ func defaultGateway() (net.IP, error) {
 	}
 }
 
+// extractGatewayIP walks the sockaddrs trailing a routing message in RTA bit
+// order. BSD routing-socket sockaddrs are variable-length: each entry
+// advances by sa_len rounded up to a 4-byte boundary (a zero-length sockaddr
+// still occupies 4 bytes), so a fixed sockaddr_in stride would misalign as
+// soon as any address in the reply isn't AF_INET.
 func extractGatewayIP(data []byte, addrs int32) net.IP {
 	offset := int(unix.SizeofRtMsghdr)
 
@@ -102,14 +112,26 @@ func extractGatewayIP(data []byte, addrs int32) net.IP {
 		if addrs&mask == 0 {
 			continue
 		}
-		saPtr := unsafe.Add(unsafe.Pointer(&data[0]), uintptr(offset))
-		sa := (*unix.RawSockaddrInet4)(saPtr)
-		if sa.Family == unix.AF_INET {
-			if mask == rtaGatewayDarwin {
-				return net.IP(sa.Addr[:])
-			}
+		if offset+2 > len(data) {
+			return nil
 		}
-		offset += int(unix.SizeofSockaddrInet4)
+		saLen := int(data[offset])
+		family := data[offset+1]
+
+		if mask == rtaGatewayDarwin {
+			// RawSockaddrInet4 layout: Len, Family, Port (2), Addr (4).
+			if family == unix.AF_INET && saLen >= 8 && offset+8 <= len(data) {
+				return net.IPv4(data[offset+4], data[offset+5], data[offset+6], data[offset+7]).To4()
+			}
+			// Gateway present but not IPv4 (e.g. AF_LINK on a direct route).
+			return nil
+		}
+
+		adv := saLen
+		if adv == 0 {
+			adv = 4
+		}
+		offset += (adv + 3) &^ 3
 	}
 	return nil
 }
