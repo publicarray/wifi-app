@@ -45,9 +45,14 @@ type UniFiPoller struct {
 	clientKey  string // url\x00key\x00insecure — client is rebuilt when it changes
 	appVersion string // cached /info result per client
 
-	status  UniFiStatus
-	devices []UniFiDeviceInfo // MACs normalized; matching source for enrichment
+	status         UniFiStatus
+	devices        []UniFiDeviceInfo // MACs normalized; matching source for enrichment
+	hiddenSSIDHint string            // controller name for hidden SSIDs, when unambiguous
 }
+
+// uniFiRosterCap bounds the per-device client roster carried in events so a
+// dense site can't bloat every unifi:updated payload.
+const uniFiRosterCap = 50
 
 func NewUniFiPoller(cfg *liveConfig) *UniFiPoller {
 	return &UniFiPoller{
@@ -122,7 +127,7 @@ func (p *UniFiPoller) tick(ctx context.Context) {
 	cfg := p.cfg.Get()
 
 	if cfg.UniFiControllerURL == "" || cfg.UniFiAPIKey == "" {
-		p.publish(UniFiStatus{Configured: false}, nil)
+		p.publish(UniFiStatus{Configured: false}, nil, "")
 		return
 	}
 
@@ -141,13 +146,13 @@ func (p *UniFiPoller) tick(ctx context.Context) {
 	if err != nil {
 		status.Error = err.Error()
 		slog.Warn("unifi poll failed", "event", "unifi_error", "stage", "sites", "err", err)
-		p.publish(status, nil)
+		p.publish(status, nil, "")
 		return
 	}
 	site, ok := pickUniFiSite(sites, cfg.UniFiSite)
 	if !ok {
 		status.Error = "controller returned no matching site"
-		p.publish(status, nil)
+		p.publish(status, nil, "")
 		return
 	}
 	status.SiteID = site.ID
@@ -157,13 +162,13 @@ func (p *UniFiPoller) tick(ctx context.Context) {
 	if err != nil {
 		status.Error = err.Error()
 		slog.Warn("unifi poll failed", "event", "unifi_error", "stage", "devices", "err", err)
-		p.publish(status, nil)
+		p.publish(status, nil, "")
 		return
 	}
 
 	// Clients are best-effort: a failure here still leaves the device list
-	// usable, just without per-AP client counts.
-	wirelessByDevice := map[string]int{}
+	// usable, just without per-AP client counts/rosters.
+	rosterByDevice := map[string][]UniFiClientInfo{}
 	clients, err := client.Clients(tickCtx, site.ID)
 	if err != nil {
 		status.Error = "client list unavailable: " + err.Error()
@@ -174,7 +179,11 @@ func (p *UniFiPoller) tick(ctx context.Context) {
 			case "WIRELESS":
 				status.WirelessClients++
 				if c.UplinkDeviceID != "" {
-					wirelessByDevice[c.UplinkDeviceID]++
+					rosterByDevice[c.UplinkDeviceID] = append(rosterByDevice[c.UplinkDeviceID], UniFiClientInfo{
+						Name: c.Name,
+						MAC:  normalizeMAC(c.MACAddress),
+						IP:   c.IPAddress,
+					})
 				}
 			case "WIRED":
 				status.WiredClients++
@@ -182,8 +191,26 @@ func (p *UniFiPoller) tick(ctx context.Context) {
 		}
 	}
 
+	// WLAN list is best-effort and only feeds hidden-SSID naming; many
+	// controller versions don't expose it and that's fine.
+	hiddenSSIDHint := ""
+	if wlans, werr := client.WLANs(tickCtx, site.ID); werr == nil {
+		hiddenSSIDHint = pickHiddenWLANName(wlans)
+	}
+
 	infos := make([]UniFiDeviceInfo, 0, len(devices))
 	for _, d := range devices {
+		roster := rosterByDevice[d.ID]
+		sort.Slice(roster, func(i, j int) bool {
+			if roster[i].Name != roster[j].Name {
+				return roster[i].Name < roster[j].Name
+			}
+			return roster[i].MAC < roster[j].MAC
+		})
+		count := len(roster)
+		if len(roster) > uniFiRosterCap {
+			roster = roster[:uniFiRosterCap]
+		}
 		infos = append(infos, UniFiDeviceInfo{
 			ID:              d.ID,
 			Name:            d.Name,
@@ -192,7 +219,8 @@ func (p *UniFiPoller) tick(ctx context.Context) {
 			IP:              d.IPAddress,
 			State:           d.State,
 			FirmwareVersion: d.FirmwareVersion,
-			ClientCount:     wirelessByDevice[d.ID],
+			ClientCount:     count,
+			Clients:         roster,
 		})
 	}
 	sort.Slice(infos, func(i, j int) bool { return infos[i].Name < infos[j].Name })
@@ -201,7 +229,35 @@ func (p *UniFiPoller) tick(ctx context.Context) {
 	status.Devices = infos
 	status.ApplicationVersion = p.cachedAppVersion(tickCtx, client)
 
-	p.publish(status, infos)
+	p.publish(status, infos, hiddenSSIDHint)
+}
+
+// pickHiddenWLANName returns the controller-configured name of the hidden
+// SSID when the site has exactly one enabled hidden WLAN. With zero or
+// several hidden WLANs there is no safe way to label a specific hidden BSSID,
+// so "" (don't label) is returned instead of guessing.
+func pickHiddenWLANName(wlans []uniFiWLAN) string {
+	var names []string
+	for _, w := range wlans {
+		if w.Enabled != nil && !*w.Enabled {
+			continue
+		}
+		hidden := w.Hidden || (w.HideSSID != nil && *w.HideSSID)
+		if !hidden {
+			continue
+		}
+		name := w.SSID
+		if name == "" {
+			name = w.Name
+		}
+		if name != "" {
+			names = appendUnique(names, name)
+		}
+	}
+	if len(names) == 1 {
+		return names[0]
+	}
+	return ""
 }
 
 // ensureClient returns the HTTP client, rebuilding it when the controller
@@ -238,16 +294,40 @@ func (p *UniFiPoller) cachedAppVersion(ctx context.Context, client *uniFiClient)
 
 // publish stores the snapshot under lock and emits it after releasing —
 // same emit-off-lock rule as the rest of the app.
-func (p *UniFiPoller) publish(status UniFiStatus, devices []UniFiDeviceInfo) {
+func (p *UniFiPoller) publish(status UniFiStatus, devices []UniFiDeviceInfo, hiddenSSIDHint string) {
 	p.mu.Lock()
 	p.status = status
 	p.devices = devices
+	p.hiddenSSIDHint = hiddenSSIDHint
 	ctx := p.wailsCtx
 	p.mu.Unlock()
 
 	if ctx != nil {
 		wailsruntime.EventsEmit(ctx, p.eventName, status)
 	}
+}
+
+// ResolveAPNames maps arbitrary BSSIDs (e.g. from roaming history, whose APs
+// may no longer be in scan range) to controller device names using the same
+// matching heuristic as scan enrichment. Unmatched BSSIDs are omitted.
+func (p *UniFiPoller) ResolveAPNames(bssids []string) map[string]string {
+	p.mu.RLock()
+	devices := p.devices
+	p.mu.RUnlock()
+
+	out := make(map[string]string)
+	if len(devices) == 0 {
+		return out
+	}
+	for _, bssid := range bssids {
+		if bssid == "" {
+			continue
+		}
+		if d, ok := matchUniFiDevice(devices, bssid); ok && d.Name != "" {
+			out[bssid] = d.Name
+		}
+	}
+	return out
 }
 
 // Snapshot returns the last published status for the synchronous
@@ -269,6 +349,7 @@ func (p *UniFiPoller) Snapshot() UniFiStatus {
 func (p *UniFiPoller) EnrichAccessPoints(aps []AccessPoint) {
 	p.mu.RLock()
 	devices := p.devices
+	hiddenSSIDHint := p.hiddenSSIDHint
 	p.mu.RUnlock()
 	if len(devices) == 0 {
 		return
@@ -283,6 +364,12 @@ func (p *UniFiPoller) EnrichAccessPoints(aps []AccessPoint) {
 		aps[i].UniFiIP = d.IP
 		aps[i].UniFiState = d.State
 		aps[i].UniFiClientCount = intPtr(d.ClientCount)
+		aps[i].UniFiDeviceID = d.ID
+		// Label hidden SSIDs on our own APs when the controller has exactly
+		// one enabled hidden WLAN (ambiguous sites get no label).
+		if aps[i].SSID == "" && hiddenSSIDHint != "" {
+			aps[i].UniFiHiddenSSID = hiddenSSIDHint
+		}
 	}
 }
 

@@ -242,6 +242,16 @@ func (ws *WiFiService) GetUniFiStatus() UniFiStatus {
 	return ws.unifiPoller.Snapshot()
 }
 
+// ResolveUniFiAPNames maps BSSIDs to UniFi controller device names (empty
+// map when the integration is off or nothing matches). Used by the Roaming
+// tab to label roam events with AP names instead of raw BSSIDs.
+func (ws *WiFiService) ResolveUniFiAPNames(bssids []string) map[string]string {
+	if ws.unifiPoller == nil {
+		return map[string]string{}
+	}
+	return ws.unifiPoller.ResolveAPNames(bssids)
+}
+
 // scanLoop runs the periodic scanning loop
 func (ws *WiFiService) scanLoop(ctx context.Context, iface string) {
 	for {

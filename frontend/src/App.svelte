@@ -420,7 +420,7 @@
                     </div>
                 {:else if activeTab === "stats"}
                     <div class="content-panel stats-panel">
-                        <ClientStatsPanel {clientStats} {networks} />
+                        <ClientStatsPanel {clientStats} {networks} {unifiStatus} />
                     </div>
                 {:else if activeTab === "latency"}
                     <div class="content-panel signal-panel">

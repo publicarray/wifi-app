@@ -54,6 +54,10 @@ export function IsScanning() {
   return window['go']['main']['App']['IsScanning']();
 }
 
+export function ResolveUniFiAPNames(arg1) {
+  return window['go']['main']['App']['ResolveUniFiAPNames'](arg1);
+}
+
 export function SaveConfig(arg1) {
   return window['go']['main']['App']['SaveConfig'](arg1);
 }

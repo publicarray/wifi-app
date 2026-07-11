@@ -69,6 +69,8 @@ type AccessPoint struct {
 	UniFiIP          string `json:"unifiIp,omitempty"`          // device management IP
 	UniFiState       string `json:"unifiState,omitempty"`       // ONLINE / OFFLINE / ...
 	UniFiClientCount *int   `json:"unifiClientCount,omitempty"` // wireless clients on this device; nil when unknown
+	UniFiDeviceID    string `json:"unifiDeviceId,omitempty"`    // controller device id (joins to UniFiStatus.Devices)
+	UniFiHiddenSSID  string `json:"unifiHiddenSsid,omitempty"`  // controller-configured name of a hidden SSID, when unambiguous
 }
 
 // Network represents a WiFi network (SSID) that may have multiple access points
@@ -272,17 +274,26 @@ type StationStats struct {
 	MIMOConfig   string  `json:"mimoConfig"`
 }
 
+// UniFiClientInfo is one wireless client associated to a device, for the
+// "clients on this AP" roster. MAC is normalized.
+type UniFiClientInfo struct {
+	Name string `json:"name,omitempty"`
+	MAC  string `json:"mac"`
+	IP   string `json:"ip,omitempty"`
+}
+
 // UniFiDeviceInfo is the UI-facing summary of one controller-managed device
 // from the UniFi Integration API. MAC is normalized (lowercase, zero-padded).
 type UniFiDeviceInfo struct {
-	ID              string `json:"id"`
-	Name            string `json:"name"`
-	Model           string `json:"model"`
-	MAC             string `json:"mac"`
-	IP              string `json:"ip"`
-	State           string `json:"state"`
-	FirmwareVersion string `json:"firmwareVersion,omitempty"`
-	ClientCount     int    `json:"clientCount"` // wireless clients uplinked to this device
+	ID              string            `json:"id"`
+	Name            string            `json:"name"`
+	Model           string            `json:"model"`
+	MAC             string            `json:"mac"`
+	IP              string            `json:"ip"`
+	State           string            `json:"state"`
+	FirmwareVersion string            `json:"firmwareVersion,omitempty"`
+	ClientCount     int               `json:"clientCount"`       // wireless clients uplinked to this device
+	Clients         []UniFiClientInfo `json:"clients,omitempty"` // roster backing ClientCount (capped)
 }
 
 // UniFiStatus is the snapshot the UniFi poller emits on `unifi:updated` and

@@ -18,6 +18,7 @@ import (
 	"context"
 	"crypto/tls"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -69,6 +70,33 @@ type uniFiInfo struct {
 	ApplicationVersion string `json:"applicationVersion"`
 }
 
+// uniFiWLAN is one configured SSID broadcast. Field names are parsed
+// tolerantly (name/ssid, hidden/hideSsid) because the WLAN endpoint shape
+// varies across Network app versions and is not runtime-verified here.
+type uniFiWLAN struct {
+	ID       string `json:"id"`
+	Name     string `json:"name"`
+	SSID     string `json:"ssid"`
+	Enabled  *bool  `json:"enabled"`
+	Hidden   bool   `json:"hidden"`
+	HideSSID *bool  `json:"hideSsid"`
+}
+
+// errUniFiNotFound marks an HTTP 404 so callers can distinguish "endpoint
+// not available on this controller version" from real failures.
+var errUniFiNotFound = errors.New("not found")
+
+// errUniFiWLANUnsupported is returned once WLAN listing has been probed and
+// found unavailable; callers should stop asking.
+var errUniFiWLANUnsupported = errors.New("unifi: wlan listing not supported by this controller")
+
+// uniFiWLANPathCandidates are the known homes of the SSID-broadcast list
+// across Network app versions, probed in order.
+var uniFiWLANPathCandidates = []string{
+	"/sites/%s/wlans",
+	"/sites/%s/wifi/broadcasts",
+}
+
 // uniFiPage is the pagination envelope every v1 list endpoint uses.
 type uniFiPage[T any] struct {
 	Offset     int `json:"offset"`
@@ -83,8 +111,10 @@ type uniFiClient struct {
 	apiKey        string
 	httpClient    *http.Client
 
-	mu      sync.Mutex
-	apiBase string // resolved controllerURL + base path; "" until discovered
+	mu              sync.Mutex
+	apiBase         string // resolved controllerURL + base path; "" until discovered
+	wlanPath        string // resolved WLAN list path pattern; "" until probed
+	wlanUnsupported bool   // set when no WLAN path candidate worked
 }
 
 func newUniFiClient(controllerURL, apiKey string, allowInsecureTLS bool) *uniFiClient {
@@ -175,7 +205,7 @@ func (c *uniFiClient) getJSON(ctx context.Context, path string, out any) error {
 	case status == http.StatusUnauthorized || status == http.StatusForbidden:
 		return fmt.Errorf("unifi: API key rejected (HTTP %d) — check the key in Settings", status)
 	case status == http.StatusNotFound:
-		return fmt.Errorf("unifi: endpoint not found (HTTP 404): %s", path)
+		return fmt.Errorf("unifi: endpoint %s: %w", path, errUniFiNotFound)
 	case status != http.StatusOK:
 		return fmt.Errorf("unifi: HTTP %d for %s", status, path)
 	}
@@ -224,4 +254,41 @@ func (c *uniFiClient) Devices(ctx context.Context, siteID string) ([]uniFiDevice
 
 func (c *uniFiClient) Clients(ctx context.Context, siteID string) ([]uniFiClientRecord, error) {
 	return fetchAllPages[uniFiClientRecord](ctx, c, "/sites/"+siteID+"/clients")
+}
+
+// WLANs lists the configured SSID broadcasts. The endpoint path moved across
+// Network app versions, so candidates are probed once; a controller that
+// serves none of them is remembered as unsupported and the feature (hidden
+// SSID naming) silently degrades.
+func (c *uniFiClient) WLANs(ctx context.Context, siteID string) ([]uniFiWLAN, error) {
+	c.mu.Lock()
+	path := c.wlanPath
+	unsupported := c.wlanUnsupported
+	c.mu.Unlock()
+
+	if unsupported {
+		return nil, errUniFiWLANUnsupported
+	}
+	if path != "" {
+		return fetchAllPages[uniFiWLAN](ctx, c, fmt.Sprintf(path, siteID))
+	}
+
+	for _, candidate := range uniFiWLANPathCandidates {
+		wlans, err := fetchAllPages[uniFiWLAN](ctx, c, fmt.Sprintf(candidate, siteID))
+		if err == nil {
+			c.mu.Lock()
+			c.wlanPath = candidate
+			c.mu.Unlock()
+			return wlans, nil
+		}
+		if !errors.Is(err, errUniFiNotFound) {
+			// Auth/network problem — don't mark unsupported, just fail this call.
+			return nil, err
+		}
+	}
+
+	c.mu.Lock()
+	c.wlanUnsupported = true
+	c.mu.Unlock()
+	return nil, errUniFiWLANUnsupported
 }

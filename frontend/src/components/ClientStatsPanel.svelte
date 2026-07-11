@@ -3,6 +3,7 @@
     /** @type {ClientStats | null} */
     export let clientStats = null;
     export let networks = [];
+    export let unifiStatus = null;
 
     import { isNumber, formatBytes, formatCount, signalTone } from "../utils.js";
 
@@ -125,6 +126,17 @@
     }
 
     $: connectedAP = findConnectedAP(networks, clientStats?.bssid);
+
+    // Roster of wireless clients sharing our AP, from the UniFi controller.
+    // Excludes this machine (matched by IP or MAC-ish local identifiers).
+    $: apRoster = (() => {
+        const deviceId = connectedAP?.unifiDeviceId;
+        if (!deviceId || !unifiStatus?.devices) return [];
+        const dev = unifiStatus.devices.find((d) => d.id === deviceId);
+        const roster = dev?.clients || [];
+        const ownIp = clientStats?.localIp;
+        return roster.filter((c) => !ownIp || c.ip !== ownIp);
+    })();
 
     // Tone helpers for capability rows: each row maps {Supported / Not
     // supported / value} into ok/bad/neutral chips so the panel scans quickly.
@@ -305,6 +317,20 @@
                                     <span class="v mono">{connectedAP.unifiClientCount}</span>
                                 </div>
                             {/if}
+                        {/if}
+                        {#if apRoster.length > 0}
+                            <div class="ap-roster">
+                                <div class="ap-roster-title">Sharing this AP (controller)</div>
+                                {#each apRoster.slice(0, 8) as c (c.mac)}
+                                    <div class="ap-roster-row">
+                                        <span class="ap-roster-name">{c.name || c.mac}</span>
+                                        <span class="ap-roster-ip mono">{c.ip || ""}</span>
+                                    </div>
+                                {/each}
+                                {#if apRoster.length > 8}
+                                    <div class="ap-roster-more">+{apRoster.length - 8} more</div>
+                                {/if}
+                            </div>
                         {/if}
                     </div>
                 </div>
@@ -1052,6 +1078,42 @@
 
     .stat-row:last-child {
         border-bottom: none;
+    }
+
+    .ap-roster {
+        margin-top: 8px;
+        padding-top: 8px;
+        border-top: 1px dashed var(--line-1, var(--border));
+    }
+
+    .ap-roster-title {
+        color: var(--fg-3, var(--muted-2));
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        font-size: 10.5px;
+        font-weight: 500;
+        margin-bottom: 4px;
+    }
+
+    .ap-roster-row {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 8px;
+        padding: 3px 0;
+        font-size: 12px;
+        color: var(--text);
+    }
+
+    .ap-roster-ip {
+        color: var(--fg-3, var(--muted-2));
+        font-size: 11px;
+    }
+
+    .ap-roster-more {
+        color: var(--fg-3, var(--muted-2));
+        font-size: 11px;
+        padding-top: 2px;
     }
 
     .stat-row .k {

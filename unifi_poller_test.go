@@ -93,6 +93,84 @@ func TestMatchUniFiDevice_AmbiguousTieSkipped(t *testing.T) {
 	}
 }
 
+func boolPtr(b bool) *bool { return &b }
+
+func TestPickHiddenWLANName(t *testing.T) {
+	cases := []struct {
+		name  string
+		wlans []uniFiWLAN
+		want  string
+	}{
+		{
+			name: "single hidden wlan",
+			wlans: []uniFiWLAN{
+				{Name: "Main", Hidden: false},
+				{Name: "IoT", Hidden: true},
+			},
+			want: "IoT",
+		},
+		{
+			name: "hideSsid variant field",
+			wlans: []uniFiWLAN{
+				{Name: "Main"},
+				{Name: "Cameras", HideSSID: boolPtr(true)},
+			},
+			want: "Cameras",
+		},
+		{
+			name: "ssid field preferred over name",
+			wlans: []uniFiWLAN{
+				{Name: "wlan-cfg-1", SSID: "Backhaul", Hidden: true},
+			},
+			want: "Backhaul",
+		},
+		{
+			name: "disabled hidden wlan ignored",
+			wlans: []uniFiWLAN{
+				{Name: "Old", Hidden: true, Enabled: boolPtr(false)},
+				{Name: "IoT", Hidden: true},
+			},
+			want: "IoT",
+		},
+		{
+			name: "two hidden wlans is ambiguous",
+			wlans: []uniFiWLAN{
+				{Name: "IoT", Hidden: true},
+				{Name: "Cameras", Hidden: true},
+			},
+			want: "",
+		},
+		{
+			name:  "no hidden wlans",
+			wlans: []uniFiWLAN{{Name: "Main"}},
+			want:  "",
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := pickHiddenWLANName(c.wlans); got != c.want {
+				t.Errorf("pickHiddenWLANName = %q, want %q", got, c.want)
+			}
+		})
+	}
+}
+
+func TestUniFiPollerResolveAPNames(t *testing.T) {
+	p := NewUniFiPoller(newLiveConfig(DefaultConfig()))
+	p.devices = []UniFiDeviceInfo{
+		{Name: "Studio", MAC: "1c:6a:1b:94:08:e9"},
+	}
+
+	got := p.ResolveAPNames([]string{
+		"1e:6a:1b:b4:08:e9", // stride variant → Studio
+		"aa:bb:cc:dd:ee:ff", // unmatched → omitted
+		"",                  // empty → omitted
+	})
+	if len(got) != 1 || got["1e:6a:1b:b4:08:e9"] != "Studio" {
+		t.Errorf("ResolveAPNames = %v, want map[1e:6a:1b:b4:08:e9:Studio]", got)
+	}
+}
+
 func TestPickUniFiSite(t *testing.T) {
 	sites := []uniFiSite{
 		{ID: "abc", Name: "Default"},

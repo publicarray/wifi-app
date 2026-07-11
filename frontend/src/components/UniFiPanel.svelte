@@ -57,6 +57,7 @@
                         <th>Model</th>
                         <th>State</th>
                         <th>IP</th>
+                        <th title="Device firmware version reported by the controller. Mismatched firmware across APs is a common cause of roaming problems.">Firmware</th>
                         <th title="Wireless clients associated to this device (from the controller)">Clients</th>
                     </tr>
                 </thead>
@@ -67,6 +68,7 @@
                             <td class="mono">{d.model}</td>
                             <td><span class="state-pill {stateClass(d.state)}">{(d.state || "?").toLowerCase()}</span></td>
                             <td class="mono">{d.ip}</td>
+                            <td class="mono">{d.firmwareVersion || "—"}</td>
                             <td>{d.clientCount}</td>
                         </tr>
                     {/each}

@@ -68,6 +68,15 @@ func newUniFiTestServer(t *testing.T, basePath string, nDevices, nClients int) *
 			}
 		})
 	}))
+	mux.HandleFunc(basePath+"/sites/site-1/wlans", auth(func(w http.ResponseWriter, r *http.Request) {
+		paginate(w, r, 2, func(i int) any {
+			return map[string]any{
+				"id":     fmt.Sprintf("wlan-%d", i),
+				"name":   []string{"Main", "IoT"}[i],
+				"hidden": i == 1,
+			}
+		})
+	}))
 	mux.HandleFunc(basePath+"/sites/site-1/clients", auth(func(w http.ResponseWriter, r *http.Request) {
 		paginate(w, r, nClients, func(i int) any {
 			return map[string]any{
@@ -143,6 +152,52 @@ func TestUniFiClient_TLSVerificationRespected(t *testing.T) {
 	c := newUniFiClient(srv.URL, testAPIKey, false)
 	if _, err := c.Sites(context.Background()); err == nil {
 		t.Fatalf("expected TLS verification failure against self-signed cert")
+	}
+}
+
+func TestUniFiClient_WLANs(t *testing.T) {
+	srv := newUniFiTestServer(t, "/proxy/network/integration/v1", 1, 0)
+	defer srv.Close()
+
+	c := newUniFiClient(srv.URL, testAPIKey, true)
+	wlans, err := c.WLANs(context.Background(), "site-1")
+	if err != nil {
+		t.Fatalf("WLANs: %v", err)
+	}
+	if len(wlans) != 2 || wlans[1].Name != "IoT" || !wlans[1].Hidden {
+		t.Fatalf("unexpected wlans: %+v", wlans)
+	}
+	if pickHiddenWLANName(wlans) != "IoT" {
+		t.Errorf("pickHiddenWLANName = %q, want IoT", pickHiddenWLANName(wlans))
+	}
+}
+
+func TestUniFiClient_WLANsUnsupported(t *testing.T) {
+	// A server without any WLAN endpoint: the client must probe once, mark
+	// the feature unsupported, and keep returning the sentinel without
+	// re-probing (other endpoints stay functional).
+	mux := http.NewServeMux()
+	mux.HandleFunc("/proxy/network/integration/v1/sites", func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("X-API-KEY") != testAPIKey {
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"offset": 0, "limit": 25, "count": 1, "totalCount": 1,
+			"data": []any{map[string]any{"id": "site-1", "name": "Default"}},
+		})
+	})
+	srv := httptest.NewTLSServer(mux)
+	defer srv.Close()
+
+	c := newUniFiClient(srv.URL, testAPIKey, true)
+	for i := 0; i < 2; i++ {
+		if _, err := c.WLANs(context.Background(), "site-1"); err != errUniFiWLANUnsupported {
+			t.Fatalf("attempt %d: err = %v, want errUniFiWLANUnsupported", i, err)
+		}
+	}
+	if _, err := c.Sites(context.Background()); err != nil {
+		t.Fatalf("Sites should still work after WLAN probe: %v", err)
 	}
 }
 
