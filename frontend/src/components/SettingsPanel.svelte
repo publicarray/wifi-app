@@ -1,10 +1,12 @@
 <script>
-    import { onMount } from "svelte";
+    import { onMount, onDestroy } from "svelte";
     import {
         GetConfig,
         SaveConfig,
         GetAvailableInterfaces,
+        GetUniFiStatus,
     } from "../../wailsjs/go/main/App.js";
+    import { EventsOn } from "../../wailsjs/runtime/runtime.js";
 
     // Local copy of the config we're editing. Initialized from GetConfig()
     // on mount; saved back via SaveConfig(). Until the load completes the
@@ -21,6 +23,14 @@
     // reactive cycle that a $: bridge would create.
     let latencyTargetsText = "";
 
+    // Live UniFi controller status shown inline in the UniFi section so the
+    // user gets connect/error feedback right where they typed the key,
+    // without switching to the Networks tab. EventsOn returns an unsubscribe
+    // function — use it (NOT EventsOff, which would also detach App.svelte's
+    // listener for the same event).
+    let unifiStatus = null;
+    let unsubUniFi = null;
+
     onMount(async () => {
         try {
             config = await GetConfig();
@@ -33,7 +43,44 @@
         } catch {
             // non-fatal: interface list is just a dropdown convenience
         }
+        try {
+            unifiStatus = await GetUniFiStatus();
+        } catch {
+            // non-fatal: the status line just stays hidden
+        }
+        unsubUniFi = EventsOn("unifi:updated", (data) => {
+            unifiStatus = data;
+        });
     });
+
+    onDestroy(() => {
+        if (unsubUniFi) unsubUniFi();
+    });
+
+    function unifiStatusView(status, isDirty) {
+        if (!status || !status.configured) {
+            return {
+                tone: "muted",
+                text: "Integration disabled — enter a controller URL and API key, then save.",
+            };
+        }
+        if (status.error) {
+            return { tone: "bad", text: status.error };
+        }
+        if (status.connected) {
+            const devices = (status.devices || []).length;
+            const site = status.siteName ? ` · site ${status.siteName}` : "";
+            const ver = status.applicationVersion ? ` · v${status.applicationVersion}` : "";
+            const stale = isDirty ? " (unsaved edits not applied yet)" : "";
+            return {
+                tone: "ok",
+                text: `Connected${site}${ver} · ${devices} device${devices === 1 ? "" : "s"}${stale}`,
+            };
+        }
+        return { tone: "muted", text: "Waiting for first poll…" };
+    }
+
+    $: unifiView = unifiStatusView(unifiStatus, dirty);
 
     async function save() {
         if (!config) return;
@@ -182,7 +229,7 @@
                     type="text"
                     bind:value={config.unifiControllerUrl}
                     on:input={markDirty}
-                    placeholder="https://192.168.1.1"
+                    placeholder="e.g. https://192.168.1.1 (type your controller address)"
                 />
                 <small>Base URL of the UniFi console or self-hosted Network Server (e.g. <code>https://192.168.1.1</code> or <code>https://unifi.local:8443</code>). Leave blank to disable the integration.</small>
             </label>
@@ -205,7 +252,7 @@
                     type="text"
                     bind:value={config.unifiSite}
                     on:input={markDirty}
-                    placeholder="— first site —"
+                    placeholder="leave blank for the first site"
                 />
                 <small>Site name or id. Leave blank for the first site — correct for the common single-site setup.</small>
             </label>
@@ -221,6 +268,11 @@
                 </span>
                 <small>UniFi controllers ship with a self-signed HTTPS certificate. Enable this to skip TLS verification for the controller connection only. Leave off if your controller has a proper certificate.</small>
             </label>
+
+            <div class="unifi-status {unifiView.tone}">
+                <span class="unifi-status-dot"></span>
+                <span>Controller status: {unifiView.text}</span>
+            </div>
 
             <div class="actions">
                 <button
@@ -280,6 +332,40 @@
     .checkbox-row input[type="checkbox"] {
         width: auto;
         margin: 0;
+    }
+
+    .unifi-status {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-size: 12px;
+        padding: 8px 12px;
+        border-radius: 6px;
+        background: var(--field-bg);
+        border: 1px solid var(--border);
+        color: var(--muted);
+    }
+
+    .unifi-status-dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        flex-shrink: 0;
+        background: var(--muted);
+    }
+
+    .unifi-status.ok {
+        color: var(--ok, var(--success));
+    }
+    .unifi-status.ok .unifi-status-dot {
+        background: var(--ok, var(--success));
+    }
+
+    .unifi-status.bad {
+        color: var(--bad, var(--danger));
+    }
+    .unifi-status.bad .unifi-status-dot {
+        background: var(--bad, var(--danger));
     }
 
     .hint {
