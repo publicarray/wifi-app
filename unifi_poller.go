@@ -305,13 +305,17 @@ func pickUniFiSite(sites []uniFiSite, preferred string) (uniFiSite, bool) {
 
 // matchUniFiDevice finds the controller device a scanned BSSID belongs to.
 //
-// UniFi APs derive per-SSID/per-radio BSSIDs from the device base MAC by
-// mutating the first octet (locally-administered variants: 68→6a→6e→…) and
-// incrementing the last octet, so an exact match only covers the primary
-// BSSID. The heuristic: exact match first; otherwise require the middle four
-// octets to match exactly (a strong 32-bit key) and pick the device with the
-// smallest last-octet distance within ±15. Ties are treated as ambiguous and
-// skipped rather than mis-labelled.
+// UniFi APs derive per-SSID/per-radio BSSIDs from the device base MAC using
+// (at least) three schemes seen in the field:
+//   - first octet mutated into locally-administered variants (68→6a→6e→…);
+//   - last octet incremented per additional SSID (older UAP models);
+//   - 4th octet stepped in 0x10 strides per SSID (U6/U7 era: 94→a4→b4→…).
+//
+// The heuristic: exact match first; otherwise ignore the first octet, anchor
+// on octets 2-3 (OUI tail), and accept either a small last-octet delta or a
+// 0x10-stride 4th-octet delta with the remaining octets identical. Candidates
+// are scored (smaller = closer); ties across devices are treated as ambiguous
+// and skipped rather than mis-labelled.
 func matchUniFiDevice(devices []UniFiDeviceInfo, bssid string) (UniFiDeviceInfo, bool) {
 	b := normalizeMAC(bssid)
 	if b == "" {
@@ -324,49 +328,82 @@ func matchUniFiDevice(devices []UniFiDeviceInfo, bssid string) (UniFiDeviceInfo,
 		}
 	}
 
-	bOct := strings.Split(b, ":")
-	bLast, err := strconv.ParseUint(bOct[5], 16, 8)
-	if err != nil {
+	bOct, ok := macOctets(b)
+	if !ok {
 		return UniFiDeviceInfo{}, false
 	}
 
-	const maxLastOctetDelta = 15
-	bestDelta := maxLastOctetDelta + 1
+	bestScore := -1
 	bestCount := 0
 	var best UniFiDeviceInfo
 	for _, d := range devices {
-		if d.MAC == "" {
+		dOct, ok := macOctets(d.MAC)
+		if !ok {
 			continue
 		}
-		dOct := strings.Split(d.MAC, ":")
-		if len(dOct) != 6 {
-			continue
-		}
-		if dOct[1] != bOct[1] || dOct[2] != bOct[2] || dOct[3] != bOct[3] || dOct[4] != bOct[4] {
-			continue
-		}
-		dLast, err := strconv.ParseUint(dOct[5], 16, 8)
-		if err != nil {
-			continue
-		}
-		delta := int(bLast) - int(dLast)
-		if delta < 0 {
-			delta = -delta
-		}
-		if delta > maxLastOctetDelta {
+		score := uniFiBSSIDScore(dOct, bOct)
+		if score < 0 {
 			continue
 		}
 		switch {
-		case delta < bestDelta:
-			bestDelta = delta
+		case bestScore < 0 || score < bestScore:
+			bestScore = score
 			bestCount = 1
 			best = d
-		case delta == bestDelta:
+		case score == bestScore:
 			bestCount++
 		}
 	}
-	if bestCount == 1 {
+	if bestScore >= 0 && bestCount == 1 {
 		return best, true
 	}
 	return UniFiDeviceInfo{}, false
+}
+
+// macOctets parses a normalized MAC into six byte values.
+func macOctets(mac string) ([6]int, bool) {
+	var out [6]int
+	parts := strings.Split(mac, ":")
+	if len(parts) != 6 {
+		return out, false
+	}
+	for i, p := range parts {
+		v, err := strconv.ParseUint(p, 16, 8)
+		if err != nil {
+			return out, false
+		}
+		out[i] = int(v)
+	}
+	return out, true
+}
+
+// uniFiBSSIDScore rates how plausibly bssid derives from a device base MAC.
+// Returns -1 for no match; lower non-negative scores are closer matches.
+// The first octet is ignored entirely (locally-administered variants).
+func uniFiBSSIDScore(dev, bssid [6]int) int {
+	if dev[1] != bssid[1] || dev[2] != bssid[2] {
+		return -1
+	}
+	d3 := absInt(dev[3] - bssid[3])
+	d4 := absInt(dev[4] - bssid[4])
+	d5 := absInt(dev[5] - bssid[5])
+
+	// Last-octet increment scheme: octets 4-5 identical, small final delta.
+	const maxLastOctetDelta = 15
+	if d3 == 0 && d4 == 0 && d5 <= maxLastOctetDelta {
+		return d5
+	}
+	// 4th-octet stride scheme: octets 5-6 identical, 4th octet stepped in
+	// 0x10 increments (low nibble preserved), up to 7 SSIDs out.
+	if d4 == 0 && d5 == 0 && d3 != 0 && d3 <= 0x70 && d3%0x10 == 0 {
+		return 16 + d3/0x10
+	}
+	return -1
+}
+
+func absInt(v int) int {
+	if v < 0 {
+		return -v
+	}
+	return v
 }
