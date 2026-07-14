@@ -119,6 +119,12 @@ func NewWiFiService() *WiFiService {
 	}
 	ws.latencySampler = NewLatencySampler(ws.config)
 	ws.unifiPoller = NewUniFiPoller(ws.config)
+	// Share the scanner's already-loaded OUI database with the UniFi poller so
+	// client rosters can show device vendors. Optional: backends that don't
+	// expose a lookup leave rosters vendor-less. Set before the loop starts.
+	if vl, ok := ws.scanner.(interface{ LookupVendor(string) string }); ok {
+		ws.unifiPoller.SetVendorLookup(vl.LookupVendor)
+	}
 	return ws
 }
 

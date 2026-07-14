@@ -45,6 +45,11 @@ type UniFiPoller struct {
 	clientKey  string // url\x00key\x00insecure — client is rebuilt when it changes
 	appVersion string // cached /info result per client
 
+	// vendorFn resolves a MAC to a vendor name for client-roster enrichment.
+	// Injected once at construction (before the loop starts) from the scanner's
+	// OUI database; nil on platforms/backends that don't expose one.
+	vendorFn func(string) string
+
 	status         UniFiStatus
 	devices        []UniFiDeviceInfo // MACs normalized; matching source for enrichment
 	hiddenSSIDHint string            // controller name for hidden SSIDs, when unambiguous
@@ -60,6 +65,12 @@ func NewUniFiPoller(cfg *liveConfig) *UniFiPoller {
 		eventName: "unifi:updated",
 		poke:      make(chan struct{}, 1),
 	}
+}
+
+// SetVendorLookup injects the OUI vendor resolver. Call before Start; it is
+// read from the poll goroutine without locking on that assumption.
+func (p *UniFiPoller) SetVendorLookup(fn func(string) string) {
+	p.vendorFn = fn
 }
 
 // SetWailsContext attaches the Wails runtime context used for EventsEmit.
@@ -179,10 +190,19 @@ func (p *UniFiPoller) tick(ctx context.Context) {
 			case "WIRELESS":
 				status.WirelessClients++
 				if c.UplinkDeviceID != "" {
+					mac := normalizeMAC(c.MACAddress)
+					vendor := ""
+					if p.vendorFn != nil {
+						vendor = p.vendorFn(mac)
+					}
 					rosterByDevice[c.UplinkDeviceID] = append(rosterByDevice[c.UplinkDeviceID], UniFiClientInfo{
-						Name: c.Name,
-						MAC:  normalizeMAC(c.MACAddress),
-						IP:   c.IPAddress,
+						Name:        c.Name,
+						MAC:         mac,
+						IP:          c.IPAddress,
+						Vendor:      vendor,
+						Guest:       strings.EqualFold(c.Access.Type, "GUEST"),
+						Randomized:  isRandomizedMAC(mac),
+						ConnectedAt: c.ConnectedAt,
 					})
 				}
 			case "WIRED":
@@ -212,18 +232,27 @@ func (p *UniFiPoller) tick(ctx context.Context) {
 			roster = roster[:uniFiRosterCap]
 		}
 		infos = append(infos, UniFiDeviceInfo{
-			ID:              d.ID,
-			Name:            d.Name,
-			Model:           d.Model,
-			MAC:             normalizeMAC(d.MACAddress),
-			IP:              d.IPAddress,
-			State:           d.State,
-			FirmwareVersion: d.FirmwareVersion,
-			ClientCount:     count,
-			Clients:         roster,
+			ID:                d.ID,
+			Name:              d.Name,
+			Model:             d.Model,
+			MAC:               normalizeMAC(d.MACAddress),
+			IP:                d.IPAddress,
+			State:             d.State,
+			FirmwareVersion:   d.FirmwareVersion,
+			FirmwareUpdatable: d.FirmwareUpdatable,
+			IsAccessPoint:     hasFeature(d.Features, "accessPoint"),
+			ClientCount:       count,
+			Clients:           roster,
 		})
 	}
 	sort.Slice(infos, func(i, j int) bool { return infos[i].Name < infos[j].Name })
+
+	// Deep diagnostics (uplink/mesh, radios, health) come from per-device
+	// endpoints; best-effort so a failure just leaves those fields empty.
+	// Sort is done first so the concurrent writers below never reorder the
+	// slice out from under the goroutines (each writes only its own index).
+	enrichDeviceDetails(tickCtx, client, site.ID, infos)
+	resolveUplinks(infos)
 
 	status.Connected = true
 	status.Devices = infos
@@ -258,6 +287,128 @@ func pickHiddenWLANName(wlans []uniFiWLAN) string {
 		return names[0]
 	}
 	return ""
+}
+
+// uniFiDeepPollConcurrency bounds how many device detail/stats requests run
+// at once so a dense site doesn't open dozens of parallel connections.
+const uniFiDeepPollConcurrency = 6
+
+// hasFeature reports whether a device's feature list contains name.
+func hasFeature(features []string, name string) bool {
+	for _, f := range features {
+		if strings.EqualFold(f, name) {
+			return true
+		}
+	}
+	return false
+}
+
+// enrichDeviceDetails fills uplink/radio/health fields on infos by fetching the
+// per-device detail + latest-statistics endpoints concurrently. Best-effort:
+// any per-device error leaves that device's extended fields at their zero
+// value. Each goroutine writes only its own slice index, so no lock is needed
+// and the slice must not be reordered while this runs.
+func enrichDeviceDetails(ctx context.Context, client *uniFiClient, siteID string, infos []UniFiDeviceInfo) {
+	if len(infos) == 0 {
+		return
+	}
+	sem := make(chan struct{}, uniFiDeepPollConcurrency)
+	var wg sync.WaitGroup
+	for i := range infos {
+		wg.Add(1)
+		sem <- struct{}{}
+		go func(i int) {
+			defer wg.Done()
+			defer func() { <-sem }()
+			mergeDeviceDetail(ctx, client, siteID, &infos[i])
+		}(i)
+	}
+	wg.Wait()
+}
+
+// mergeDeviceDetail fetches and merges detail + stats for one device.
+func mergeDeviceDetail(ctx context.Context, client *uniFiClient, siteID string, info *UniFiDeviceInfo) {
+	detail, derr := client.DeviceDetail(ctx, siteID, info.ID)
+	if derr == nil {
+		info.UplinkDeviceID = detail.Uplink.DeviceID
+		info.Radios = radiosFromDetail(detail.Interfaces.Radios)
+		// Note: the integration API exposes no wired-vs-wireless(mesh) medium
+		// on the device uplink — only a parent deviceId. Port state is not a
+		// reliable proxy either (a PoE-injected mesh AP still links its port,
+		// and "parent is an AP" covers both wired daisy-chains and mesh). So
+		// medium is deliberately NOT inferred; we surface topology + the
+		// uplink port's negotiated speed only.
+		for _, p := range detail.Interfaces.Ports {
+			if strings.EqualFold(p.State, "UP") && p.SpeedMbps > info.UplinkPortSpeedMbps {
+				info.UplinkPortSpeedMbps = p.SpeedMbps
+			}
+		}
+	} else {
+		slog.Debug("unifi device detail failed", "event", "unifi_detail", "device", info.ID, "err", derr)
+	}
+
+	stats, serr := client.DeviceStats(ctx, siteID, info.ID)
+	if serr != nil {
+		slog.Debug("unifi device stats failed", "event", "unifi_stats", "device", info.ID, "err", serr)
+		return
+	}
+	info.UptimeSec = stats.UptimeSec
+	info.UplinkTxBps = stats.Uplink.TxRateBps
+	info.UplinkRxBps = stats.Uplink.RxRateBps
+	if stats.CPUUtilizationPct > 0 {
+		info.CPUPct = floatPtr(stats.CPUUtilizationPct)
+	}
+	if stats.MemoryUtilizationPct > 0 {
+		info.MemPct = floatPtr(stats.MemoryUtilizationPct)
+	}
+	if stats.LoadAverage1Min > 0 {
+		info.LoadAvg1 = floatPtr(stats.LoadAverage1Min)
+	}
+	// Join live TX-retry rates onto the configured radios by band.
+	for _, r := range stats.Interfaces.Radios {
+		for i := range info.Radios {
+			if info.Radios[i].Band == r.FrequencyGHz {
+				info.Radios[i].TxRetriesPct = floatPtr(r.TxRetriesPct)
+			}
+		}
+	}
+}
+
+// radiosFromDetail converts the detail radio entries into UI radio infos.
+func radiosFromDetail(radios []uniFiRadio) []UniFiRadioInfo {
+	if len(radios) == 0 {
+		return nil
+	}
+	out := make([]UniFiRadioInfo, 0, len(radios))
+	for _, r := range radios {
+		out = append(out, UniFiRadioInfo{
+			Band:     r.FrequencyGHz,
+			Channel:  r.Channel,
+			WidthMHz: r.ChannelWidthMHz,
+			Standard: r.WLANStandard,
+		})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Band < out[j].Band })
+	return out
+}
+
+// resolveUplinks turns each device's uplink device id into a parent name for
+// topology display. The wired/wireless medium is decided from port state in
+// mergeDeviceDetail — NOT from the parent device type. Runs after
+// enrichDeviceDetails so every UplinkDeviceID is populated.
+func resolveUplinks(infos []UniFiDeviceInfo) {
+	byID := make(map[string]*UniFiDeviceInfo, len(infos))
+	for i := range infos {
+		byID[infos[i].ID] = &infos[i]
+	}
+	for i := range infos {
+		if infos[i].UplinkDeviceID == "" {
+			continue
+		}
+		if parent, ok := byID[infos[i].UplinkDeviceID]; ok {
+			infos[i].UplinkName = parent.Name
+		}
+	}
 }
 
 // ensureClient returns the HTTP client, rebuilding it when the controller
@@ -445,6 +596,18 @@ func matchUniFiDevice(devices []UniFiDeviceInfo, bssid string) (UniFiDeviceInfo,
 		return best, true
 	}
 	return UniFiDeviceInfo{}, false
+}
+
+// isRandomizedMAC reports whether a MAC is locally administered (the
+// second-least-significant bit of the first octet is set) — the hallmark of an
+// OS-generated privacy/randomized MAC. Useful context for a tech: such clients
+// won't OUI-resolve to a real vendor and rotate their address.
+func isRandomizedMAC(mac string) bool {
+	oct, ok := macOctets(mac)
+	if !ok {
+		return false
+	}
+	return oct[0]&0x02 != 0
 }
 
 // macOctets parses a normalized MAC into six byte values.

@@ -68,7 +68,12 @@
                             <td class="mono">{d.model}</td>
                             <td><span class="state-pill {stateClass(d.state)}">{(d.state || "?").toLowerCase()}</span></td>
                             <td class="mono">{d.ip}</td>
-                            <td class="mono">{d.firmwareVersion || "—"}</td>
+                            <td class="mono">
+                                {d.firmwareVersion || "—"}
+                                {#if d.firmwareUpdatable}
+                                    <span class="flag update" title="Controller reports a newer firmware">update</span>
+                                {/if}
+                            </td>
                             <td>{d.clientCount}</td>
                         </tr>
                     {/each}
@@ -161,4 +166,15 @@
     .state-pill.ok { color: var(--ok, #4ade80); background: var(--ok-bg, rgba(74, 222, 128, 0.12)); }
     .state-pill.warn { color: var(--warn, #fbbf24); background: var(--warn-bg, rgba(251, 191, 36, 0.12)); }
     .state-pill.bad { color: var(--bad, #f87171); background: var(--bad-bg, rgba(248, 113, 113, 0.12)); }
+
+    .flag {
+        display: inline-block;
+        margin-left: 6px;
+        padding: 0 6px;
+        border-radius: 4px;
+        font-size: 10px;
+        font-family: -apple-system, system-ui, sans-serif;
+        vertical-align: middle;
+    }
+    .flag.update { color: var(--warn, #fbbf24); background: rgba(251, 191, 36, 0.12); }
 </style>

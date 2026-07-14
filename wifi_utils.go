@@ -123,6 +123,12 @@ func intPtr(v int) *int {
 	return &v
 }
 
+// floatPtr returns a pointer to a copy of v, for optional float fields whose
+// absence should serialize as JSON null (e.g. UniFi CPU/memory/retry rates).
+func floatPtr(v float64) *float64 {
+	return &v
+}
+
 // normalizeMAC lowercases a colon- or dash-separated MAC address and
 // zero-pads each octet. Legacy macOS tools (airport) print unpadded octets
 // ("0:1b:63:4:5:6") which would otherwise fail OUI lookups and BSSID

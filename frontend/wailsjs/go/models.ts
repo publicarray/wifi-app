@@ -586,6 +586,10 @@ export namespace main {
 	    name?: string;
 	    mac: string;
 	    ip?: string;
+	    vendor?: string;
+	    guest?: boolean;
+	    randomized?: boolean;
+	    connectedAt?: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new UniFiClientInfo(source);
@@ -596,6 +600,30 @@ export namespace main {
 	        this.name = source["name"];
 	        this.mac = source["mac"];
 	        this.ip = source["ip"];
+	        this.vendor = source["vendor"];
+	        this.guest = source["guest"];
+	        this.randomized = source["randomized"];
+	        this.connectedAt = source["connectedAt"];
+	    }
+	}
+	export class UniFiRadioInfo {
+	    band: number;
+	    channel?: number;
+	    widthMhz?: number;
+	    standard?: string;
+	    txRetriesPct?: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new UniFiRadioInfo(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.band = source["band"];
+	        this.channel = source["channel"];
+	        this.widthMhz = source["widthMhz"];
+	        this.standard = source["standard"];
+	        this.txRetriesPct = source["txRetriesPct"];
 	    }
 	}
 	export class UniFiDeviceInfo {
@@ -608,6 +636,18 @@ export namespace main {
 	    firmwareVersion?: string;
 	    clientCount: number;
 	    clients?: UniFiClientInfo[];
+	    isAccessPoint?: boolean;
+	    firmwareUpdatable?: boolean;
+	    uplinkDeviceId?: string;
+	    uplinkName?: string;
+	    uplinkPortSpeedMbps?: number;
+	    uptimeSec?: number;
+	    cpuPct?: number;
+	    memPct?: number;
+	    loadAvg1?: number;
+	    uplinkTxBps?: number;
+	    uplinkRxBps?: number;
+	    radios?: UniFiRadioInfo[];
 	
 	    static createFrom(source: any = {}) {
 	        return new UniFiDeviceInfo(source);
@@ -624,6 +664,18 @@ export namespace main {
 	        this.firmwareVersion = source["firmwareVersion"];
 	        this.clientCount = source["clientCount"];
 	        this.clients = this.convertValues(source["clients"], UniFiClientInfo);
+	        this.isAccessPoint = source["isAccessPoint"];
+	        this.firmwareUpdatable = source["firmwareUpdatable"];
+	        this.uplinkDeviceId = source["uplinkDeviceId"];
+	        this.uplinkName = source["uplinkName"];
+	        this.uplinkPortSpeedMbps = source["uplinkPortSpeedMbps"];
+	        this.uptimeSec = source["uptimeSec"];
+	        this.cpuPct = source["cpuPct"];
+	        this.memPct = source["memPct"];
+	        this.loadAvg1 = source["loadAvg1"];
+	        this.uplinkTxBps = source["uplinkTxBps"];
+	        this.uplinkRxBps = source["uplinkRxBps"];
+	        this.radios = this.convertValues(source["radios"], UniFiRadioInfo);
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
@@ -644,6 +696,7 @@ export namespace main {
 		    return a;
 		}
 	}
+	
 	export class UniFiStatus {
 	    configured: boolean;
 	    connected: boolean;

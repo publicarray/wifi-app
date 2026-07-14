@@ -44,14 +44,68 @@ type uniFiSite struct {
 }
 
 type uniFiDevice struct {
-	ID              string   `json:"id"`
-	Name            string   `json:"name"`
-	Model           string   `json:"model"`
-	MACAddress      string   `json:"macAddress"`
-	IPAddress       string   `json:"ipAddress"`
-	State           string   `json:"state"` // e.g. ONLINE / OFFLINE
-	FirmwareVersion string   `json:"firmwareVersion"`
-	Features        []string `json:"features"`
+	ID                string   `json:"id"`
+	Name              string   `json:"name"`
+	Model             string   `json:"model"`
+	MACAddress        string   `json:"macAddress"`
+	IPAddress         string   `json:"ipAddress"`
+	State             string   `json:"state"` // e.g. ONLINE / OFFLINE
+	FirmwareVersion   string   `json:"firmwareVersion"`
+	FirmwareUpdatable bool     `json:"firmwareUpdatable"`
+	Features          []string `json:"features"` // "accessPoint" / "switching" / "gateway"
+}
+
+// uniFiRadio is one radio entry from the device-detail interfaces block:
+// controller-configured channel/width/band, no live stats.
+type uniFiRadio struct {
+	Channel         int     `json:"channel"`
+	ChannelWidthMHz int     `json:"channelWidthMHz"`
+	FrequencyGHz    float64 `json:"frequencyGHz"`
+	WLANStandard    string  `json:"wlanStandard"`
+}
+
+// uniFiPort is one physical port from the device-detail interfaces block. The
+// port State (UP/DOWN) is how a wired uplink is distinguished from a wireless
+// mesh uplink: the device uplink object itself carries no medium field.
+type uniFiPort struct {
+	Idx          int    `json:"idx"`
+	Connector    string `json:"connector"` // RJ45 / SFP / ...
+	State        string `json:"state"`     // UP / DOWN / UNKNOWN
+	SpeedMbps    int    `json:"speedMbps"`
+	MaxSpeedMbps int    `json:"maxSpeedMbps"`
+}
+
+// uniFiDeviceDetail is GET /sites/{id}/devices/{id}. It adds the uplink and
+// radio/port configuration not present in the list overview. Parsed
+// tolerantly: missing sub-objects just decode to zero values.
+type uniFiDeviceDetail struct {
+	Uplink struct {
+		DeviceID string `json:"deviceId"`
+	} `json:"uplink"`
+	Interfaces struct {
+		Radios []uniFiRadio `json:"radios"`
+		Ports  []uniFiPort  `json:"ports"`
+	} `json:"interfaces"`
+}
+
+// uniFiDeviceStats is GET /sites/{id}/devices/{id}/statistics/latest — the
+// live health snapshot (uptime, CPU/memory/load, uplink throughput, per-radio
+// TX retry rate).
+type uniFiDeviceStats struct {
+	UptimeSec            int64   `json:"uptimeSec"`
+	CPUUtilizationPct    float64 `json:"cpuUtilizationPct"`
+	MemoryUtilizationPct float64 `json:"memoryUtilizationPct"`
+	LoadAverage1Min      float64 `json:"loadAverage1Min"`
+	Uplink               struct {
+		TxRateBps int64 `json:"txRateBps"`
+		RxRateBps int64 `json:"rxRateBps"`
+	} `json:"uplink"`
+	Interfaces struct {
+		Radios []struct {
+			FrequencyGHz float64 `json:"frequencyGHz"`
+			TxRetriesPct float64 `json:"txRetriesPct"`
+		} `json:"radios"`
+	} `json:"interfaces"`
 }
 
 // uniFiClientRecord is one entry from the connected-clients endpoint. For
@@ -62,8 +116,12 @@ type uniFiClientRecord struct {
 	Name           string `json:"name"`
 	MACAddress     string `json:"macAddress"`
 	IPAddress      string `json:"ipAddress"`
-	Type           string `json:"type"` // WIRED / WIRELESS / VPN
+	Type           string `json:"type"`        // WIRED / WIRELESS / VPN
+	ConnectedAt    string `json:"connectedAt"` // ISO-8601; session start
 	UplinkDeviceID string `json:"uplinkDeviceId"`
+	Access         struct {
+		Type string `json:"type"` // GUEST / DEFAULT
+	} `json:"access"`
 }
 
 type uniFiInfo struct {
@@ -254,6 +312,20 @@ func (c *uniFiClient) Devices(ctx context.Context, siteID string) ([]uniFiDevice
 
 func (c *uniFiClient) Clients(ctx context.Context, siteID string) ([]uniFiClientRecord, error) {
 	return fetchAllPages[uniFiClientRecord](ctx, c, "/sites/"+siteID+"/clients")
+}
+
+// DeviceDetail fetches uplink + radio configuration for one device.
+func (c *uniFiClient) DeviceDetail(ctx context.Context, siteID, deviceID string) (uniFiDeviceDetail, error) {
+	var d uniFiDeviceDetail
+	err := c.getJSON(ctx, "/sites/"+siteID+"/devices/"+deviceID, &d)
+	return d, err
+}
+
+// DeviceStats fetches the latest live health snapshot for one device.
+func (c *uniFiClient) DeviceStats(ctx context.Context, siteID, deviceID string) (uniFiDeviceStats, error) {
+	var s uniFiDeviceStats
+	err := c.getJSON(ctx, "/sites/"+siteID+"/devices/"+deviceID+"/statistics/latest", &s)
+	return s, err
 }
 
 // WLANs lists the configured SSID broadcasts. The endpoint path moved across
