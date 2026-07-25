@@ -28,6 +28,7 @@
     import LatencyChart from "./components/LatencyChart.svelte";
     import ReportWindow from "./components/ReportWindow.svelte";
     import UniFiPanel from "./components/UniFiPanel.svelte";
+    import UniFiDevices from "./components/UniFiDevices.svelte";
 
     let interfaces = [];
     let selectedInterface = "";
@@ -51,6 +52,7 @@
         { id: "stats", label: "Stats", icon: "stats" },
         { id: "latency", label: "Latency", icon: "latency" },
         { id: "roaming", label: "Roaming", icon: "roaming" },
+        { id: "unifi", label: "UniFi", icon: "unifi" },
     ];
 
     const TAB_TITLES = {
@@ -60,6 +62,7 @@
         stats: { title: "Stats", sub: "Client connection details" },
         latency: { title: "Latency", sub: "RTT to gateway and beyond" },
         roaming: { title: "Roaming", sub: "BSS transitions & behavior" },
+        unifi: { title: "UniFi", sub: "Controller AP diagnostics" },
         settings: { title: "Settings", sub: "App configuration" },
     };
 
@@ -67,6 +70,11 @@
     $: networksBadge = networks?.length || 0;
     $: roamingBadge =
         clientStats?.roamingHistory ? clientStats.roamingHistory.length : 0;
+    // Surface actionable UniFi issues (pending firmware updates) on the nav so
+    // a tech notices without opening the tab.
+    $: unifiBadge = (unifiStatus?.devices || []).filter(
+        (d) => d.firmwareUpdatable,
+    ).length;
     $: connectedSSID =
         clientStats && clientStats.connected ? clientStats.ssid : "";
     $: connectedRSSI =
@@ -242,6 +250,7 @@
     function navBadge(id) {
         if (id === "networks" && networksBadge > 0) return networksBadge;
         if (id === "roaming" && roamingBadge > 0) return roamingBadge;
+        if (id === "unifi" && unifiBadge > 0) return unifiBadge;
         return null;
     }
 </script>
@@ -280,6 +289,8 @@
                         <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M3 8a5 5 0 0110 0M8 3v0M8 8l3-2" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/><circle cx="8" cy="8" r="1" fill="currentColor"/></svg>
                     {:else if item.icon === "roaming"}
                         <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M3 5h8l-2-2M13 11H5l2 2" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                    {:else if item.icon === "unifi"}
+                        <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><rect x="3" y="2" width="10" height="12" rx="1.5" stroke="currentColor" stroke-width="1.3"/><path d="M6 5.5h4M6 8h4M6 10.5h2.5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>
                     {/if}
                     <span>{item.label}</span>
                     {#if navBadge(item.id) !== null}
@@ -420,7 +431,7 @@
                     </div>
                 {:else if activeTab === "stats"}
                     <div class="content-panel stats-panel">
-                        <ClientStatsPanel {clientStats} {networks} />
+                        <ClientStatsPanel {clientStats} {networks} {unifiStatus} />
                     </div>
                 {:else if activeTab === "latency"}
                     <div class="content-panel signal-panel">
@@ -434,6 +445,10 @@
                             {clientStats}
                             {networks}
                         />
+                    </div>
+                {:else if activeTab === "unifi"}
+                    <div class="content-panel unifi-panel">
+                        <UniFiDevices {unifiStatus} />
                     </div>
                 {:else if activeTab === "settings"}
                     <div class="content-panel stats-panel">
@@ -1049,6 +1064,13 @@
     }
 
     .stats-panel {
+        overflow-y: auto;
+        scrollbar-gutter: stable;
+        -webkit-overflow-scrolling: touch;
+        scroll-padding-bottom: 72px;
+    }
+
+    .unifi-panel {
         overflow-y: auto;
         scrollbar-gutter: stable;
         -webkit-overflow-scrolling: touch;

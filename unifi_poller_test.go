@@ -39,6 +39,48 @@ func TestMatchUniFiDevice(t *testing.T) {
 	}
 }
 
+func TestMatchUniFiDevice_FourthOctetStride(t *testing.T) {
+	// Real-world U6+ example: device base MAC 1c:6a:1b:94:08:e9 broadcasts
+	// virtual BSSIDs with a flipped first octet and the 4th octet stepped in
+	// 0x10 strides per SSID (94 → a4 → b4).
+	devices := []UniFiDeviceInfo{
+		{Name: "Studio", MAC: "1c:6a:1b:94:08:e9"},
+	}
+
+	for _, bssid := range []string{
+		"1e:6a:1b:94:08:e9", // first-octet variant of the base MAC
+		"1e:6a:1b:a4:08:e9", // +0x10 stride, second SSID
+		"1e:6a:1b:b4:08:e9", // +0x20 stride, third SSID
+	} {
+		got, ok := matchUniFiDevice(devices, bssid)
+		if !ok || got.Name != "Studio" {
+			t.Errorf("bssid %s: matched=%v got=%q, want Studio", bssid, ok, got.Name)
+		}
+	}
+
+	// Low nibble differs — not a 0x10 stride, must not match.
+	if got, ok := matchUniFiDevice(devices, "1e:6a:1b:a5:08:e9"); ok {
+		t.Errorf("non-stride 4th octet matched %+v", got)
+	}
+	// Stride beyond 7 SSIDs out (delta 0x80) — must not match.
+	if got, ok := matchUniFiDevice(devices, "1e:6a:1b:14:08:e9"); ok {
+		t.Errorf("out-of-range stride matched %+v", got)
+	}
+}
+
+func TestMatchUniFiDevice_LastOctetPreferredOverStride(t *testing.T) {
+	// A BSSID one-off the last octet of device A is a closer derivation than
+	// a 0x10 4th-octet stride from device B — A must win, not tie.
+	devices := []UniFiDeviceInfo{
+		{Name: "A", MAC: "1c:6a:1b:94:08:e8"},
+		{Name: "B", MAC: "1c:6a:1b:84:08:e9"},
+	}
+	got, ok := matchUniFiDevice(devices, "1e:6a:1b:94:08:e9")
+	if !ok || got.Name != "A" {
+		t.Fatalf("got %q ok=%v, want A", got.Name, ok)
+	}
+}
+
 func TestMatchUniFiDevice_AmbiguousTieSkipped(t *testing.T) {
 	// Two sequential units whose last octets are equidistant from the BSSID —
 	// must be treated as ambiguous, not guessed.
@@ -48,6 +90,84 @@ func TestMatchUniFiDevice_AmbiguousTieSkipped(t *testing.T) {
 	}
 	if got, ok := matchUniFiDevice(devices, "68:d7:9a:11:22:12"); ok {
 		t.Fatalf("expected ambiguous tie to be skipped, matched %+v", got)
+	}
+}
+
+func boolPtr(b bool) *bool { return &b }
+
+func TestPickHiddenWLANName(t *testing.T) {
+	cases := []struct {
+		name  string
+		wlans []uniFiWLAN
+		want  string
+	}{
+		{
+			name: "single hidden wlan",
+			wlans: []uniFiWLAN{
+				{Name: "Main", Hidden: false},
+				{Name: "IoT", Hidden: true},
+			},
+			want: "IoT",
+		},
+		{
+			name: "hideSsid variant field",
+			wlans: []uniFiWLAN{
+				{Name: "Main"},
+				{Name: "Cameras", HideSSID: boolPtr(true)},
+			},
+			want: "Cameras",
+		},
+		{
+			name: "ssid field preferred over name",
+			wlans: []uniFiWLAN{
+				{Name: "wlan-cfg-1", SSID: "Backhaul", Hidden: true},
+			},
+			want: "Backhaul",
+		},
+		{
+			name: "disabled hidden wlan ignored",
+			wlans: []uniFiWLAN{
+				{Name: "Old", Hidden: true, Enabled: boolPtr(false)},
+				{Name: "IoT", Hidden: true},
+			},
+			want: "IoT",
+		},
+		{
+			name: "two hidden wlans is ambiguous",
+			wlans: []uniFiWLAN{
+				{Name: "IoT", Hidden: true},
+				{Name: "Cameras", Hidden: true},
+			},
+			want: "",
+		},
+		{
+			name:  "no hidden wlans",
+			wlans: []uniFiWLAN{{Name: "Main"}},
+			want:  "",
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := pickHiddenWLANName(c.wlans); got != c.want {
+				t.Errorf("pickHiddenWLANName = %q, want %q", got, c.want)
+			}
+		})
+	}
+}
+
+func TestUniFiPollerResolveAPNames(t *testing.T) {
+	p := NewUniFiPoller(newLiveConfig(DefaultConfig()))
+	p.devices = []UniFiDeviceInfo{
+		{Name: "Studio", MAC: "1c:6a:1b:94:08:e9"},
+	}
+
+	got := p.ResolveAPNames([]string{
+		"1e:6a:1b:b4:08:e9", // stride variant → Studio
+		"aa:bb:cc:dd:ee:ff", // unmatched → omitted
+		"",                  // empty → omitted
+	})
+	if len(got) != 1 || got["1e:6a:1b:b4:08:e9"] != "Studio" {
+		t.Errorf("ResolveAPNames = %v, want map[1e:6a:1b:b4:08:e9:Studio]", got)
 	}
 }
 

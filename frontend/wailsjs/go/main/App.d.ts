@@ -28,6 +28,8 @@ export function GetUniFiStatus():Promise<main.UniFiStatus>;
 
 export function IsScanning():Promise<boolean>;
 
+export function ResolveUniFiAPNames(arg1:Array<string>):Promise<Record<string, string>>;
+
 export function SaveConfig(arg1:main.Config):Promise<void>;
 
 export function SaveReport(arg1:string,arg2:string):Promise<string>;

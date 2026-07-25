@@ -45,9 +45,19 @@ type UniFiPoller struct {
 	clientKey  string // url\x00key\x00insecure — client is rebuilt when it changes
 	appVersion string // cached /info result per client
 
-	status  UniFiStatus
-	devices []UniFiDeviceInfo // MACs normalized; matching source for enrichment
+	// vendorFn resolves a MAC to a vendor name for client-roster enrichment.
+	// Injected once at construction (before the loop starts) from the scanner's
+	// OUI database; nil on platforms/backends that don't expose one.
+	vendorFn func(string) string
+
+	status         UniFiStatus
+	devices        []UniFiDeviceInfo // MACs normalized; matching source for enrichment
+	hiddenSSIDHint string            // controller name for hidden SSIDs, when unambiguous
 }
+
+// uniFiRosterCap bounds the per-device client roster carried in events so a
+// dense site can't bloat every unifi:updated payload.
+const uniFiRosterCap = 50
 
 func NewUniFiPoller(cfg *liveConfig) *UniFiPoller {
 	return &UniFiPoller{
@@ -55,6 +65,12 @@ func NewUniFiPoller(cfg *liveConfig) *UniFiPoller {
 		eventName: "unifi:updated",
 		poke:      make(chan struct{}, 1),
 	}
+}
+
+// SetVendorLookup injects the OUI vendor resolver. Call before Start; it is
+// read from the poll goroutine without locking on that assumption.
+func (p *UniFiPoller) SetVendorLookup(fn func(string) string) {
+	p.vendorFn = fn
 }
 
 // SetWailsContext attaches the Wails runtime context used for EventsEmit.
@@ -122,7 +138,7 @@ func (p *UniFiPoller) tick(ctx context.Context) {
 	cfg := p.cfg.Get()
 
 	if cfg.UniFiControllerURL == "" || cfg.UniFiAPIKey == "" {
-		p.publish(UniFiStatus{Configured: false}, nil)
+		p.publish(UniFiStatus{Configured: false}, nil, "")
 		return
 	}
 
@@ -141,13 +157,13 @@ func (p *UniFiPoller) tick(ctx context.Context) {
 	if err != nil {
 		status.Error = err.Error()
 		slog.Warn("unifi poll failed", "event", "unifi_error", "stage", "sites", "err", err)
-		p.publish(status, nil)
+		p.publish(status, nil, "")
 		return
 	}
 	site, ok := pickUniFiSite(sites, cfg.UniFiSite)
 	if !ok {
 		status.Error = "controller returned no matching site"
-		p.publish(status, nil)
+		p.publish(status, nil, "")
 		return
 	}
 	status.SiteID = site.ID
@@ -157,13 +173,13 @@ func (p *UniFiPoller) tick(ctx context.Context) {
 	if err != nil {
 		status.Error = err.Error()
 		slog.Warn("unifi poll failed", "event", "unifi_error", "stage", "devices", "err", err)
-		p.publish(status, nil)
+		p.publish(status, nil, "")
 		return
 	}
 
 	// Clients are best-effort: a failure here still leaves the device list
-	// usable, just without per-AP client counts.
-	wirelessByDevice := map[string]int{}
+	// usable, just without per-AP client counts/rosters.
+	rosterByDevice := map[string][]UniFiClientInfo{}
 	clients, err := client.Clients(tickCtx, site.ID)
 	if err != nil {
 		status.Error = "client list unavailable: " + err.Error()
@@ -174,7 +190,20 @@ func (p *UniFiPoller) tick(ctx context.Context) {
 			case "WIRELESS":
 				status.WirelessClients++
 				if c.UplinkDeviceID != "" {
-					wirelessByDevice[c.UplinkDeviceID]++
+					mac := normalizeMAC(c.MACAddress)
+					vendor := ""
+					if p.vendorFn != nil {
+						vendor = p.vendorFn(mac)
+					}
+					rosterByDevice[c.UplinkDeviceID] = append(rosterByDevice[c.UplinkDeviceID], UniFiClientInfo{
+						Name:        c.Name,
+						MAC:         mac,
+						IP:          c.IPAddress,
+						Vendor:      vendor,
+						Guest:       strings.EqualFold(c.Access.Type, "GUEST"),
+						Randomized:  isRandomizedMAC(mac),
+						ConnectedAt: c.ConnectedAt,
+					})
 				}
 			case "WIRED":
 				status.WiredClients++
@@ -182,26 +211,204 @@ func (p *UniFiPoller) tick(ctx context.Context) {
 		}
 	}
 
+	// WLAN list is best-effort and only feeds hidden-SSID naming; many
+	// controller versions don't expose it and that's fine.
+	hiddenSSIDHint := ""
+	if wlans, werr := client.WLANs(tickCtx, site.ID); werr == nil {
+		hiddenSSIDHint = pickHiddenWLANName(wlans)
+	}
+
 	infos := make([]UniFiDeviceInfo, 0, len(devices))
 	for _, d := range devices {
+		roster := rosterByDevice[d.ID]
+		sort.Slice(roster, func(i, j int) bool {
+			if roster[i].Name != roster[j].Name {
+				return roster[i].Name < roster[j].Name
+			}
+			return roster[i].MAC < roster[j].MAC
+		})
+		count := len(roster)
+		if len(roster) > uniFiRosterCap {
+			roster = roster[:uniFiRosterCap]
+		}
 		infos = append(infos, UniFiDeviceInfo{
-			ID:              d.ID,
-			Name:            d.Name,
-			Model:           d.Model,
-			MAC:             normalizeMAC(d.MACAddress),
-			IP:              d.IPAddress,
-			State:           d.State,
-			FirmwareVersion: d.FirmwareVersion,
-			ClientCount:     wirelessByDevice[d.ID],
+			ID:                d.ID,
+			Name:              d.Name,
+			Model:             d.Model,
+			MAC:               normalizeMAC(d.MACAddress),
+			IP:                d.IPAddress,
+			State:             d.State,
+			FirmwareVersion:   d.FirmwareVersion,
+			FirmwareUpdatable: d.FirmwareUpdatable,
+			IsAccessPoint:     hasFeature(d.Features, "accessPoint"),
+			ClientCount:       count,
+			Clients:           roster,
 		})
 	}
 	sort.Slice(infos, func(i, j int) bool { return infos[i].Name < infos[j].Name })
+
+	// Deep diagnostics (uplink/mesh, radios, health) come from per-device
+	// endpoints; best-effort so a failure just leaves those fields empty.
+	// Sort is done first so the concurrent writers below never reorder the
+	// slice out from under the goroutines (each writes only its own index).
+	enrichDeviceDetails(tickCtx, client, site.ID, infos)
+	resolveUplinks(infos)
 
 	status.Connected = true
 	status.Devices = infos
 	status.ApplicationVersion = p.cachedAppVersion(tickCtx, client)
 
-	p.publish(status, infos)
+	p.publish(status, infos, hiddenSSIDHint)
+}
+
+// pickHiddenWLANName returns the controller-configured name of the hidden
+// SSID when the site has exactly one enabled hidden WLAN. With zero or
+// several hidden WLANs there is no safe way to label a specific hidden BSSID,
+// so "" (don't label) is returned instead of guessing.
+func pickHiddenWLANName(wlans []uniFiWLAN) string {
+	var names []string
+	for _, w := range wlans {
+		if w.Enabled != nil && !*w.Enabled {
+			continue
+		}
+		hidden := w.Hidden || (w.HideSSID != nil && *w.HideSSID)
+		if !hidden {
+			continue
+		}
+		name := w.SSID
+		if name == "" {
+			name = w.Name
+		}
+		if name != "" {
+			names = appendUnique(names, name)
+		}
+	}
+	if len(names) == 1 {
+		return names[0]
+	}
+	return ""
+}
+
+// uniFiDeepPollConcurrency bounds how many device detail/stats requests run
+// at once so a dense site doesn't open dozens of parallel connections.
+const uniFiDeepPollConcurrency = 6
+
+// hasFeature reports whether a device's feature list contains name.
+func hasFeature(features []string, name string) bool {
+	for _, f := range features {
+		if strings.EqualFold(f, name) {
+			return true
+		}
+	}
+	return false
+}
+
+// enrichDeviceDetails fills uplink/radio/health fields on infos by fetching the
+// per-device detail + latest-statistics endpoints concurrently. Best-effort:
+// any per-device error leaves that device's extended fields at their zero
+// value. Each goroutine writes only its own slice index, so no lock is needed
+// and the slice must not be reordered while this runs.
+func enrichDeviceDetails(ctx context.Context, client *uniFiClient, siteID string, infos []UniFiDeviceInfo) {
+	if len(infos) == 0 {
+		return
+	}
+	sem := make(chan struct{}, uniFiDeepPollConcurrency)
+	var wg sync.WaitGroup
+	for i := range infos {
+		wg.Add(1)
+		sem <- struct{}{}
+		go func(i int) {
+			defer wg.Done()
+			defer func() { <-sem }()
+			mergeDeviceDetail(ctx, client, siteID, &infos[i])
+		}(i)
+	}
+	wg.Wait()
+}
+
+// mergeDeviceDetail fetches and merges detail + stats for one device.
+func mergeDeviceDetail(ctx context.Context, client *uniFiClient, siteID string, info *UniFiDeviceInfo) {
+	detail, derr := client.DeviceDetail(ctx, siteID, info.ID)
+	if derr == nil {
+		info.UplinkDeviceID = detail.Uplink.DeviceID
+		info.Radios = radiosFromDetail(detail.Interfaces.Radios)
+		// Note: the integration API exposes no wired-vs-wireless(mesh) medium
+		// on the device uplink — only a parent deviceId. Port state is not a
+		// reliable proxy either (a PoE-injected mesh AP still links its port,
+		// and "parent is an AP" covers both wired daisy-chains and mesh). So
+		// medium is deliberately NOT inferred; we surface topology + the
+		// uplink port's negotiated speed only.
+		for _, p := range detail.Interfaces.Ports {
+			if strings.EqualFold(p.State, "UP") && p.SpeedMbps > info.UplinkPortSpeedMbps {
+				info.UplinkPortSpeedMbps = p.SpeedMbps
+			}
+		}
+	} else {
+		slog.Debug("unifi device detail failed", "event", "unifi_detail", "device", info.ID, "err", derr)
+	}
+
+	stats, serr := client.DeviceStats(ctx, siteID, info.ID)
+	if serr != nil {
+		slog.Debug("unifi device stats failed", "event", "unifi_stats", "device", info.ID, "err", serr)
+		return
+	}
+	info.UptimeSec = stats.UptimeSec
+	info.UplinkTxBps = stats.Uplink.TxRateBps
+	info.UplinkRxBps = stats.Uplink.RxRateBps
+	if stats.CPUUtilizationPct > 0 {
+		info.CPUPct = floatPtr(stats.CPUUtilizationPct)
+	}
+	if stats.MemoryUtilizationPct > 0 {
+		info.MemPct = floatPtr(stats.MemoryUtilizationPct)
+	}
+	if stats.LoadAverage1Min > 0 {
+		info.LoadAvg1 = floatPtr(stats.LoadAverage1Min)
+	}
+	// Join live TX-retry rates onto the configured radios by band.
+	for _, r := range stats.Interfaces.Radios {
+		for i := range info.Radios {
+			if info.Radios[i].Band == r.FrequencyGHz {
+				info.Radios[i].TxRetriesPct = floatPtr(r.TxRetriesPct)
+			}
+		}
+	}
+}
+
+// radiosFromDetail converts the detail radio entries into UI radio infos.
+func radiosFromDetail(radios []uniFiRadio) []UniFiRadioInfo {
+	if len(radios) == 0 {
+		return nil
+	}
+	out := make([]UniFiRadioInfo, 0, len(radios))
+	for _, r := range radios {
+		out = append(out, UniFiRadioInfo{
+			Band:     r.FrequencyGHz,
+			Channel:  r.Channel,
+			WidthMHz: r.ChannelWidthMHz,
+			Standard: r.WLANStandard,
+		})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Band < out[j].Band })
+	return out
+}
+
+// resolveUplinks turns each device's uplink device id into a parent name for
+// topology display. The wired/wireless medium is decided from port state in
+// mergeDeviceDetail — NOT from the parent device type. Runs after
+// enrichDeviceDetails so every UplinkDeviceID is populated.
+func resolveUplinks(infos []UniFiDeviceInfo) {
+	byID := make(map[string]*UniFiDeviceInfo, len(infos))
+	for i := range infos {
+		byID[infos[i].ID] = &infos[i]
+	}
+	for i := range infos {
+		if infos[i].UplinkDeviceID == "" {
+			continue
+		}
+		if parent, ok := byID[infos[i].UplinkDeviceID]; ok {
+			infos[i].UplinkName = parent.Name
+		}
+	}
 }
 
 // ensureClient returns the HTTP client, rebuilding it when the controller
@@ -238,16 +445,40 @@ func (p *UniFiPoller) cachedAppVersion(ctx context.Context, client *uniFiClient)
 
 // publish stores the snapshot under lock and emits it after releasing —
 // same emit-off-lock rule as the rest of the app.
-func (p *UniFiPoller) publish(status UniFiStatus, devices []UniFiDeviceInfo) {
+func (p *UniFiPoller) publish(status UniFiStatus, devices []UniFiDeviceInfo, hiddenSSIDHint string) {
 	p.mu.Lock()
 	p.status = status
 	p.devices = devices
+	p.hiddenSSIDHint = hiddenSSIDHint
 	ctx := p.wailsCtx
 	p.mu.Unlock()
 
 	if ctx != nil {
 		wailsruntime.EventsEmit(ctx, p.eventName, status)
 	}
+}
+
+// ResolveAPNames maps arbitrary BSSIDs (e.g. from roaming history, whose APs
+// may no longer be in scan range) to controller device names using the same
+// matching heuristic as scan enrichment. Unmatched BSSIDs are omitted.
+func (p *UniFiPoller) ResolveAPNames(bssids []string) map[string]string {
+	p.mu.RLock()
+	devices := p.devices
+	p.mu.RUnlock()
+
+	out := make(map[string]string)
+	if len(devices) == 0 {
+		return out
+	}
+	for _, bssid := range bssids {
+		if bssid == "" {
+			continue
+		}
+		if d, ok := matchUniFiDevice(devices, bssid); ok && d.Name != "" {
+			out[bssid] = d.Name
+		}
+	}
+	return out
 }
 
 // Snapshot returns the last published status for the synchronous
@@ -269,6 +500,7 @@ func (p *UniFiPoller) Snapshot() UniFiStatus {
 func (p *UniFiPoller) EnrichAccessPoints(aps []AccessPoint) {
 	p.mu.RLock()
 	devices := p.devices
+	hiddenSSIDHint := p.hiddenSSIDHint
 	p.mu.RUnlock()
 	if len(devices) == 0 {
 		return
@@ -283,6 +515,12 @@ func (p *UniFiPoller) EnrichAccessPoints(aps []AccessPoint) {
 		aps[i].UniFiIP = d.IP
 		aps[i].UniFiState = d.State
 		aps[i].UniFiClientCount = intPtr(d.ClientCount)
+		aps[i].UniFiDeviceID = d.ID
+		// Label hidden SSIDs on our own APs when the controller has exactly
+		// one enabled hidden WLAN (ambiguous sites get no label).
+		if aps[i].SSID == "" && hiddenSSIDHint != "" {
+			aps[i].UniFiHiddenSSID = hiddenSSIDHint
+		}
 	}
 }
 
@@ -305,13 +543,17 @@ func pickUniFiSite(sites []uniFiSite, preferred string) (uniFiSite, bool) {
 
 // matchUniFiDevice finds the controller device a scanned BSSID belongs to.
 //
-// UniFi APs derive per-SSID/per-radio BSSIDs from the device base MAC by
-// mutating the first octet (locally-administered variants: 68→6a→6e→…) and
-// incrementing the last octet, so an exact match only covers the primary
-// BSSID. The heuristic: exact match first; otherwise require the middle four
-// octets to match exactly (a strong 32-bit key) and pick the device with the
-// smallest last-octet distance within ±15. Ties are treated as ambiguous and
-// skipped rather than mis-labelled.
+// UniFi APs derive per-SSID/per-radio BSSIDs from the device base MAC using
+// (at least) three schemes seen in the field:
+//   - first octet mutated into locally-administered variants (68→6a→6e→…);
+//   - last octet incremented per additional SSID (older UAP models);
+//   - 4th octet stepped in 0x10 strides per SSID (U6/U7 era: 94→a4→b4→…).
+//
+// The heuristic: exact match first; otherwise ignore the first octet, anchor
+// on octets 2-3 (OUI tail), and accept either a small last-octet delta or a
+// 0x10-stride 4th-octet delta with the remaining octets identical. Candidates
+// are scored (smaller = closer); ties across devices are treated as ambiguous
+// and skipped rather than mis-labelled.
 func matchUniFiDevice(devices []UniFiDeviceInfo, bssid string) (UniFiDeviceInfo, bool) {
 	b := normalizeMAC(bssid)
 	if b == "" {
@@ -324,49 +566,94 @@ func matchUniFiDevice(devices []UniFiDeviceInfo, bssid string) (UniFiDeviceInfo,
 		}
 	}
 
-	bOct := strings.Split(b, ":")
-	bLast, err := strconv.ParseUint(bOct[5], 16, 8)
-	if err != nil {
+	bOct, ok := macOctets(b)
+	if !ok {
 		return UniFiDeviceInfo{}, false
 	}
 
-	const maxLastOctetDelta = 15
-	bestDelta := maxLastOctetDelta + 1
+	bestScore := -1
 	bestCount := 0
 	var best UniFiDeviceInfo
 	for _, d := range devices {
-		if d.MAC == "" {
+		dOct, ok := macOctets(d.MAC)
+		if !ok {
 			continue
 		}
-		dOct := strings.Split(d.MAC, ":")
-		if len(dOct) != 6 {
-			continue
-		}
-		if dOct[1] != bOct[1] || dOct[2] != bOct[2] || dOct[3] != bOct[3] || dOct[4] != bOct[4] {
-			continue
-		}
-		dLast, err := strconv.ParseUint(dOct[5], 16, 8)
-		if err != nil {
-			continue
-		}
-		delta := int(bLast) - int(dLast)
-		if delta < 0 {
-			delta = -delta
-		}
-		if delta > maxLastOctetDelta {
+		score := uniFiBSSIDScore(dOct, bOct)
+		if score < 0 {
 			continue
 		}
 		switch {
-		case delta < bestDelta:
-			bestDelta = delta
+		case bestScore < 0 || score < bestScore:
+			bestScore = score
 			bestCount = 1
 			best = d
-		case delta == bestDelta:
+		case score == bestScore:
 			bestCount++
 		}
 	}
-	if bestCount == 1 {
+	if bestScore >= 0 && bestCount == 1 {
 		return best, true
 	}
 	return UniFiDeviceInfo{}, false
+}
+
+// isRandomizedMAC reports whether a MAC is locally administered (the
+// second-least-significant bit of the first octet is set) — the hallmark of an
+// OS-generated privacy/randomized MAC. Useful context for a tech: such clients
+// won't OUI-resolve to a real vendor and rotate their address.
+func isRandomizedMAC(mac string) bool {
+	oct, ok := macOctets(mac)
+	if !ok {
+		return false
+	}
+	return oct[0]&0x02 != 0
+}
+
+// macOctets parses a normalized MAC into six byte values.
+func macOctets(mac string) ([6]int, bool) {
+	var out [6]int
+	parts := strings.Split(mac, ":")
+	if len(parts) != 6 {
+		return out, false
+	}
+	for i, p := range parts {
+		v, err := strconv.ParseUint(p, 16, 8)
+		if err != nil {
+			return out, false
+		}
+		out[i] = int(v)
+	}
+	return out, true
+}
+
+// uniFiBSSIDScore rates how plausibly bssid derives from a device base MAC.
+// Returns -1 for no match; lower non-negative scores are closer matches.
+// The first octet is ignored entirely (locally-administered variants).
+func uniFiBSSIDScore(dev, bssid [6]int) int {
+	if dev[1] != bssid[1] || dev[2] != bssid[2] {
+		return -1
+	}
+	d3 := absInt(dev[3] - bssid[3])
+	d4 := absInt(dev[4] - bssid[4])
+	d5 := absInt(dev[5] - bssid[5])
+
+	// Last-octet increment scheme: octets 4-5 identical, small final delta.
+	const maxLastOctetDelta = 15
+	if d3 == 0 && d4 == 0 && d5 <= maxLastOctetDelta {
+		return d5
+	}
+	// 4th-octet stride scheme: octets 5-6 identical, 4th octet stepped in
+	// 0x10 increments (low nibble preserved), up to 7 SSIDs out.
+	if d4 == 0 && d5 == 0 && d3 != 0 && d3 <= 0x70 && d3%0x10 == 0 {
+		return 16 + d3/0x10
+	}
+	return -1
+}
+
+func absInt(v int) int {
+	if v < 0 {
+		return -v
+	}
+	return v
 }

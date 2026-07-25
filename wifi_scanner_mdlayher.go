@@ -43,6 +43,17 @@ func NewWiFiScanner(cacheFile string) WiFiBackend {
 	}
 }
 
+// LookupVendor resolves a MAC to its vendor using the already-loaded OUI
+// database. Exposed so non-AP MACs (e.g. UniFi client rosters) can be
+// enriched without a second OUI database instance. Satisfies the optional
+// vendorLookuper interface WiFiService probes for.
+func (s *WiFiScannerNL80211) LookupVendor(mac string) string {
+	if s.ouiLookup == nil {
+		return ""
+	}
+	return s.ouiLookup.LookupVendor(mac)
+}
+
 func (s *WiFiScannerNL80211) GetInterfaces() ([]string, error) {
 	if s.initErr != nil {
 		return nil, s.initErr
@@ -435,7 +446,6 @@ func (p *mdlayherParser) parseCapabilitiesIEs(ies []wifi.IE, ap *AccessPoint) {
 		dispatchElement(ie.ID, ie.Data, ap)
 	}
 }
-
 
 // formatRateInfo renders a RateInfo into a string compatible with
 // parseBitrateInfo (wifi_utils.go) — e.g. "80MHz VHT-MCS 9 VHT-NSS 2".

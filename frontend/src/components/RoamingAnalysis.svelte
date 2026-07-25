@@ -7,6 +7,8 @@
     // hides those rows rather than guessing.
     export let networks = [];
 
+    import { ResolveUniFiAPNames } from "../../wailsjs/go/main/App.js";
+
     // Recent roaming events live on clientStats.roamingHistory — the backend
     // populates it via cloneClientStatsLocked on every tick, so we just need
     // to read the tail. Oldest-first in the backend; we reverse here so the
@@ -14,6 +16,31 @@
     $: recentRoams = clientStats?.roamingHistory
         ? [...clientStats.roamingHistory].reverse().slice(0, 15)
         : [];
+
+    // BSSID → UniFi AP name, resolved by the backend's matcher. Roam events
+    // often reference APs no longer in scan range, so this asks the backend
+    // (which matches against controller devices) rather than the live scan
+    // list. Empty when the UniFi integration is off — labels stay as BSSIDs.
+    let apNames = {};
+    $: resolveApNames(recentRoams);
+    async function resolveApNames(events) {
+        const wanted = new Set();
+        for (const e of events || []) {
+            if (e.previousBssid) wanted.add(e.previousBssid);
+            if (e.newBssid) wanted.add(e.newBssid);
+        }
+        const missing = [...wanted].filter((b) => !(b in apNames));
+        if (missing.length === 0) return;
+        try {
+            const resolved = (await ResolveUniFiAPNames(missing)) || {};
+            // Cache negatives too so we don't re-ask every render.
+            const next = { ...apNames };
+            for (const b of missing) next[b] = resolved[b] || "";
+            apNames = next;
+        } catch {
+            // Binding unavailable — leave raw BSSIDs.
+        }
+    }
 
     function getMetricsClass(value) {
         if (value === false) return "metric-good";
@@ -314,14 +341,14 @@
                             </span>
                             <div class="t-bssid mono">
                                 <span title={event.previousBssid}>
-                                    {shortBssid(event.previousBssid)}
+                                    {apNames[event.previousBssid] || shortBssid(event.previousBssid)}
                                 </span>
                                 <span class="t-arrow">→</span>
                                 <span
                                     class="t-new"
                                     title={event.newBssid}
                                 >
-                                    {shortBssid(event.newBssid)}
+                                    {apNames[event.newBssid] || shortBssid(event.newBssid)}
                                 </span>
                             </div>
                             <div class="t-delta mono">

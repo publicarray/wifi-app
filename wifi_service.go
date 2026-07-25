@@ -119,6 +119,12 @@ func NewWiFiService() *WiFiService {
 	}
 	ws.latencySampler = NewLatencySampler(ws.config)
 	ws.unifiPoller = NewUniFiPoller(ws.config)
+	// Share the scanner's already-loaded OUI database with the UniFi poller so
+	// client rosters can show device vendors. Optional: backends that don't
+	// expose a lookup leave rosters vendor-less. Set before the loop starts.
+	if vl, ok := ws.scanner.(interface{ LookupVendor(string) string }); ok {
+		ws.unifiPoller.SetVendorLookup(vl.LookupVendor)
+	}
 	return ws
 }
 
@@ -240,6 +246,16 @@ func (ws *WiFiService) GetUniFiStatus() UniFiStatus {
 		return UniFiStatus{}
 	}
 	return ws.unifiPoller.Snapshot()
+}
+
+// ResolveUniFiAPNames maps BSSIDs to UniFi controller device names (empty
+// map when the integration is off or nothing matches). Used by the Roaming
+// tab to label roam events with AP names instead of raw BSSIDs.
+func (ws *WiFiService) ResolveUniFiAPNames(bssids []string) map[string]string {
+	if ws.unifiPoller == nil {
+		return map[string]string{}
+	}
+	return ws.unifiPoller.ResolveAPNames(bssids)
 }
 
 // scanLoop runs the periodic scanning loop

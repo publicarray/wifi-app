@@ -445,6 +445,14 @@
         return parts.join(" · ");
     }
 
+    // Label for the SSID cell. Hidden networks get the controller-configured
+    // WLAN name when the UniFi integration resolved one unambiguously.
+    function displaySSID(network) {
+        if (network?.ssid) return network.ssid;
+        const hint = network?.accessPoints?.find((ap) => ap.unifiHiddenSsid)?.unifiHiddenSsid;
+        return hint ? `(hidden: ${hint})` : "(hidden)";
+    }
+
     function networkBandWidth(network) {
         const ap = network && network.accessPoints && network.accessPoints[0];
         const band = networkBand(network);
@@ -735,7 +743,7 @@ Network health and connection state.
                             <div class="ssid-content">
                                 <div class="ssid-line">
                                     <span class="ssid-text" class:hidden-ssid={isHidden}>
-                                        {network.ssid || "(hidden)"}
+                                        {displaySSID(network)}
                                     </span>
                                     {#if standard && standard !== "Unknown"}
                                         <span class={getWiFiStandardClass(standard)}>{standard.split(" (")[0]}</span>
@@ -846,7 +854,7 @@ Network health and connection state.
                                             <div class="ap-header">
                                                 <div class="ap-header-main">
                                                     <div class="ap-header-line">
-                                                        <span class="ap-ssid">{network.ssid || "(hidden)"}</span>
+                                                        <span class="ap-ssid">{displaySSID(network)}</span>
                                                         {#if apStandard && apStandard !== "Unknown"}
                                                             <span class={getWiFiStandardClass(apStandard)}>{apStandard.split(" (")[0]}</span>
                                                         {/if}

@@ -44,18 +44,18 @@ type AccessPoint struct {
 	SecurityCiphers []string `json:"securityCiphers"` // Encryption ciphers (CCMP, GCMP, TKIP, etc.)
 	AuthMethods     []string `json:"authMethods"`     // Authentication methods (PSK, SAE, EAP, etc.)
 	// WiFi 6/7 features
-	BSSColor       int  `json:"bssColor"`       // BSS Color ID (WiFi 6)
-	OBSSPD         bool `json:"obssPD"`         // OBSS PD (Spatial reuse) support
-	QAMSupport     int  `json:"qamSupport"`     // Max QAM modulation (256, 1024, 4096)
-	MUMIMO         bool `json:"mumimo"`         // MU-MIMO support
+	BSSColor   int  `json:"bssColor"`   // BSS Color ID (WiFi 6)
+	OBSSPD     bool `json:"obssPD"`     // OBSS PD (Spatial reuse) support
+	QAMSupport int  `json:"qamSupport"` // Max QAM modulation (256, 1024, 4096)
+	MUMIMO     bool `json:"mumimo"`     // MU-MIMO support
 
 	// Derived fields
 	WiFiGeneration string `json:"wifiGeneration"` // WiFi generation (4, 5, 6, 7)
 	WiFiStandard   string `json:"wifiStandard"`   // Dominant WiFi standard (e.g. WiFi 6 (802.11ax))
 	Beamforming    bool   `json:"beamforming"`    // Transmit beamforming support
-	OFDMADownlink  bool `json:"ofdmaDownlink"`  // OFDMA downlink support (WiFi 6+, implicit when HE)
-	OFDMAUplink    bool `json:"ofdmaUplink"`    // OFDMA uplink (HE MAC OFDMA RA Support bit)
-	MLO            bool `json:"mlo"`            // Multi-Link Operation (WiFi 7) — Basic Multi-Link Element (ext-ID 107) present
+	OFDMADownlink  bool   `json:"ofdmaDownlink"`  // OFDMA downlink support (WiFi 6+, implicit when HE)
+	OFDMAUplink    bool   `json:"ofdmaUplink"`    // OFDMA uplink (HE MAC OFDMA RA Support bit)
+	MLO            bool   `json:"mlo"`            // Multi-Link Operation (WiFi 7) — Basic Multi-Link Element (ext-ID 107) present
 	// Network management
 	QoSSupport  bool   `json:"qosSupport"`  // WMM/QoS support
 	CountryCode string `json:"countryCode"` // Regulatory country code (US, EU, etc.)
@@ -69,6 +69,8 @@ type AccessPoint struct {
 	UniFiIP          string `json:"unifiIp,omitempty"`          // device management IP
 	UniFiState       string `json:"unifiState,omitempty"`       // ONLINE / OFFLINE / ...
 	UniFiClientCount *int   `json:"unifiClientCount,omitempty"` // wireless clients on this device; nil when unknown
+	UniFiDeviceID    string `json:"unifiDeviceId,omitempty"`    // controller device id (joins to UniFiStatus.Devices)
+	UniFiHiddenSSID  string `json:"unifiHiddenSsid,omitempty"`  // controller-configured name of a hidden SSID, when unambiguous
 }
 
 // Network represents a WiFi network (SSID) that may have multiple access points
@@ -133,8 +135,8 @@ type ClientStats struct {
 	Interface      string            `json:"interface"`
 	SSID           string            `json:"ssid"`
 	BSSID          string            `json:"bssid"`
-	LocalIP        string            `json:"localIp"` // Client IPv4 on the WiFi interface, "" when unavailable
-	Gateway        string            `json:"gateway"` // Default gateway IPv4, "" when no default route
+	LocalIP        string            `json:"localIp"`   // Client IPv4 on the WiFi interface, "" when unavailable
+	Gateway        string            `json:"gateway"`   // Default gateway IPv4, "" when no default route
 	Frequency      float64           `json:"frequency"` // Frequency in MHz
 	Channel        int               `json:"channel"`
 	ChannelWidth   int               `json:"channelWidth"` // Channel width in MHz (20, 40, 80, 160, 320)
@@ -224,13 +226,13 @@ type LatencyStats struct {
 // card + chart series for one target: the label, the resolved address, the
 // latest probe, rolling stats across windows, and a bounded raw history.
 type LatencyTargetSummary struct {
-	Label      string         `json:"label"`
-	Target     string         `json:"target"`
-	Transport  string         `json:"transport"`
-	Available  bool           `json:"available"` // false when the target can't currently be resolved (e.g. no gateway)
-	LastProbe  *LatencyProbe  `json:"lastProbe,omitempty"`
-	Windows    []LatencyStats `json:"windows"` // 1s / 10s / 60s windows
-	History    []LatencyProbe `json:"history"` // bounded raw history for the chart
+	Label     string         `json:"label"`
+	Target    string         `json:"target"`
+	Transport string         `json:"transport"`
+	Available bool           `json:"available"` // false when the target can't currently be resolved (e.g. no gateway)
+	LastProbe *LatencyProbe  `json:"lastProbe,omitempty"`
+	Windows   []LatencyStats `json:"windows"` // 1s / 10s / 60s windows
+	History   []LatencyProbe `json:"history"` // bounded raw history for the chart
 }
 
 // ScanResult represents the complete result of a WiFi scan
@@ -272,17 +274,60 @@ type StationStats struct {
 	MIMOConfig   string  `json:"mimoConfig"`
 }
 
+// UniFiClientInfo is one wireless client associated to a device, for the
+// "clients on this AP" roster. MAC is normalized. Per-client RF telemetry
+// (RSSI, PHY rate, channel) is intentionally absent: the UniFi integration
+// API does not expose it. Vendor is a local OUI lookup; Randomized flags a
+// locally-administered (privacy) MAC; ConnectedAt is the session start.
+type UniFiClientInfo struct {
+	Name        string `json:"name,omitempty"`
+	MAC         string `json:"mac"`
+	IP          string `json:"ip,omitempty"`
+	Vendor      string `json:"vendor,omitempty"`
+	Guest       bool   `json:"guest,omitempty"`
+	Randomized  bool   `json:"randomized,omitempty"`
+	ConnectedAt string `json:"connectedAt,omitempty"` // ISO-8601 session start
+}
+
+// UniFiRadioInfo is one radio of a controller-managed AP, merged from the
+// device-detail (config) and latest-statistics (live) endpoints. Band is the
+// frequencyGHz key (2.4/5/6) the two sources are joined on.
+type UniFiRadioInfo struct {
+	Band         float64  `json:"band"`                   // frequencyGHz: 2.4 / 5 / 6
+	Channel      int      `json:"channel,omitempty"`      // controller-configured channel
+	WidthMHz     int      `json:"widthMhz,omitempty"`     // channel width
+	Standard     string   `json:"standard,omitempty"`     // 802.11ax / be / ...
+	TxRetriesPct *float64 `json:"txRetriesPct,omitempty"` // live TX retry rate; nil when absent
+}
+
 // UniFiDeviceInfo is the UI-facing summary of one controller-managed device
 // from the UniFi Integration API. MAC is normalized (lowercase, zero-padded).
+// The extended (detail/stats) fields are best-effort: a controller version or
+// permission level that doesn't expose them leaves them zero/nil.
 type UniFiDeviceInfo struct {
-	ID              string `json:"id"`
-	Name            string `json:"name"`
-	Model           string `json:"model"`
-	MAC             string `json:"mac"`
-	IP              string `json:"ip"`
-	State           string `json:"state"`
-	FirmwareVersion string `json:"firmwareVersion,omitempty"`
-	ClientCount     int    `json:"clientCount"` // wireless clients uplinked to this device
+	ID              string            `json:"id"`
+	Name            string            `json:"name"`
+	Model           string            `json:"model"`
+	MAC             string            `json:"mac"`
+	IP              string            `json:"ip"`
+	State           string            `json:"state"`
+	FirmwareVersion string            `json:"firmwareVersion,omitempty"`
+	ClientCount     int               `json:"clientCount"`       // wireless clients uplinked to this device
+	Clients         []UniFiClientInfo `json:"clients,omitempty"` // roster backing ClientCount (capped)
+
+	// Extended diagnostics (device detail + statistics/latest endpoints).
+	IsAccessPoint       bool             `json:"isAccessPoint,omitempty"`
+	FirmwareUpdatable   bool             `json:"firmwareUpdatable,omitempty"`   // controller has a newer firmware
+	UplinkDeviceID      string           `json:"uplinkDeviceId,omitempty"`      // parent device id in the topology
+	UplinkName          string           `json:"uplinkName,omitempty"`          // resolved parent device name (topology only)
+	UplinkPortSpeedMbps int              `json:"uplinkPortSpeedMbps,omitempty"` // negotiated speed of the uplink port, when reported
+	UptimeSec           int64            `json:"uptimeSec,omitempty"`           // seconds since last boot; 0 = unknown
+	CPUPct              *float64         `json:"cpuPct,omitempty"`              // CPU utilization; nil when absent
+	MemPct              *float64         `json:"memPct,omitempty"`              // memory utilization; nil when absent
+	LoadAvg1            *float64         `json:"loadAvg1,omitempty"`            // 1-min load average; nil when absent
+	UplinkTxBps         int64            `json:"uplinkTxBps,omitempty"`         // uplink egress rate
+	UplinkRxBps         int64            `json:"uplinkRxBps,omitempty"`         // uplink ingress rate
+	Radios              []UniFiRadioInfo `json:"radios,omitempty"`              // per-band config + live retry rate
 }
 
 // UniFiStatus is the snapshot the UniFi poller emits on `unifi:updated` and

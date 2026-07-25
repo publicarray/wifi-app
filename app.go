@@ -115,6 +115,12 @@ func (a *App) GetUniFiStatus() UniFiStatus {
 	return a.wifiService.GetUniFiStatus()
 }
 
+// ResolveUniFiAPNames maps BSSIDs to UniFi device names for display (e.g.
+// labelling roam history). Unmatched BSSIDs are absent from the result.
+func (a *App) ResolveUniFiAPNames(bssids []string) map[string]string {
+	return a.wifiService.ResolveUniFiAPNames(bssids)
+}
+
 func (a *App) ExportNetworks(format string) (string, error) {
 	networks := a.wifiService.GetNetworks()
 
